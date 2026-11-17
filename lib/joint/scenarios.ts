@@ -7,13 +7,20 @@
  *   前置依赖没有全部启用的措施一并移除（不放松依赖），并清理指向已移除措施的互斥引用。
  * - `resolveEnabledInterventions(scenario, ids)`：同一套规则，返回保留与被移除的措施（及缺少的依赖）。
  * - `withBudget(scenario, budget)`：改预算。
+ * 以上纯函数实现在 ./scenario-utils（不含数据），这里只是转导出。
+ * **客户端组件不要 import 本文件**：顶层导入了场景 JSON（含示例学生姓名、学校），会被打包进浏览器。
+ * 页面应在 server component 里调用 anonymizeScenarioForClient 后把结果作为 prop 传下去。
  *
  * 纯函数：不修改输入，返回新对象；无 IO（JSON 在构建时导入）。
  */
-import type { Intervention, Scenario } from '../types';
+import type { Scenario } from '../types';
 import deviceLoanJson from '@/data/scenarios/device-loan.json';
+import { findStudentInfoInInterventions } from './scenario-utils';
 
-/** 最小的运行时形状校验：只查顶层字段与数组，详细校验由 solveJoint 的 UNSUPPORTED_INPUT 负责。 */
+/**
+ * 最小的运行时形状校验：只查顶层字段与数组，详细校验由 solveJoint 的 UNSUPPORTED_INPUT 负责。
+ * 另外检查措施 id / 标题不含任何学生的 id、显示名、学校名（姓名 / 学校名短于 3 个字符时不查）。
+ */
 export function assertScenarioShape(value: unknown, label = 'scenario'): Scenario {
   const v = value as Partial<Scenario> | null;
   const problems: string[] = [];
@@ -28,6 +35,10 @@ export function assertScenarioShape(value: unknown, label = 'scenario'): Scenari
       if (!Array.isArray(v[key])) problems.push(`${key} 不是数组`);
     }
     if (v.existing_grants !== undefined && !Array.isArray(v.existing_grants)) problems.push('existing_grants 不是数组');
+    // 措施 id / 标题里不得写进学生的 id、显示名、学校名（否则页面脱敏挡不住，示例数据写错时尽早暴露）。
+    if (Array.isArray(v.students) && Array.isArray(v.interventions)) {
+      problems.push(...findStudentInfoInInterventions(v as Scenario));
+    }
   }
   if (problems.length > 0) throw new Error(`${label} 形状不对：${problems.join('；')}`);
   return value as Scenario;
@@ -46,66 +57,12 @@ export const DEVICE_LOAN_IDS = {
   transportLackingStudents: ['dl-s03', 'dl-s06', 'dl-s09'],
 } as const;
 
-/** 因前置依赖没有全部启用而被移除的措施。 */
-export interface RemovedIntervention {
-  id: string;
-  /** 移除时尚未启用（未勾选或已被移除）的前置依赖 id。 */
-  missing_requires: string[];
-}
-
-/**
- * 计算 What-if 勾选后真正参与求解的措施：先取 `ids` 中存在于场景的措施，
- * 再把「前置依赖（requires）没有全部启用」的措施移除，反复判断直到不再变化（闭包）。
- * 不会替用户自动补上依赖，也不会删掉 requires 让措施单独生效。
- * 返回 enabled（按场景原顺序）与 removed（按移除顺序）。纯函数。
- */
-export function resolveEnabledInterventions(
-  scenario: Scenario,
-  ids: readonly string[],
-): { enabled: string[]; removed: RemovedIntervention[] } {
-  const exists = new Set(scenario.interventions.map((iv) => iv.id));
-  const enabled = new Set(ids.filter((id) => exists.has(id)));
-  const removed: RemovedIntervention[] = [];
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const iv of scenario.interventions) {
-      if (!enabled.has(iv.id)) continue;
-      const missing = (iv.requires ?? []).filter((r) => !enabled.has(r));
-      if (missing.length > 0) {
-        enabled.delete(iv.id);
-        removed.push({ id: iv.id, missing_requires: missing });
-        changed = true;
-      }
-    }
-  }
-  return { enabled: scenario.interventions.filter((iv) => enabled.has(iv.id)).map((iv) => iv.id), removed };
-}
-
-/**
- * 只保留 `ids` 中列出的措施（保持原顺序；不存在的 id 忽略），
- * **前置依赖没有全部启用的措施一并移除**（按闭包反复判断，见 resolveEnabledInterventions），
- * 不会删掉 requires 让措施单独生效。保留措施的 mutually_exclusive_with 中指向已移除措施的引用会被清理
- * （互斥对象不在场景里，不构成约束）。保留措施的 requires 必然都已启用，原样保留。
- * 想知道移除了哪些，请调用 resolveEnabledInterventions。
- */
-export function withEnabledInterventions(scenario: Scenario, ids: readonly string[]): Scenario {
-  const keep = new Set(resolveEnabledInterventions(scenario, ids).enabled);
-  const interventions: Intervention[] = scenario.interventions
-    .filter((iv) => keep.has(iv.id))
-    .map((iv) => {
-      const next: Intervention = { ...iv, resolves: [...iv.resolves] };
-      if (iv.opportunity_ids) next.opportunity_ids = [...iv.opportunity_ids];
-      if (iv.requires) next.requires = [...iv.requires];
-      if (iv.mutually_exclusive_with) {
-        next.mutually_exclusive_with = iv.mutually_exclusive_with.filter((r) => keep.has(r));
-      }
-      return next;
-    });
-  return { ...scenario, interventions };
-}
-
-/** 返回只改了预算的新场景。 */
-export function withBudget(scenario: Scenario, budget: number): Scenario {
-  return { ...scenario, budget_usd: budget };
-}
+export {
+  anonymizeScenarioForClient,
+  findStudentInfoInInterventions,
+  missingPrerequisites,
+  resolveEnabledInterventions,
+  withBudget,
+  withEnabledInterventions,
+} from './scenario-utils';
+export type { RemovedIntervention } from './scenario-utils';

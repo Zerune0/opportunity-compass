@@ -4,9 +4,17 @@
  * 设备借用固定 $100 + 每人 $20；线上入口 requires 设备借用；卫星会场 pending。
  */
 import { describe, expect, it } from 'vitest';
-import { DEVICE_LOAN_IDS as IDS, deviceLoanScenario } from './scenarios';
-import { defaultWhatIfInput, runWhatIf, scrubStudentInfo, WHATIF_LABELS } from './whatif';
+import { DEVICE_LOAN_IDS as IDS, assertScenarioShape, deviceLoanScenario } from './scenarios';
+import {
+  defaultWhatIfInput,
+  INFEASIBLE_UNCOVERED_CAUSE,
+  missingPrerequisites,
+  runWhatIf,
+  scrubStudentInfo,
+  WHATIF_LABELS,
+} from './whatif';
 import type { WhatIfView } from './whatif';
+import type { Intervention, Scenario } from '../types';
 
 const S = deviceLoanScenario;
 const LAPTOP = IDS.laptopLoan;
@@ -66,7 +74,7 @@ describe('runWhatIf', () => {
     expect(v.conditional).not.toBeNull();
     expect(v.conditional!.assumed_approved).toEqual(['卫星会场（示例，待审批）']);
     expect(v.conditional!.note).toContain('目前尚未生效');
-    expect(v.conditional!.delta.N).toBe(v.conditional!.N - v.N);
+    expect(v.conditional!.delta.N).toBe(v.conditional!.N - v.N!);
     expect(v.selected.some((x) => x.id === SATELLITE)).toBe(false);
     expect(v.assumptions.some((a) => a.includes('待审批') && a.includes('未计入当前结果'))).toBe(true);
     assertNoStudentInfo(v);
@@ -136,4 +144,148 @@ describe('runWhatIf', () => {
     expect(t).toContain('涉及');
     expect(scrubStudentInfo('无学生信息', S)).toBe('无学生信息');
   });
+
+  it('scrubStudentInfo：短姓名 / 学校名不做子串替换（"X" 不改坏 "Xavier"），id 仍按边界替换', () => {
+    const sc: Scenario = {
+      ...S,
+      students: [{ ...S.students[0], id: 'q1', display_name: 'Al', school_name: 'X' }],
+    };
+    const t = scrubStudentInfo('Xavier 和 Alice 的老师；「q1」；q10 与 aq1 不是学生 id', sc);
+    expect(t).toContain('Xavier');
+    expect(t).toContain('Alice');
+    expect(t).toContain('「某学生」');
+    expect(t).toContain('q10');
+    expect(t).toContain('aq1');
+    expect(t).toContain('涉及 1 名学生');
+    // 先长后短：s1 与 s10 同时存在时各自只替换自己
+    const sc2: Scenario = {
+      ...S,
+      students: [
+        { ...S.students[0], id: 's1', display_name: 'Bo', school_name: null },
+        { ...S.students[1], id: 's10', display_name: 'Cy', school_name: null },
+      ],
+    };
+    expect(scrubStudentInfo('「s10」、「s1」', sc2)).toBe('「某学生」、「某学生」（涉及 2 名学生，已隐去身份）');
+  });
 });
+
+describe('runWhatIf：输入无效时的防线（M-a）', () => {
+  const ALL = S.interventions.map((iv) => iv.id);
+  const bad: [string, Parameters<typeof runWhatIf>[1]][] = [
+    ['预算 NaN', { enabledIds: ALL, requiredIds: [], budget: NaN }],
+    ['预算 Infinity', { enabledIds: ALL, requiredIds: [], budget: Infinity }],
+    ['预算 -Infinity', { enabledIds: ALL, requiredIds: [], budget: -Infinity }],
+    ['预算负数', { enabledIds: ALL, requiredIds: [], budget: -5 }],
+    ['minGain NaN', { enabledIds: ALL, requiredIds: [], budget: 400, minGain: NaN }],
+    ['minGain Infinity', { enabledIds: ALL, requiredIds: [], budget: 400, minGain: Infinity }],
+  ];
+  for (const [name, input] of bad) {
+    it(`${name}：不抛错，序列化结果不含 NaN / Infinity / undefined`, () => {
+      let v: WhatIfView | undefined;
+      expect(() => {
+        v = runWhatIf(S, input);
+      }).not.toThrow();
+      const json = JSON.stringify(v);
+      for (const w of ['NaN', 'Infinity', 'undefined']) expect(json.includes(w), `含 ${w}`).toBe(false);
+      assertNoStudentInfo(v!);
+    });
+  }
+
+  it('预算非有限数：budget_usd 为 null，文字用「未填写或无效」', () => {
+    const v = runWhatIf(S, { enabledIds: ALL, requiredIds: [], budget: NaN });
+    expect(v.cost.budget_usd).toBeNull();
+    expect(v.effective.budget_usd).toBeNull();
+    expect(v.cost.remaining_usd).toBeNull();
+  });
+});
+
+describe('runWhatIf：UNSUPPORTED_INPUT 时没有评估的数字为 null（S2）', () => {
+  it('负预算：成本、余额、G / L / N 都是 null，预算本身照常显示', () => {
+    const v = runWhatIf(S, { enabledIds: [LAPTOP], requiredIds: [], budget: -1 });
+    expect(v.status).toBe('UNSUPPORTED_INPUT');
+    expect(v.cost).toEqual({ fixed_usd: null, per_student_usd: null, total_usd: null, budget_usd: -1, remaining_usd: null });
+    expect([v.R0_count, v.R1_count, v.G, v.L, v.N]).toEqual([null, null, null, null, null]);
+  });
+});
+
+describe('runWhatIf：INFEASIBLE 时「仍未覆盖」的原因（S1）', () => {
+  const ALL = S.interventions.map((iv) => iv.id);
+  const cases: [string, Parameters<typeof runWhatIf>[1]][] = [
+    ['最低新增目标 6（最多只能新增 5）', { enabledIds: ALL, requiredIds: [], budget: 400, minGain: 6 }],
+    ['必须启用待审批的卫星会场', { enabledIds: ALL, requiredIds: [SATELLITE], budget: 400 }],
+  ];
+  for (const [name, input] of cases) {
+    it(name, () => {
+      const v = runWhatIf(S, input);
+      expect(v.status).toBe('INFEASIBLE');
+      expect(v.uncovered).not.toBeNull();
+      expect(v.uncovered!.students).toBe(10);
+      const barrierReasons = v.uncovered!.reasons.filter((r) => r.kind !== 'eligibility' && r.kind !== 'unknown');
+      expect(barrierReasons.length).toBeGreaterThan(0);
+      for (const r of barrierReasons) {
+        expect(r.cause).toBe(INFEASIBLE_UNCOVERED_CAUSE);
+        expect(r.text).not.toContain('互斥');
+        expect(r.text).not.toContain('名额已满');
+      }
+      assertNoStudentInfo(v);
+    });
+  }
+});
+
+describe('missingPrerequisites（S5：一键纳入补齐传递依赖）', () => {
+  const iv = (id: string, requires?: string[]): Intervention => ({
+    id,
+    title: `措施 ${id}`,
+    type: 'device',
+    resolves: ['device'],
+    unit_cost_usd: 0,
+    capacity: null,
+    status: 'approved',
+    ...(requires ? { requires } : {}),
+  });
+  const chain: Scenario = { ...S, interventions: [iv('a'), iv('b', ['a']), iv('c', ['b']), iv('d', ['c', 'a'])] };
+
+  it('演示场景：线上入口缺设备借用', () => {
+    expect(missingPrerequisites(S, [ONLINE], ONLINE)).toEqual([LAPTOP]);
+    expect(missingPrerequisites(S, [ONLINE, LAPTOP], ONLINE)).toEqual([]);
+  });
+  it('传递闭包：d → c → b → a，全部缺失时都列出（按场景顺序）', () => {
+    expect(missingPrerequisites(chain, ['d'], 'd')).toEqual(['a', 'b', 'c']);
+    expect(missingPrerequisites(chain, ['d', 'b'], 'd')).toEqual(['a', 'c']);
+    expect(missingPrerequisites(chain, ['a', 'b', 'c', 'd'], 'd')).toEqual([]);
+  });
+  it('补上后不再被排除；有环也不死循环', () => {
+    const add = missingPrerequisites(chain, ['d'], 'd');
+    const v = runWhatIf(chain, { enabledIds: ['d', ...add], requiredIds: [], budget: 400 });
+    expect(v.excluded).toEqual([]);
+    const cyc: Scenario = { ...S, interventions: [iv('p', ['q']), iv('q', ['p'])] };
+    expect(missingPrerequisites(cyc, [], 'p')).toEqual(['q']);
+  });
+});
+
+describe('assertScenarioShape：措施不得含学生信息（S4）', () => {
+  it('措施 id 含学生 id（ride-dl-s03）被拒绝', () => {
+    const bad = {
+      ...S,
+      interventions: [...S.interventions, { ...S.interventions[1], id: 'ride-dl-s03', title: '接送（示例）' }],
+    };
+    expect(() => assertScenarioShape(bad, 'bad')).toThrow(/dl-s03/);
+  });
+  it('措施标题含学生姓名或学校名被拒绝', () => {
+    const s0 = S.students[0];
+    const byName = { ...S, interventions: [{ ...S.interventions[0], title: `给${s0.display_name}的电脑` }] };
+    expect(() => assertScenarioShape(byName)).toThrow(/学生显示名/);
+    const bySchool = { ...S, interventions: [{ ...S.interventions[0], title: `${s0.school_name} 专车` }] };
+    expect(() => assertScenarioShape(bySchool)).toThrow(/学校名/);
+  });
+  it('短姓名 / 学校名（< 3 字符）不参与校验；演示场景本身通过', () => {
+    const sc = {
+      ...S,
+      students: [{ ...S.students[0], id: 'q1', display_name: 'Al', school_name: 'X' }],
+      interventions: [{ ...S.interventions[0], title: 'Xavier 的 Alpha 电脑' }],
+    };
+    expect(() => assertScenarioShape(sc)).not.toThrow();
+    expect(() => assertScenarioShape(S)).not.toThrow();
+  });
+});
+

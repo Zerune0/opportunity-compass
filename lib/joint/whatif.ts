@@ -13,7 +13,10 @@
  *    例外：求解器因「内部复核未通过」返回 UNSUPPORTED_INPUT 时，展示求解器保留的那次失败复核（被舍弃方案的复核），
  *    让页面能看到哪一项没通过。
  * 4. 汇总成 WhatIfView：只含汇总数字，不含任何学生的 id、姓名、学校或逐人明细；
- *    求解器 / 验证器文字里出现的学生 id、姓名、学校会被替换为「某学生」，并注明涉及人数。
+ *    求解器 / 验证器文字里的措施 id 先换成标题，再把学生 id、姓名、学校替换为「某学生」/「某学校」，并注明涉及人数。
+ * 5. 没有评估出来的数字（UNSUPPORTED_INPUT 时的成本、余额、G / L / N 等）为 null，页面显示「—」。
+ *    预算或最低新增目标不是有限数时不会抛错；视图里的文字不出现 NaN / Infinity（换成「未填写或无效」），
+ *    非有限的数字字段一律为 null。页面本身应在输入无效时不调用 runWhatIf，这里只是防线。
  *
  * 纯函数：确定性、不读系统时钟、无随机、无 IO、不调 AI；不修改输入。
  * 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
@@ -21,7 +24,15 @@
 import { analyzeReachability } from '../reachability';
 import { solveJoint } from './solve';
 import { verifyPlan } from './verify';
-import { resolveEnabledInterventions, withBudget, withEnabledInterventions } from './scenarios';
+import {
+  MIN_NAME_TOKEN_LENGTH,
+  missingPrerequisites,
+  resolveEnabledInterventions,
+  withBudget,
+  withEnabledInterventions,
+} from './scenario-utils';
+
+export { missingPrerequisites };
 import type {
   Allocation,
   BarrierType,
@@ -63,14 +74,23 @@ export interface WhatIfLabels {
   reachable_not_admission: string;
 }
 
+/** 主结果的成本。null = 没有评估（UNSUPPORTED_INPUT）或输入无效，页面显示「—」。 */
 export interface WhatIfCost {
-  fixed_usd: number;
+  fixed_usd: number | null;
   /** 按人计的成本合计（各措施 unit_cost × 服务的不同学生数）。 */
+  per_student_usd: number | null;
+  total_usd: number | null;
+  /** 预算；不是有限数时为 null。 */
+  budget_usd: number | null;
+  /** 预算 − 总成本；没有评估或预算无效时为 null。 */
+  remaining_usd: number | null;
+}
+
+/** 已评估方案（替代方案 / 条件性方案）的成本，总是有数字。 */
+export interface WhatIfPlanCost {
+  fixed_usd: number;
   per_student_usd: number;
   total_usd: number;
-  budget_usd: number;
-  /** 预算 − 总成本。 */
-  remaining_usd: number;
 }
 
 export interface WhatIfSelected {
@@ -121,7 +141,7 @@ export interface WhatIfOutcomeSummary {
   G: number;
   L: number;
   N: number;
-  cost: Omit<WhatIfCost, 'budget_usd' | 'remaining_usd'>;
+  cost: WhatIfPlanCost;
   selected: WhatIfSelected[];
 }
 
@@ -180,7 +200,9 @@ export interface WhatIfView {
   effective: {
     enabled_ids: string[];
     required_ids: string[];
-    budget_usd: number;
+    /** 不是有限数时为 null。 */
+    budget_usd: number | null;
+    /** 不设目标或不是有限数时为 null。 */
     min_gain: number | null;
     mode: 'protect' | 'tradeoff';
     loss_cap: number | null;
@@ -192,11 +214,12 @@ export interface WhatIfView {
   status: JointStatus;
   status_label: string;
   status_explanation: string;
-  R0_count: number;
-  R1_count: number;
-  G: number;
-  L: number;
-  N: number;
+  /** 以下五个数在 UNSUPPORTED_INPUT（没有评估）时为 null。 */
+  R0_count: number | null;
+  R1_count: number | null;
+  G: number | null;
+  L: number | null;
+  N: number | null;
   cost: WhatIfCost;
   selected: WhatIfSelected[];
   capacity_usage: WhatIfCapacity[];
@@ -267,6 +290,9 @@ const RELAXED_ZH: Record<'required_intervention_ids' | 'min_gain', string> = {
   min_gain: '不再要求最低新增目标',
 };
 
+/** INFEASIBLE 时「仍未覆盖」的障碍原因。 */
+export const INFEASIBLE_UNCOVERED_CAUSE = '当前要求无法满足，主结果为不启用任何措施；可参考上方的替代方案';
+
 const EPS = 1e-6;
 const cmpStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const round2 = (x: number): number => Math.round(x * 100) / 100;
@@ -275,23 +301,39 @@ const pairKey = (s: string, o: string) => JSON.stringify([s, o]);
 
 // ───────────────────────────── 辅助 ─────────────────────────────
 
+const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * 把文字中的学生 id / 显示名 / 学校名替换为「某学生」/「某学校」，并在末尾注明涉及人数。
- * 按长度降序替换，避免 dl-s1 误伤 dl-s10。
+ * - 按长度降序替换（先长后短），避免 dl-s1 误伤 dl-s10。
+ * - 学生 id（任意长度）只在边界处替换：前后都不是 ASCII 字母数字、连字符或下划线。
+ * - 姓名 / 学校名短于 3 个字符时不做子串替换（避免把 "X" 当学校名改坏 "Xavier"）；
+ *   这类短标识要靠场景校验（措施 id / 标题不得含学生信息）兜底。
  */
 export function scrubStudentInfo(text: string, scenario: Scenario): string {
-  type Tok = { token: string; sid: string; repl: string };
+  type Tok = { token: string; sid: string; repl: string; isId: boolean };
   const toks: Tok[] = [];
   for (const s of scenario.students) {
-    if (typeof s.id === 'string' && s.id) toks.push({ token: s.id, sid: s.id, repl: '某学生' });
-    if (typeof s.display_name === 'string' && s.display_name) toks.push({ token: s.display_name, sid: s.id, repl: '某学生' });
-    if (typeof s.school_name === 'string' && s.school_name) toks.push({ token: s.school_name, sid: s.id, repl: '某学校' });
+    if (typeof s.id === 'string' && s.id) toks.push({ token: s.id, sid: s.id, repl: '某学生', isId: true });
+    if (typeof s.display_name === 'string' && s.display_name.length >= MIN_NAME_TOKEN_LENGTH) {
+      toks.push({ token: s.display_name, sid: s.id, repl: '某学生', isId: false });
+    }
+    if (typeof s.school_name === 'string' && s.school_name.length >= MIN_NAME_TOKEN_LENGTH) {
+      toks.push({ token: s.school_name, sid: s.id, repl: '某学校', isId: false });
+    }
   }
   toks.sort((a, b) => b.token.length - a.token.length || cmpStr(a.token, b.token));
   const hit = new Set<string>();
   let out = text;
   for (const t of toks) {
-    if (out.includes(t.token)) {
+    if (t.isId) {
+      const re = new RegExp(`(?<![A-Za-z0-9_-])${escapeRe(t.token)}(?![A-Za-z0-9_-])`, 'g');
+      if (re.test(out)) {
+        hit.add(t.sid);
+        re.lastIndex = 0;
+        out = out.replace(re, t.repl);
+      }
+    } else if (out.includes(t.token)) {
       hit.add(t.sid);
       out = out.split(t.token).join(t.repl);
     }
@@ -306,6 +348,29 @@ function humanizeInterventionIds(text: string, scenario: Scenario): string {
   const ivs = [...scenario.interventions].sort((a, b) => b.id.length - a.id.length || cmpStr(a.id, b.id));
   for (const iv of ivs) out = out.split(`「${iv.id}」`).join(`「${iv.title}」`);
   return out;
+}
+
+/** 先把措施 id 换成标题，再脱敏（换进去的标题也会被检查）。 */
+function cleanText(text: string, scenario: Scenario): string {
+  return scrubStudentInfo(humanizeInterventionIds(text, scenario), scenario);
+}
+
+const INVALID_NUMBER_TEXT = '未填写或无效';
+
+/** 防线：把视图里所有文字中的 NaN / Infinity 换成「未填写或无效」，非有限数字换成 null。 */
+function scrubNonFinite<T>(value: T): T {
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'string') return v.replace(/[-+]?Infinity|NaN/g, INVALID_NUMBER_TEXT);
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v !== null && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v)) out[k] = walk(x);
+      return out;
+    }
+    return v;
+  };
+  return walk(value) as T;
 }
 
 /** 已纳入、但前置依赖未纳入的措施会被排除（迭代到不动点；规则见 resolveEnabledInterventions）。 */
@@ -365,7 +430,7 @@ function summarizeSelected(scenario: Scenario, outcome: JointPlan2): WhatIfSelec
 
 type JointPlan2 = Pick<JointOutcome, 'selected_intervention_ids' | 'allocations'>;
 
-function costOf(c: JointCost): Omit<WhatIfCost, 'budget_usd' | 'remaining_usd'> {
+function costOf(c: JointCost): WhatIfPlanCost {
   return { fixed_usd: round2(c.fixed_usd), per_student_usd: round2(c.marginal_usd), total_usd: round2(c.total_usd) };
 }
 
@@ -431,6 +496,7 @@ function uncoveredSummary(
   outcome: JointOutcome,
   capacity: WhatIfCapacity[],
   remainingBudget: number,
+  infeasible: boolean,
 ): WhatIfUncovered {
   const ivById = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const r1 = new Set(outcome.R1.map((p) => pairKey(p.student_id, p.opportunity_id)));
@@ -469,6 +535,8 @@ function uncoveredSummary(
 
   const selected = new Set(outcome.selected_intervention_ids);
   const causeFor = (t: BarrierType, who: Set<string>): string => {
+    // INFEASIBLE：主结果是空方案，是因为主办方提的要求做不到，不是名额、预算或其他约束挡住了这些学生。
+    if (infeasible) return INFEASIBLE_UNCOVERED_CAUSE;
     // 只用于解释（展示用），求解与复核都不读 resolves。
     const enabled = scenario.interventions.filter((iv) => iv.resolves.includes(t));
     const enabledApproved = enabled.filter(isApproved);
@@ -538,6 +606,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
 
   const mode = input.mode ?? 'protect';
   const minGain = input.minGain ?? null;
+  const budgetValid = Number.isFinite(input.budget);
   const lossCap = input.lossCap ?? null;
 
   // 2. 求解
@@ -566,7 +635,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
       name: c.name,
       label: CHECK_LABELS[c.name] ?? c.name,
       passed: c.passed,
-      detail: humanizeInterventionIds(scrubStudentInfo(c.detail, scenario), scenario),
+      detail: cleanText(c.detail, scenario),
     })),
     note:
       result.status === 'INFEASIBLE'
@@ -580,12 +649,15 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
 
   // 4. 汇总
   const evaluated = result.status !== 'UNSUPPORTED_INPUT';
-  const budgetUsd = input.budget;
-  const cost: WhatIfCost = {
-    ...costOf(result.cost),
-    budget_usd: budgetUsd,
-    remaining_usd: Number.isFinite(budgetUsd) ? round2(budgetUsd - result.cost.total_usd) : NaN,
-  };
+  const budgetUsd = budgetValid ? input.budget : null;
+  const planCost = costOf(result.cost);
+  const cost: WhatIfCost = evaluated
+    ? {
+        ...planCost,
+        budget_usd: budgetUsd,
+        remaining_usd: budgetUsd !== null ? round2(budgetUsd - result.cost.total_usd) : null,
+      }
+    : { fixed_usd: null, per_student_usd: null, total_usd: null, budget_usd: budgetUsd, remaining_usd: null };
   const capacity_usage = capacityUsage(eff, result);
 
   let alternative: WhatIfAlternative | null = null;
@@ -593,7 +665,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     alternative = {
       ...outcomeSummary(eff, result.alternative),
       relaxed: result.alternative.relaxed.map((k) => RELAXED_ZH[k]),
-      note: humanizeInterventionIds(scrubStudentInfo(result.alternative.note, scenario), scenario),
+      note: cleanText(result.alternative.note, scenario),
     };
   }
 
@@ -613,12 +685,12 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
         total_usd: round2(c.cost.total_usd - result.cost.total_usd),
       },
       verification_passed: c.status === 'INFEASIBLE' || c.status === 'UNSUPPORTED_INPUT' ? false : cv.passed,
-      note: scrubStudentInfo(c.note, scenario),
+      note: cleanText(c.note, scenario),
     };
   }
 
   const uncovered = evaluated
-    ? uncoveredSummary(eff, scenario, result, capacity_usage, Number.isFinite(cost.remaining_usd) ? cost.remaining_usd : 0)
+    ? uncoveredSummary(eff, scenario, result, capacity_usage, cost.remaining_usd ?? 0, result.status === 'INFEASIBLE')
     : null;
 
   // 假设与不确定性
@@ -646,7 +718,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     assumptions.push('条件性结果的求解达到搜索上限：不保证最优。');
   }
 
-  return {
+  const view: WhatIfView = {
     scenario_title: scenario.title,
     evaluation_date: scenario.evaluation_date,
     is_sample: true,
@@ -659,7 +731,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
       enabled_ids: enabled,
       required_ids: required,
       budget_usd: budgetUsd,
-      min_gain: minGain,
+      min_gain: minGain !== null && Number.isFinite(minGain) ? minGain : null,
       mode,
       loss_cap: lossCap,
     },
@@ -668,11 +740,11 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     status: result.status,
     status_label: STATUS_LABELS[result.status],
     status_explanation: STATUS_EXPLANATIONS[result.status],
-    R0_count: result.R0.length,
-    R1_count: result.R1.length,
-    G: result.G,
-    L: result.L,
-    N: result.N,
+    R0_count: evaluated ? result.R0.length : null,
+    R1_count: evaluated ? result.R1.length : null,
+    G: evaluated ? result.G : null,
+    L: evaluated ? result.L : null,
+    N: evaluated ? result.N : null,
     cost,
     selected: summarizeSelected(eff, result),
     capacity_usage,
@@ -680,10 +752,11 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     alternative,
     conditional,
     uncovered,
-    solver_notes: result.notes.map((n) => humanizeInterventionIds(scrubStudentInfo(n, scenario), scenario)),
+    solver_notes: result.notes.map((n) => cleanText(n, scenario)),
     assumptions,
     labels: WHATIF_LABELS,
   };
+  return scrubNonFinite(view);
 }
 
 /** 页面「恢复默认」用的默认输入：纳入全部措施、不设必须启用、场景预算、无最低新增目标。 */
