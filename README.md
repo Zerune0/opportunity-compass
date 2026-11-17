@@ -6,7 +6,15 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 帮助缺少资源、人脉和专业指导的学生发现真实机会，理解资格、准备差距与现实参与障碍，选择可执行的成长路线，并以技能证据和申请规划采取行动。
 
 ## Project status
-**Early scaffold for Bridge The Gap Hacks.** A Next.js app skeleton with four placeholder pages exists. No eligibility engine, route planner, optimizer, or deployed service has been completed yet. All capabilities below are product goals unless stated otherwise; the four-day scope is defined in `CONTRACT.md`. This is an independent project; no ExamPilot code is included.
+**Work in progress for Bridge The Gap Hacks; not yet deployed.** The four-day scope is defined in `CONTRACT.md`. This is an independent project; no ExamPilot code is included.
+
+- **Implemented (student-side engine):** four pure functions in `lib/` — `checkEligibility`, `analyzeReachability`, `planRoutes` and `diffRoutes` — with Vitest unit tests, including fairness control tests (`lib/fairness.test.ts`) showing results do not change when only the school name or display name changes.
+- **Still mocks:** `solveJoint` / `verifyPlan` (organizer-side joint optimizer and independent verifier) are placeholder mocks with final signatures; they are being implemented by Charles.
+- **Still placeholders:** the four pages (`/quests`, `/map`, `/passport`, `/organizer`).
+- **No verified opportunities yet:** `data/opportunities.json` does not yet contain verified real opportunities; tests use clearly fictional fixtures (example.com, `is_sample: true`).
+- **Not deployed** yet.
+
+All capabilities described below are product goals unless stated otherwise above.
 
 ## Getting started
 Requires Node.js >= 20.9 and npm.
@@ -24,6 +32,12 @@ npm run build
 3. **Grow:** reverse-plan from a real target; compare routes with dependencies, time, cost and resource constraints; adapt when evidence or availability changes.
 4. **Evidence:** Skill Passport with self-reported, attached, reviewed and unverified states; explain recommendation changes through decision replay.
 5. **Apply:** coordinate multiple opportunities, reuse appropriate materials, maintain a Quest Journal and distinguish preparation, submission, participation and outcomes.
+
+Engine principles (student-side functions in `lib/`):
+- Missing or unclear information yields `unknown`, with a prompt to confirm with the official source; the engine does not guess.
+- If a hard eligibility requirement is not met, `planRoutes` returns no workaround route — only the reason, quoted official text and next-cycle / same-field hints.
+- "Reachable" means practically within reach given time, cost, transport and devices; it is not admission or acceptance.
+- Decision functions do not read the student's school name or display name.
 
 Adventure View and Classic View should support equivalent tasks. RPG progress must never create official eligibility requirements or block direct applications.
 
@@ -58,11 +72,16 @@ docs/                   Product and engineering plans
 ```
 
 ## 后续计划 / Future work
-Not built in the four-day competition scope and not implemented:
+Not built in the four-day competition scope and **not implemented**:
 - Accounts and a database
 - Quest Creator (verified organizer publishing)
 - Talent Board (optional field-level sharing)
 - Consent-based two-way matching
+- Time-slotted capacity for interventions, and prerequisite / approval relationships between them (the current model only has a single capacity number and mutual exclusion).
+- Data loading with runtime validation (a `lib/data.ts` layer that checks `data/*.json` against the shared types at load time).
+- Exact age calculation from date of birth (age on the reference date is currently inferred as a range from the student's current age, so age checks near a birthday can come out `unknown`).
+- Automatic recommendation of same-field alternative opportunities (currently only a text hint is shown).
+- Integration with real organizer data (all organizer scenarios are currently sample / simulated).
 
 ## Boundaries
 No admission guarantees, AI-invented opportunities, virtual-level eligibility, public ability rankings, mandatory streaks, virtual currency, generalized social network, recruitment ATS or complete course platform. Simulation outputs are not real-world impact evidence.
