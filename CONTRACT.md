@@ -44,31 +44,34 @@
 
 | 函数 | 位置 | 签名 | 状态 |
 |---|---|---|---|
-| `checkEligibility` | `lib/eligibility` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => EligibilityResult` | MOCK，第 1 层（周三 23:00）替换 |
-| `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => ReachabilityResult` | MOCK，第 1 层（周三 23:00）替换 |
-| `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => PlanResult` | MOCK，第 2 层（周四 20:00）替换 |
-| `diffRoutes` | `lib/path` | `(before: PlanResult, after: PlanResult) => RouteDiff` | MOCK，第 2 层（周四 20:00）替换 |
+| `checkEligibility` | `lib/eligibility` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => EligibilityResult` | 已实现 |
+| `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => ReachabilityResult` | 已实现 |
+| `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => PlanResult` | 已实现 |
+| `diffRoutes` | `lib/path` | `(before: PlanResult, after: PlanResult) => RouteDiff` | 已实现 |
 | `solveJoint` | `lib/joint`（Charles） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | MOCK，Charles 替换 |
 | `verifyPlan` | `lib/joint`（Charles） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | MOCK，Charles 替换 |
 
 `VerifyOptions = { mode?: 'protect' | 'tradeoff'; loss_cap?: number }`（字段类型沿用 `SolveOptions`）。**第三参数为可选，待主导与 Charles 确认是否保留。**
 
 导入：`import { checkEligibility } from '@/lib/eligibility'`，类型 `import type { Opportunity } from '@/lib/types'`。
-**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**；界面现在就可以接 mock。mock 的说明文字都带「MOCK」字样。
+**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。四个学生端函数（`checkEligibility` / `analyzeReachability` / `planRoutes` / `diffRoutes`）已是真实实现；仍为 mock 的两个函数（`solveJoint` / `verifyPlan`）的说明文字带「MOCK」字样。
 
-当前 mock 行为（只为让界面能跑，不是真实判断）：
-- `checkEligibility`：每条要求都返回 `unknown`；有硬性要求时总体 `unknown`，否则 `eligible`。
-- `analyzeReachability`：只检查「所需设备不在档案里」，approved 的 device grant 可化解；有未化解障碍 → `reachable = false`，否则 `null`。
-- `planRoutes` / `diffRoutes`：三条路线直接用准备项，已有证据的步骤跳过；`feasible_by_deadline` 固定 `null`。
+`solveJoint` / `verifyPlan` 当前 mock 行为（只为让界面能跑，不是真实求解）：
 - `solveJoint`：正常输入返回 `SEARCH_LIMIT_REACHED` + 空方案（不启用任何措施），`notes` 写明「MOCK：未进行搜索」，**不声称 OPTIMAL**；预算为负或 tradeoff 缺 `loss_cap` 返回 `UNSUPPORTED_INPUT`。
 - `verifyPlan`：不做检查，返回 `passed = false`。
 
-### 用 mock 调界面
+### 接入学生端函数的提示
 
-- mock **永远不会**返回：`PlanResult.status === 'blocked'`、`reachable === true`、资格项 `satisfied` / `not_satisfied`。`reachable === false` 只在出现未化解的设备障碍时出现。
-- 要调这些界面状态，请在**自己的页面 / 测试里手写符合类型的 fixture**（标 `is_sample: true`），**不要改 mock**。
+- **传入今天的日期**：有截止日期的机会，调用 `checkEligibility` / `analyzeReachability` / `planRoutes` 时要传 `{ today: 'YYYY-MM-DD' }`。不传时依赖日期的结果按设计为 unknown / null：例如 `reachable` 为 `null`、`missing_info` 含 `options.today`，路线的 `feasible_by_deadline` 为 `null`。
+- **`missing_info` 目前可能出现的字段名**：`profile.devices`、`profile.budget_usd`、`profile.transport`、`profile.hours_per_week_available`、`opportunity.cost.fee_usd`、`opportunity.cost.requires_travel_expense`、`opportunity.time_commitment.hours_per_week`、`opportunity.deadline`（格式无法识别）、`options.today`。
+- **grant 是否化解障碍**：`applied_grant_ids` 是所有匹配的 approved grant，**不等于「已化解」**；是否化解看每条障碍的 `resolved` / `resolved_by_grant_ids`。
+- **已过截止日期**：表现为一条 `type: 'time'`、`shortfall: null`、任何 grant 都不能化解的障碍。
+- **`planRoutes`**：`status: 'routes'` 时路线 2–3 条；固定步骤 id 为 `submit-application`（提交申请）和 `find-partner`（找到同伴或导师），准备项不要用这两个 id；被证据覆盖的步骤 `skipped: true`，不计入合计；`status: 'blocked'` 时 `routes` 为空。
+- **地区规则**：州 / 省请统一用代码（如 `CA`），国家与州 / 省代码都大小写不敏感。
+- **证据关联准备项**：证据的 `prep_item_ids` 建议写成 `<opportunity_id>:<prep_id>`，避免跨机会误匹配（裸 `prep_id` 也能匹配，但不同机会的同名准备项会被一起覆盖）。
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
   `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。带校验的加载函数待定。
+- **仍为 mock 的 `solveJoint` / `verifyPlan`**：mock 永远不会返回 `OPTIMAL` / `INFEASIBLE` 或 `passed = true`。要调这些界面状态，请在**自己的页面 / 测试里手写符合类型的 fixture**（标 `is_sample: true`），**不要改 mock**。
 
 语义约定：
 - **unknown**：信息不全（学生没填、或官方要求机器判定不了）时返回 unknown，并给出「请向官方确认」提示。界面要把 unknown 显示成「待确认」，不能显示成通过或不通过。
@@ -147,3 +150,4 @@ npm run build      # 生产构建（提交前必须通过）
 ## 变更记录
 
 - 2026-11-17：三个学生端函数（`checkEligibility` / `analyzeReachability` / `planRoutes`）新增可选 `options.today`（类型 `EvalOptions`），向后兼容。调用方无需修改；界面层若需要日期相关判断，应传入 `{ today }`。
+- 2026-11-17：四个学生端函数由 mock 换为真实实现（签名不变）；更新状态说明与接入提示。
