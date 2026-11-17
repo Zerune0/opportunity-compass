@@ -8,8 +8,10 @@
  *    「必需准备」= requiredPrepClosure：未覆盖的必需项 + 它们未覆盖的前置依赖（传递闭包；
  *    遇到已覆盖的节点不计、也不再往前追），与 planRoutes 的「只做申请必需项」同一口径。
  *    小时 / 费用为负数或非有限数时按 0。
- * 3. 只计入 student_id 与 opportunity_id 都匹配的 grants：approved 才能化解障碍（记入 applied_grant_ids）；
- *    pending 只列入对应障碍的 pending_grant_ids，不算化解。
+ * 3. 只计入对本学生、本机会生效的 grants：student_id === profile.id，且
+ *    opportunity_id === null（对该学生所有机会有效）或等于 opp.id；
+ *    缺少 opportunity_id 字段（undefined）的 grant 不生效。
+ *    approved 才能化解障碍（记入 applied_grant_ids）；pending 只列入对应障碍的 pending_grant_ids，不算化解。
  * 4. 四类障碍。信息不足时不造障碍，而是把缺的字段写进 missing_info：
  *    - device：缺的每个设备一条障碍；approved 且 device 相同的 device grant → 化解。
  *    - cost：需要的钱 = fee_usd + 必需准备（见第 2 条）的费用；超过 budget_usd → 障碍（shortfall = 差额）；
@@ -111,7 +113,11 @@ export function analyzeReachability(
   const prepHours = requiredPrep.reduce((s, p) => s + nonNegOrZero(p.estimated_hours), 0);
 
   // ── grants ──
-  const mine = grants.filter((g) => g.student_id === profile.id && g.opportunity_id === opp.id);
+  // 只有 opportunity_id === null 才表示「对该学生的所有机会都有效」；
+  // 缺少 opportunity_id 字段（undefined）的 grant 一律不生效（信息不足不猜）。
+  const mine = grants.filter(
+    (g) => g.student_id === profile.id && (g.opportunity_id === null || g.opportunity_id === opp.id),
+  );
   const approved = mine.filter((g) => g.status === 'approved');
   const pending = mine.filter((g) => g.status === 'pending');
   const approvedOf = (t: SupportType) => approved.filter((g) => g.type === t);
