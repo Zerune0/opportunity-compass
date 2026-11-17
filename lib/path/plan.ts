@@ -16,7 +16,8 @@
  *    - learning_first：拓扑排序时优先学习 / 材料类；
  *    - practice_first：有未跳过的实践类准备项时才生成；优先实践类，其次是实践类的前置学习项；
  *    - community：最前面加「找到同伴或导师」（2 小时估算），其余优先申请必需项。
- *    同一优先级按 opp.preparation 原顺序。依赖不存在 → 忽略并提醒；依赖成环 → 剩余步骤按原顺序接在后面并提醒。
+ *    同一优先级按 opp.preparation 原顺序。依赖不存在或依赖自身 → 忽略该依赖并提醒；
+ *    依赖成环 → 卡住时只强行放入环上原顺序最靠前的一个步骤，然后继续正常排序（不在环上的依赖仍被遵守），并提醒。
  * 5. 合计 / 周数 / 是否来得及 / 预算提醒见 buildRoute。来得及 ≠ 会被录取。
  *
  * 公平性：不读取 school_name、display_name。
@@ -38,6 +39,7 @@ import type {
   StudentProfile,
 } from '../types';
 import {
+  FEE_UNKNOWN_WARNING,
   PARTNER_STEP_ID,
   PRACTICE_KINDS,
   RESERVED_STEP_IDS,
@@ -175,6 +177,10 @@ function buildBaseSteps(profile: StudentProfile, opp: Opportunity): BaseSteps {
   const items = accepted.map((prep, index) => {
     const deps: string[] = [];
     for (const d of Array.isArray(prep.depends_on) ? prep.depends_on : []) {
+      if (d === prep.id) {
+        dataWarnings.push(`准备项「${prep.title}」把自己列为依赖，已忽略这条依赖，请检查机会数据。`);
+        continue;
+      }
       if (!seen.has(d)) {
         dataWarnings.push(`准备项「${prep.title}」依赖的「${d}」在该机会中不存在，已忽略这条依赖。`);
         continue;
@@ -191,14 +197,31 @@ function buildBaseSteps(profile: StudentProfile, opp: Opportunity): BaseSteps {
   return { items, dataWarnings };
 }
 
+/** 在尚未排好的步骤中，item 是否位于依赖环上（沿未排好的依赖能回到自身）。 */
+function onCycle(item: BaseStep, byId: Map<string, BaseStep>, placed: Set<string>): boolean {
+  const visited = new Set<string>();
+  const stack = item.step.depends_on.filter((d) => !placed.has(d));
+  while (stack.length > 0) {
+    const id = stack.pop() as string;
+    if (id === item.step.id) return true;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    for (const d of byId.get(id)?.step.depends_on ?? []) if (!placed.has(d)) stack.push(d);
+  }
+  return false;
+}
+
 /**
  * 稳定拓扑排序：每次在依赖都已排好的候选里选 (rank, 原顺序) 最小的。
- * 有环时把剩余步骤按原顺序接在后面，cyclic = true。
+ * 卡住（有环）时，只强行放入「位于环上」且原顺序最靠前的一个步骤，然后继续正常循环，cyclic = true。
+ * 只挑环上的步骤，是为了不让依赖环的下游步骤（不在环上）被排到它的依赖之前。
  */
 function topoSort(items: BaseStep[], rank: (b: BaseStep) => number): { order: BaseStep[]; cyclic: boolean } {
+  const byId = new Map(items.map((b) => [b.step.id, b]));
   const placed = new Set<string>();
   const remaining = [...items];
   const order: BaseStep[] = [];
+  let cyclic = false;
   while (remaining.length > 0) {
     let best = -1;
     for (let i = 0; i < remaining.length; i++) {
@@ -214,24 +237,40 @@ function topoSort(items: BaseStep[], rank: (b: BaseStep) => number): { order: Ba
       if (rc < rb || (rc === rb && c.index < b.index)) best = i;
     }
     if (best === -1) {
-      remaining.sort((a, b) => a.index - b.index);
-      return { order: [...order, ...remaining], cyclic: true };
+      cyclic = true;
+      for (let i = 0; i < remaining.length; i++) {
+        const c = remaining[i];
+        if (!onCycle(c, byId, placed)) continue;
+        if (best === -1 || c.index < remaining[best].index) best = i;
+      }
+      // 理论上卡住时必有环上节点；兜底取原顺序最靠前的一个，保证循环终止。
+      if (best === -1) {
+        best = 0;
+        for (let i = 1; i < remaining.length; i++) if (remaining[i].index < remaining[best].index) best = i;
+      }
     }
     const [next] = remaining.splice(best, 1);
     placed.add(next.step.id);
     order.push(next);
   }
-  return { order, cyclic: false };
+  return { order, cyclic };
 }
 
-/** ids 及其全部前置依赖（传递闭包）。 */
-function withAncestors(items: BaseStep[], ids: string[]): Set<string> {
+/**
+ * ids 及其全部前置依赖（传递闭包）。
+ * skip(b) 为真的节点不计入，也不再沿它往前追（例如已被证据跳过的步骤，其前置也就不必做了）。
+ */
+function withAncestors(items: BaseStep[], ids: string[], skip?: (b: BaseStep) => boolean): Set<string> {
   const byId = new Map(items.map((b) => [b.step.id, b]));
   const out = new Set<string>();
+  const seen = new Set<string>();
   const stack = [...ids];
   while (stack.length > 0) {
     const id = stack.pop() as string;
-    if (out.has(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = byId.get(id);
+    if (node && skip?.(node)) continue;
     out.add(id);
     for (const d of byId.get(id)?.step.depends_on ?? []) stack.push(d);
   }
@@ -253,7 +292,16 @@ interface Feasibility {
   daysLeft: number | null;
 }
 
-function judgeFeasibility(totalHours: number, hpw: number | null, opp: Opportunity, today?: string): Feasibility {
+/** 每周可用小时的状态：有效数值 / 没填 / 填了但无效（≤ 0 或不是有限数）。 */
+type HoursState = { kind: 'ok'; value: number } | { kind: 'missing' } | { kind: 'invalid' };
+
+function hoursState(raw: unknown): HoursState {
+  if (raw == null) return { kind: 'missing' };
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return { kind: 'ok', value: raw };
+  return { kind: 'invalid' };
+}
+
+function judgeFeasibility(totalHours: number, hours: HoursState, opp: Opportunity, today?: string): Feasibility {
   const missing: string[] = [];
   const deadline = opp.deadline == null ? null : parseISODate(opp.deadline);
   if (opp.deadline == null) missing.push('官网没有写明截止日期（可能是滚动录取）');
@@ -261,13 +309,21 @@ function judgeFeasibility(totalHours: number, hpw: number | null, opp: Opportuni
   const now = today == null ? null : parseISODate(today);
   if (today == null) missing.push('没有提供今天的日期');
   else if (now == null) missing.push('今天的日期格式无法识别');
-  if (hpw == null) missing.push('档案里还没有填每周可用小时数');
+
+  // 截止日已过与每周可用小时无关：日期都能解析时先判断。
+  if (deadline != null && now != null) {
+    const daysLeft = daysBetween(now, deadline);
+    if (daysLeft < 0) return { value: false, missing: [], deadlinePassed: true, capacityHours: 0, daysLeft };
+  }
+
+  if (hours.kind === 'missing') missing.push('档案里还没有填每周可用小时数');
+  else if (hours.kind === 'invalid') missing.push('档案里填写的每周可用小时数无效（需大于 0）');
 
   const none: Feasibility = { value: null, missing, deadlinePassed: false, capacityHours: null, daysLeft: null };
-  if (missing.length > 0 || deadline == null || now == null || hpw == null) return none;
+  if (missing.length > 0 || deadline == null || now == null || hours.kind !== 'ok') return none;
 
+  const hpw = hours.value;
   const days = daysBetween(now, deadline);
-  if (days < 0) return { value: false, missing, deadlinePassed: true, capacityHours: 0, daysLeft: days };
   const capacity = (hpw * Math.max(days, 1)) / 7;
   return { value: totalHours <= capacity, missing, deadlinePassed: false, capacityHours: capacity, daysLeft: days };
 }
@@ -282,7 +338,8 @@ const RATIONALE: Record<RouteType, string> = {
 
 interface RouteContext {
   opp: Opportunity;
-  hpw: number | null;
+  hours: HoursState;
+  /** 有效预算（有限且 ≥ 0）；没填或无效时为 null，不做预算比较。 */
   budget: number | null;
   today?: string;
   /** 只做申请必需项（含前置步骤）的小时数。 */
@@ -327,12 +384,13 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
   const active = steps.filter((s) => !s.skipped);
   const total_hours = round2(active.reduce((sum, s) => sum + s.hours, 0));
   const total_cost_usd = round2(active.reduce((sum, s) => sum + s.cost_usd, 0));
-  const estimated_weeks = ctx.hpw == null ? null : Math.ceil(total_hours / ctx.hpw);
-  const feas = judgeFeasibility(total_hours, ctx.hpw, opp, ctx.today);
+  const hpw = ctx.hours.kind === 'ok' ? ctx.hours.value : null;
+  const estimated_weeks = hpw == null ? null : Math.ceil(total_hours / hpw);
+  const feas = judgeFeasibility(total_hours, ctx.hours, opp, ctx.today);
 
   const warnings: string[] = [];
   if (cyclic && ctx.cyclicWarning) warnings.push(ctx.cyclicWarning);
-  if (fee == null) warnings.push('报名费官网未写清，未计入费用，请向官方确认。');
+  if (fee == null) warnings.push(FEE_UNKNOWN_WARNING);
   if (ctx.budget != null && total_cost_usd > ctx.budget) {
     warnings.push(`超出预算 ${usd(round2(total_cost_usd - ctx.budget))}（这条路线约需 ${usd(total_cost_usd)}，档案预算 ${usd(ctx.budget)}）。`);
   }
@@ -341,7 +399,7 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
       warnings.push(`截止日期 ${opp.deadline} 已过，这一届来不及申请了。`);
     } else {
       warnings.push(
-        `按每周 ${fmt(ctx.hpw as number)} 小时，到截止日期 ${opp.deadline}（还剩 ${feas.daysLeft} 天）大约能投入 ${fmt(round2(feas.capacityHours as number))} 小时，这条路线需要 ${fmt(total_hours)} 小时，可能来不及。只做申请必需项（含它们的前置步骤）需要 ${fmt(ctx.requiredOnlyHours)} 小时，可供参考；删减哪些步骤由你决定。`,
+        `按每周 ${fmt(hpw as number)} 小时，到截止日期 ${opp.deadline}（还剩 ${feas.daysLeft} 天）大约能投入 ${fmt(round2(feas.capacityHours as number))} 小时，这条路线需要 ${fmt(total_hours)} 小时，可能来不及。只做申请必需项（含它们的前置步骤）需要 ${fmt(ctx.requiredOnlyHours)} 小时，可供参考；删减哪些步骤由你决定。`,
       );
     }
   } else if (feas.value === null) {
@@ -349,8 +407,8 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
   }
 
   let rationale = RATIONALE[type];
-  if (ctx.hpw != null && estimated_weeks != null) {
-    rationale += `按档案中每周可用 ${fmt(ctx.hpw)} 小时，这条路线约需 ${estimated_weeks} 周。`;
+  if (hpw != null && estimated_weeks != null) {
+    rationale += `按档案中每周可用 ${fmt(hpw)} 小时，这条路线约需 ${estimated_weeks} 周。`;
   }
 
   return {
@@ -394,17 +452,23 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
   warnings.push(...dataWarnings);
   if (items.length === 0) warnings.push('这个机会没有列出准备项，路线里只有固定步骤，请以官网要求为准。');
 
-  const hpwRaw = profile.hours_per_week_available;
-  const hpw = typeof hpwRaw === 'number' && Number.isFinite(hpwRaw) && hpwRaw > 0 ? hpwRaw : null;
+  const hours = hoursState(profile.hours_per_week_available);
+  if (hours.kind === 'invalid') {
+    warnings.push('档案里填写的每周可用小时数无效（需大于 0），暂时无法估算周数和能否来得及，请更新档案。');
+  }
   const budgetRaw = profile.budget_usd;
-  const budget = typeof budgetRaw === 'number' && Number.isFinite(budgetRaw) ? budgetRaw : null;
+  let budget: number | null = null;
+  if (typeof budgetRaw === 'number' && Number.isFinite(budgetRaw) && budgetRaw >= 0) {
+    budget = budgetRaw;
+  } else if (budgetRaw != null) {
+    warnings.push('档案里填写的预算数值无效（不能为负数），这次没有做预算比较，请更新档案。');
+  }
 
-  const requiredIds = items.filter((b) => b.required).map((b) => b.step.id);
-  const requiredClosure = withAncestors(items, requiredIds);
+  // 只做申请必需项：只取未被证据跳过的必需项；遇到已跳过的前置步骤不计入，也不再往前追。
+  const requiredIds = items.filter((b) => b.required && !b.step.skipped).map((b) => b.step.id);
+  const requiredClosure = withAncestors(items, requiredIds, (b) => b.step.skipped);
   const requiredOnlyHours = round2(
-    items
-      .filter((b) => requiredClosure.has(b.step.id) && !b.step.skipped)
-      .reduce((sum, b) => sum + b.step.hours, 0),
+    items.filter((b) => requiredClosure.has(b.step.id)).reduce((sum, b) => sum + b.step.hours, 0),
   );
 
   // 实践类的前置（传递）学习项，在实践优先路线里排在其他学习项之前。
@@ -423,11 +487,11 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
 
   const ctx: RouteContext = {
     opp,
-    hpw,
+    hours,
     budget,
     today: options?.today,
     requiredOnlyHours,
-    cyclicWarning: '部分准备项的依赖关系成环，无法确定先后，这些步骤按机会数据中的原顺序排列，请向官方或团队确认。',
+    cyclicWarning: '部分准备项的依赖关系成环，无法确定先后，环上的步骤从原顺序最靠前的一项开始排，其余依赖关系仍被遵守，请向官方或团队确认。',
   };
 
   let anyCyclic = false;
@@ -436,7 +500,7 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
     anyCyclic = anyCyclic || cyclic;
     return buildRoute(type, order, cyclic, ctx);
   });
-  if (anyCyclic) warnings.push('机会数据中的准备项依赖关系成环，相关步骤按原顺序排列。');
+  if (anyCyclic) warnings.push('机会数据中的准备项依赖关系成环，环上的步骤从原顺序最靠前的一项开始排列。');
 
   return {
     status: 'routes',
