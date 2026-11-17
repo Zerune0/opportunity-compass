@@ -16,7 +16,20 @@ const labels = {
 export function Passport({ opportunityId }: { opportunityId?: string }) {
   const [profile, setProfile] = useState<StudentProfile | null>();
   const [message, setMessage] = useState("");
-  useEffect(() => { setProfile(loadProfile()); }, []);
+  useEffect(() => {
+    function refresh() {
+      setProfile(loadProfile());
+    }
+
+    const initialRead = window.requestAnimationFrame(refresh);
+    window.addEventListener("storage", refresh);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      window.cancelAnimationFrame(initialRead);
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("pageshow", refresh);
+    };
+  }, []);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
