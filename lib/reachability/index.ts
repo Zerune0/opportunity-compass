@@ -5,22 +5,25 @@
  * 规则：
  * 1. eligibility = checkEligibility(profile, opp, options)。
  * 2. 准备差距 = 没有被证据覆盖的准备项（覆盖规则见 ./coverage.ts）。
+ *    「必需准备」= requiredPrepClosure：未覆盖的必需项 + 它们未覆盖的前置依赖（传递闭包；
+ *    遇到已覆盖的节点不计、也不再往前追），与 planRoutes 的「只做申请必需项」同一口径。
+ *    小时 / 费用为负数或非有限数时按 0。
  * 3. 只计入 student_id 与 opportunity_id 都匹配的 grants：approved 才能化解障碍（记入 applied_grant_ids）；
  *    pending 只列入对应障碍的 pending_grant_ids，不算化解。
  * 4. 四类障碍。信息不足时不造障碍，而是把缺的字段写进 missing_info：
  *    - device：缺的每个设备一条障碍；approved 且 device 相同的 device grant → 化解。
- *    - cost：需要的钱 = fee_usd + 未覆盖且申请必需的准备项费用；超过 budget_usd → 障碍（shortfall = 差额）；
+ *    - cost：需要的钱 = fee_usd + 必需准备（见第 2 条）的费用；超过 budget_usd → 障碍（shortfall = 差额）；
  *      approved fee_waiver 可抵金额 ≥ 差额 → 化解。可抵金额 = 有金额的 waiver 之和
  *      + （存在 amount_usd 为 null 的 waiver ? fee_usd : 0）——null 金额只表示「免报名费」，
  *      多张合计也只抵一次 fee_usd，不能抵准备费。
  *      fee_usd 为 null：记 opportunity.cost.fee_usd；预算没填再记 profile.budget_usd；
- *      预算已填且「未覆盖的必需准备费」这个下限 > 预算 + 有金额的 waiver 之和 → 一条未化解的 cost 障碍
+ *      预算已填且「必需准备费」这个下限 > 预算 + 有金额的 waiver 之和 → 一条未化解的 cost 障碍
  *      （shortfall = 下限 − 预算，文案写明「至少还差」「实际可能更多」）。
  *    - transport：线上机会跳过；交通 none/limited 或需要自费差旅 → 一条障碍；任一 approved transport_subsidy → 化解。
  *      若交通没填但官方明确需要自费差旅，仍记障碍，同时把 profile.transport 列为缺失信息。
  *    - time（最多两条）：
  *      a) 参与期每周时间：需要 > 可用 → 障碍（shortfall = 每周缺口）；time_support 小时和 ≥ 缺口 → 化解。
- *      b) 截止前准备时间：H = 未覆盖且申请必需的准备项小时合计。
+ *      b) 截止前准备时间：H = 必需准备（见第 2 条，含未覆盖的前置依赖）小时合计。
  *         无截止日期（滚动）→ 跳过。有截止日期时（与 H 无关）：格式无法识别 → 缺 opportunity.deadline；
  *         today 缺失或无法解析 → 缺 options.today；截止日期早于 today → 「已过截止日期」障碍，任何 grant 都不能化解。
  *         否则 H = 0 → 跳过；剩余周数 W = max(剩余天数, 1) / 7；H > 可用 × W → 障碍
@@ -43,9 +46,10 @@ import type {
   StudentProfile,
   SupportType,
 } from '../types';
-import { findCoveringEvidence } from './coverage';
+import { fmt } from '../format';
+import { findCoveringEvidence, nonNegOrZero, requiredPrepClosure } from './coverage';
 
-export { evidenceCoversPrep, findCoveringEvidence } from './coverage';
+export { evidenceCoversPrep, findCoveringEvidence, requiredPrepClosure } from './coverage';
 
 const DEVICE_ZH: Record<string, string> = {
   laptop: '笔记本电脑',
@@ -71,10 +75,6 @@ const MISSING_ZH: Record<string, string> = {
 
 function roundUpHalf(x: number): number {
   return Math.ceil(x * 2 - 1e-9) / 2;
-}
-
-function fmt(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '');
 }
 
 export function analyzeReachability(
@@ -105,9 +105,10 @@ export function analyzeReachability(
       reason,
     };
   });
-  const requiredUncovered = uncovered.filter((p) => p.required_for_application);
-  const prepCost = requiredUncovered.reduce((s, p) => s + p.estimated_cost_usd, 0);
-  const prepHours = requiredUncovered.reduce((s, p) => s + p.estimated_hours, 0);
+  // 必需准备 = 未覆盖的必需项 + 它们未覆盖的前置依赖（传递），与 planRoutes 共用同一函数。
+  const requiredPrep = requiredPrepClosure(profile, opp);
+  const prepCost = requiredPrep.reduce((s, p) => s + nonNegOrZero(p.estimated_cost_usd), 0);
+  const prepHours = requiredPrep.reduce((s, p) => s + nonNegOrZero(p.estimated_hours), 0);
 
   // ── grants ──
   const mine = grants.filter((g) => g.student_id === profile.id && g.opportunity_id === opp.id);

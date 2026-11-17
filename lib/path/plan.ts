@@ -25,7 +25,7 @@
  */
 import { checkEligibility } from '../eligibility';
 import { daysBetween, parseISODate } from '../eligibility/dates';
-import { findCoveringEvidence } from '../reachability/coverage';
+import { findCoveringEvidence, requiredPrepClosure } from '../reachability/coverage';
 import type {
   AlternativeHint,
   EligibilityItem,
@@ -465,10 +465,12 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
   }
 
   // 只做申请必需项：只取未被证据跳过的必需项；遇到已跳过的前置步骤不计入，也不再往前追。
-  const requiredIds = items.filter((b) => b.required && !b.step.skipped).map((b) => b.step.id);
-  const requiredClosure = withAncestors(items, requiredIds, (b) => b.step.skipped);
+  // 与 analyzeReachability 的 H 共用 requiredPrepClosure，保证两边数字一致。
   const requiredOnlyHours = round2(
-    items.filter((b) => requiredClosure.has(b.step.id)).reduce((sum, b) => sum + b.step.hours, 0),
+    requiredPrepClosure(profile, opp, { excludeIds: RESERVED_STEP_IDS }).reduce(
+      (sum, p) => sum + safeNonNeg(p.estimated_hours),
+      0,
+    ),
   );
 
   // 实践类的前置（传递）学习项，在实践优先路线里排在其他学习项之前。

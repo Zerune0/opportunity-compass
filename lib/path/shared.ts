@@ -1,7 +1,10 @@
 /**
  * lib/path 内部共用的常量与格式化工具（纯函数）。
  */
+import { fmt } from '../format';
 import type { EvidenceKind, RouteType } from '../types';
+
+export { fmt };
 
 export const ROUTE_TITLES: Record<RouteType, string> = {
   learning_first: '学习优先',
@@ -45,11 +48,6 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return ak.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]));
 }
 
-/** 数字展示：整数原样，小数保留一位。 */
-export function fmt(n: number): string {
-  if (Number.isInteger(n)) return String(n);
-  return n.toFixed(1).replace(/\.0$/, '');
-}
 
 /** 金额展示，如 `$20`。 */
 export function usd(n: number): string {

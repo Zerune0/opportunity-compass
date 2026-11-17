@@ -21,3 +21,47 @@ export function evidenceCoversPrep(evidence: EvidenceItem, opp: Opportunity, pre
 export function findCoveringEvidence(profile: StudentProfile, opp: Opportunity, prep: PrepItem): EvidenceItem[] {
   return profile.evidence.filter((e) => evidenceCoversPrep(e, opp, prep));
 }
+
+/** 有限非负数，否则 0（负数 / NaN / Infinity / 非数字都按 0）。 */
+export function nonNegOrZero(n: unknown): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * 截止前「必须完成」的准备项：未被证据覆盖且 required_for_application 的项，
+ * 加上它们未被覆盖的前置依赖（传递闭包）。遇到已被证据覆盖的节点不计入、也不再沿它往前追。
+ * analyzeReachability（H、必需准备费）与 planRoutes（「只做申请必需项」）共用，保证两边数字一致。
+ *
+ * 坏数据健壮：重复 id 只取第一项；依赖不存在的 id、自依赖被忽略；成环不会死循环。
+ * excludeIds：调用方要忽略的准备项 id（例如路线规划里与固定步骤冲突的 id）。
+ * 返回顺序与 opp.preparation 原顺序一致。
+ */
+export function requiredPrepClosure(
+  profile: StudentProfile,
+  opp: Opportunity,
+  options?: { excludeIds?: readonly string[] },
+): PrepItem[] {
+  const exclude = options?.excludeIds ?? [];
+  const preps = Array.isArray(opp.preparation) ? opp.preparation : [];
+  const byId = new Map<string, PrepItem>();
+  for (const p of preps) {
+    if (exclude.includes(p.id) || byId.has(p.id)) continue;
+    byId.set(p.id, p);
+  }
+  const covered = (p: PrepItem) => findCoveringEvidence(profile, opp, p).length > 0;
+  const out = new Set<string>();
+  const seen = new Set<string>();
+  const stack = [...byId.values()].filter((p) => p.required_for_application === true).map((p) => p.id);
+  while (stack.length > 0) {
+    const id = stack.pop() as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = byId.get(id);
+    if (!node || covered(node)) continue;
+    out.add(id);
+    for (const d of Array.isArray(node.depends_on) ? node.depends_on : []) {
+      if (d !== id && byId.has(d)) stack.push(d);
+    }
+  }
+  return [...byId.values()].filter((p) => out.has(p.id));
+}
