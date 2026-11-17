@@ -18,6 +18,18 @@
 /** ISO 日期字符串 `YYYY-MM-DD`。 */
 export type ISODate = string;
 
+/**
+ * 学生端判断函数（checkEligibility / analyzeReachability / planRoutes）的可选末位参数。
+ *
+ * - `today`：评估基准日（`YYYY-MM-DD`），用于算年龄、距截止还有多久、是否来得及。
+ * - **不传 `today` 时函数不得读系统时间**（不得读取系统时钟）；
+ *   凡是依赖日期的判断一律按「信息不足」处理（资格项 unknown、`feasible_by_deadline` / `reachable` 等为 null）。
+ * - 由界面层负责传入今天的日期，这样纯函数保持确定性、可测试。
+ */
+export interface EvalOptions {
+  today?: ISODate;
+}
+
 /** 三态：判断不出来时用 unknown，而不是猜 true/false。 */
 export type EligibilityStatus = 'satisfied' | 'not_satisfied' | 'unknown';
 

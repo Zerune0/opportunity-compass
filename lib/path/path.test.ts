@@ -50,6 +50,12 @@ describe('planRoutes (mock)', () => {
   it('同输入同输出', () => {
     expect(planRoutes(BEFORE, FICTIONAL_OPP)).toEqual(planRoutes(BEFORE, FICTIONAL_OPP));
   });
+
+  it('接受可选 options.today；mock 阶段结果与不传时相同', () => {
+    expect(planRoutes(BEFORE, FICTIONAL_OPP, { today: '2026-11-17' })).toEqual(
+      planRoutes(BEFORE, FICTIONAL_OPP),
+    );
+  });
 });
 
 describe('diffRoutes (mock)', () => {

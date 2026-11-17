@@ -52,4 +52,10 @@ describe('checkEligibility (mock)', () => {
   it('同输入同输出', () => {
     expect(checkEligibility(PROFILE, FICTIONAL_OPP)).toEqual(checkEligibility(PROFILE, FICTIONAL_OPP));
   });
+
+  it('接受可选 options.today；mock 阶段结果与不传时相同', () => {
+    expect(checkEligibility(PROFILE, FICTIONAL_OPP, { today: '2026-11-17' })).toEqual(
+      checkEligibility(PROFILE, FICTIONAL_OPP),
+    );
+  });
 });

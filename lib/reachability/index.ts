@@ -1,7 +1,7 @@
 /**
  * MOCK — 第 1 层替换（周三 23:00 前，主导）。
  *
- * analyzeReachability(profile, opp, grants)：资格 + 准备差距 + 是否现实可达 + 障碍列表
+ * analyzeReachability(profile, opp, grants, options?)：资格 + 准备差距 + 是否现实可达 + 障碍列表
  * （时间 / 费用 / 交通 / 设备）。grants = 主办方已分配给该学生的资源，approved 的会化解对应障碍。
  * 可达 ≠ 录取。
  *
@@ -16,6 +16,7 @@
 import { checkEligibility } from '../eligibility';
 import type {
   Barrier,
+  EvalOptions,
   Opportunity,
   ReachabilityResult,
   ReadinessGap,
@@ -27,8 +28,10 @@ export function analyzeReachability(
   profile: StudentProfile,
   opp: Opportunity,
   grants: ResourceGrant[],
+  options?: EvalOptions,
 ): ReachabilityResult {
-  const eligibility = checkEligibility(profile, opp);
+  // MOCK 阶段只把 options 原样传给 checkEligibility，不做日期相关判断（第 1 层实现）。
+  const eligibility = checkEligibility(profile, opp, options);
 
   const readiness_gaps: ReadinessGap[] = opp.preparation
     .filter(

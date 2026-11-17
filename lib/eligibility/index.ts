@@ -1,13 +1,25 @@
 /**
  * MOCK — 第 1 层替换（周三 23:00 前，主导）。
  *
- * checkEligibility(profile, opp)：逐条判断官方要求，返回 satisfied / not_satisfied / unknown，附来源原文。
+ * checkEligibility(profile, opp, options?)：逐条判断官方要求，返回 satisfied / not_satisfied / unknown，附来源原文。
  * 当前 mock：对所有要求一律返回 unknown（不猜），总体为 unknown（若无硬性要求则 eligible）。
  * 签名与最终版一致，之后只替换实现。纯函数、确定性、无 IO。
  */
-import type { EligibilityItem, EligibilityResult, Opportunity, StudentProfile } from '../types';
+import type {
+  EligibilityItem,
+  EligibilityResult,
+  EvalOptions,
+  Opportunity,
+  StudentProfile,
+} from '../types';
 
-export function checkEligibility(profile: StudentProfile, opp: Opportunity): EligibilityResult {
+export function checkEligibility(
+  profile: StudentProfile,
+  opp: Opportunity,
+  options?: EvalOptions,
+): EligibilityResult {
+  // MOCK 阶段暂不使用 options.today（第 1 层实现日期相关判断）。
+  void options;
   const items: EligibilityItem[] = opp.requirements.map((req) => ({
     requirement_id: req.id,
     requirement_type: req.type,

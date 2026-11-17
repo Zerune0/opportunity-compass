@@ -1,7 +1,7 @@
 /**
  * MOCK — 第 2 层替换（周四 20:00 前，主导）。
  *
- * planRoutes(profile, opp)：给出 2–3 条路线（学习优先 / 实践优先 / 社区协作），
+ * planRoutes(profile, opp, options?)：给出 2–3 条路线（学习优先 / 实践优先 / 社区协作），
  *   硬性资格不满足时返回 status = 'blocked'，不生成绕过路线，只给原因和替代提示。
  * diffRoutes(before, after)：两次规划之间的变化和原因。
  *
@@ -12,6 +12,7 @@
  */
 import { checkEligibility } from '../eligibility';
 import type {
+  EvalOptions,
   Opportunity,
   PlanResult,
   Route,
@@ -30,8 +31,13 @@ const ROUTE_TITLES: Record<RouteType, string> = {
   community: '社区协作',
 };
 
-export function planRoutes(profile: StudentProfile, opp: Opportunity): PlanResult {
-  const eligibility = checkEligibility(profile, opp);
+export function planRoutes(
+  profile: StudentProfile,
+  opp: Opportunity,
+  options?: EvalOptions,
+): PlanResult {
+  // MOCK 阶段只把 options 原样传给 checkEligibility，不检查截止日期（第 2 层实现）。
+  const eligibility = checkEligibility(profile, opp, options);
   const blocking = eligibility.items.filter((i) => i.hard && i.status === 'not_satisfied');
   if (blocking.length > 0) {
     return {

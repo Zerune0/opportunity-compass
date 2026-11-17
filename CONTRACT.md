@@ -26,6 +26,7 @@
 | `Scenario` | 主办方 what-if 场景（一律示例/模拟） | `students`、`opportunities`、`interventions`、`budget_usd`、`evaluation_date`、`existing_grants` |
 | `Intervention` | 可选支持措施 | `type`、`resolves`（障碍类型）、`unit_cost_usd`、`fixed_cost_usd`（只计一次）、`capacity`、`mutually_exclusive_with` |
 | `JointResult` | 联合求解结果 | `status`（OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT）、`selected_intervention_ids`、`allocations`、`R0`、`R1`、`G`、`L`、`N`、`cost`、`notes` |
+| `EvalOptions` | `checkEligibility` / `analyzeReachability` / `planRoutes` 的可选末位参数 | `today?: ISODate`（评估基准日；不传时不读系统时间，依赖日期的判断按信息不足处理） |
 | `VerifyOptions` | `verifyPlan` 的可选第三参数 | `mode`、`loss_cap`（均可选，类型同 `SolveOptions`） |
 | `VerifyResult` | 独立复核 | `passed`、`checks[]`（`name`、`passed`、`detail`） |
 
@@ -43,9 +44,9 @@
 
 | 函数 | 位置 | 签名 | 状态 |
 |---|---|---|---|
-| `checkEligibility` | `lib/eligibility` | `(profile: StudentProfile, opp: Opportunity) => EligibilityResult` | MOCK，第 1 层（周三 23:00）替换 |
-| `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[]) => ReachabilityResult` | MOCK，第 1 层（周三 23:00）替换 |
-| `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity) => PlanResult` | MOCK，第 2 层（周四 20:00）替换 |
+| `checkEligibility` | `lib/eligibility` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => EligibilityResult` | MOCK，第 1 层（周三 23:00）替换 |
+| `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => ReachabilityResult` | MOCK，第 1 层（周三 23:00）替换 |
+| `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => PlanResult` | MOCK，第 2 层（周四 20:00）替换 |
 | `diffRoutes` | `lib/path` | `(before: PlanResult, after: PlanResult) => RouteDiff` | MOCK，第 2 层（周四 20:00）替换 |
 | `solveJoint` | `lib/joint`（Charles） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | MOCK，Charles 替换 |
 | `verifyPlan` | `lib/joint`（Charles） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | MOCK，Charles 替换 |
@@ -53,7 +54,7 @@
 `VerifyOptions = { mode?: 'protect' | 'tradeoff'; loss_cap?: number }`（字段类型沿用 `SolveOptions`）。**第三参数为可选，待主导与 Charles 确认是否保留。**
 
 导入：`import { checkEligibility } from '@/lib/eligibility'`，类型 `import type { Opportunity } from '@/lib/types'`。
-**签名不会变，只换实现**；界面现在就可以接 mock。mock 的说明文字都带「MOCK」字样。
+**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**；界面现在就可以接 mock。mock 的说明文字都带「MOCK」字样。
 
 当前 mock 行为（只为让界面能跑，不是真实判断）：
 - `checkEligibility`：每条要求都返回 `unknown`；有硬性要求时总体 `unknown`，否则 `eligible`。
@@ -81,6 +82,7 @@
 - **grants 的作用**：`analyzeReachability` 只用 `status = 'approved'` 且 student_id / opportunity_id 匹配的 grants 去化解对应障碍（设备→device、交通补助→transport、费用减免→cost、时间支持→time）；`pending` 只产生「若获批」的条件提示。
 - **硬性不满足不给绕过路线**：`planRoutes` 遇到硬性 not_satisfied 返回 `status: 'blocked'`，只给原因和「下一届 / 同领域替代」提示，`routes` 为空。资格 unknown 时仍给路线，但带提醒。
 - **证据跳过步骤**：学生已有证据覆盖的步骤标 `skipped: true` 并写 `skip_reason`，不计入总小时 / 费用；`diffRoutes` 要说得出变化原因。
+- **评估基准日 `options.today`**：`today`（`YYYY-MM-DD`）用于算年龄、距截止还有多久、是否来得及。**不传时函数不得读系统时间**（不用 `Date.now()` / `new Date()`），凡是依赖日期的判断一律按「信息不足」处理（unknown / null）；由界面层负责传入今天。
 - **公平性**：任何判断函数都不得读取 `school_name`。
 - **联合求解**：SEARCH_LIMIT_REACHED 不等于无解，也不得声称全局最优；INFEASIBLE 不得悄悄放松约束；`verifyPlan` 独立复核，不依赖求解器自己的可行性标记。所有结果都是模拟。
 
@@ -139,3 +141,9 @@ npm run dev        # 本地开发，打开 http://localhost:3000
 npm test           # Vitest，运行 lib/**/*.test.ts
 npm run build      # 生产构建（提交前必须通过）
 ```
+
+---
+
+## 变更记录
+
+- 2026-11-17：三个学生端函数（`checkEligibility` / `analyzeReachability` / `planRoutes`）新增可选 `options.today`（类型 `EvalOptions`），向后兼容。调用方无需修改；界面层若需要日期相关判断，应传入 `{ today }`。

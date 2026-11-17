@@ -75,4 +75,10 @@ describe('analyzeReachability (mock)', () => {
       analyzeReachability(PROFILE, FICTIONAL_OPP, [DEVICE_GRANT]),
     );
   });
+
+  it('接受可选 options.today；mock 阶段结果与不传时相同', () => {
+    expect(analyzeReachability(PROFILE, FICTIONAL_OPP, [DEVICE_GRANT], { today: '2026-11-17' })).toEqual(
+      analyzeReachability(PROFILE, FICTIONAL_OPP, [DEVICE_GRANT]),
+    );
+  });
 });
