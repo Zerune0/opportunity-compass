@@ -10,16 +10,22 @@
  * 4. 四类障碍。信息不足时不造障碍，而是把缺的字段写进 missing_info：
  *    - device：缺的每个设备一条障碍；approved 且 device 相同的 device grant → 化解。
  *    - cost：需要的钱 = fee_usd + 未覆盖且申请必需的准备项费用；超过 budget_usd → 障碍（shortfall = 差额）；
- *      approved fee_waiver 金额之和 ≥ 差额 → 化解（amount_usd 为 null 视为全额免除 fee_usd）。
+ *      approved fee_waiver 可抵金额 ≥ 差额 → 化解。可抵金额 = 有金额的 waiver 之和
+ *      + （存在 amount_usd 为 null 的 waiver ? fee_usd : 0）——null 金额只表示「免报名费」，
+ *      多张合计也只抵一次 fee_usd，不能抵准备费。
+ *      fee_usd 为 null：记 opportunity.cost.fee_usd；预算没填再记 profile.budget_usd；
+ *      预算已填且「未覆盖的必需准备费」这个下限 > 预算 + 有金额的 waiver 之和 → 一条未化解的 cost 障碍
+ *      （shortfall = 下限 − 预算，文案写明「至少还差」「实际可能更多」）。
  *    - transport：线上机会跳过；交通 none/limited 或需要自费差旅 → 一条障碍；任一 approved transport_subsidy → 化解。
  *      若交通没填但官方明确需要自费差旅，仍记障碍，同时把 profile.transport 列为缺失信息。
  *    - time（最多两条）：
  *      a) 参与期每周时间：需要 > 可用 → 障碍（shortfall = 每周缺口）；time_support 小时和 ≥ 缺口 → 化解。
  *      b) 截止前准备时间：H = 未覆盖且申请必需的准备项小时合计。
- *         只要有截止日期和 today 且截止日期早于 today → 「已过截止日期」障碍，任何 grant 都不能化解（与 H 无关）。
- *         否则 H = 0 或无截止日期（滚动）→ 跳过；没有 today → 缺 options.today；
- *         剩余周数 W = max(剩余天数, 1) / 7；H > 可用 × W → 障碍，
- *         shortfall = 每周还缺的小时（向上取整到 0.5 小时）；time_support 小时和 ≥ shortfall → 化解。
+ *         无截止日期（滚动）→ 跳过。有截止日期时（与 H 无关）：格式无法识别 → 缺 opportunity.deadline；
+ *         today 缺失或无法解析 → 缺 options.today；截止日期早于 today → 「已过截止日期」障碍，任何 grant 都不能化解。
+ *         否则 H = 0 → 跳过；剩余周数 W = max(剩余天数, 1) / 7；H > 可用 × W → 障碍
+ *         （剩余 0 天时文案为「今天截止」），shortfall = 每周还缺的小时（向上取整到 0.5 小时）；
+ *         time_support 小时和 ≥ shortfall → 化解。
  * 5. reachable：硬性 not_satisfied 或有未化解障碍 → false；否则资格 unknown 或 missing_info 非空 → null；否则 true。
  *
  * 公平性：不读取学校名、显示名（见 lib/types.ts StudentProfile 的公平性约定）。
@@ -139,18 +145,38 @@ export function analyzeReachability(
 
   // ── cost ──
   const fee = opp.cost.fee_usd;
+  const budget = profile.budget_usd;
+  const waivers = approvedOf('fee_waiver');
+  /** 有明确金额的已批准减免之和（可抵任何费用）。 */
+  const knownWaivers = waivers.reduce((s, g) => s + (g.amount_usd ?? 0), 0);
+  /** 是否有「金额为 null」的已批准减免：只表示免报名费，合计最多抵一次 fee_usd。 */
+  const hasFeeOnlyWaiver = waivers.some((g) => g.amount_usd == null);
   if (fee == null) {
     miss('opportunity.cost.fee_usd');
+    if (budget == null) {
+      miss('profile.budget_usd');
+    } else if (prepCost > budget + knownWaivers) {
+      // 官方费用未知，但仅必需准备费用这个下限就已超出预算 + 有金额的减免 → 已确定走不通。
+      const shortfall = prepCost - budget;
+      const rest = prepCost - budget - knownWaivers;
+      const waiverText = knownWaivers > 0 ? `，计入已批准的减免 $${fmt(knownWaivers)} 后，` : '，';
+      barriers.push({
+        type: 'cost',
+        description: `官方费用未写清；仅必需准备项费用就要约 $${fmt(prepCost)}，超出你的预算 $${fmt(budget)}${waiverText}至少还差 $${fmt(rest)}（官方费用未写清，实际可能更多）。`,
+        shortfall,
+        resolved: false,
+        resolved_by_grant_ids: [],
+        pending_grant_ids: pendingOf('fee_waiver'),
+      });
+    }
   } else {
     const need = fee + prepCost;
     if (need > 0) {
-      const budget = profile.budget_usd;
       if (budget == null) {
         miss('profile.budget_usd');
       } else if (need > budget) {
         const shortfall = need - budget;
-        const waivers = approvedOf('fee_waiver');
-        const covered = waivers.reduce((s, g) => s + (g.amount_usd == null ? fee : g.amount_usd), 0);
+        const covered = (hasFeeOnlyWaiver ? fee : 0) + knownWaivers;
         const resolved = waivers.length > 0 && covered >= shortfall;
         const parts = [`报名 / 项目费 $${fmt(fee)}`];
         if (prepCost > 0) parts.push(`必需准备项费用 $${fmt(prepCost)}`);
@@ -230,8 +256,11 @@ export function analyzeReachability(
     const deadline = parseISODate(opp.deadline);
     const today = parseISODate(options?.today);
     if (deadline == null) {
-      if (prepHours > 0) miss('opportunity.deadline');
-    } else if (today != null && daysBetween(today, deadline) < 0) {
+      miss('opportunity.deadline');
+    } else if (today == null) {
+      // 无法判断是否已过截止，也无法计算剩余时间。
+      miss('options.today');
+    } else if (daysBetween(today, deadline) < 0) {
       barriers.push({
         type: 'time',
         description: `已过截止日期（${opp.deadline}），本届无法再申请；可以关注下一届或同领域的其他机会。`,
@@ -241,21 +270,19 @@ export function analyzeReachability(
         pending_grant_ids: [],
       });
     } else if (prepHours > 0) {
-      if (today == null) {
-        miss('options.today');
-      } else if (available == null) {
+      if (available == null) {
         miss('profile.hours_per_week_available');
       } else {
-        const days = Math.max(daysBetween(today, deadline), 1);
+        const daysLeft = daysBetween(today, deadline);
+        const days = Math.max(daysLeft, 1);
         const weeks = days / 7;
         if (prepHours > available * weeks) {
           const shortfall = roundUpHalf(prepHours / weeks - available);
-          barriers.push(
-            timeBarrier(
-              `截止前（还剩 ${days} 天）需要完成约 ${fmt(prepHours)} 小时的必需准备，按你每周 ${fmt(available)} 小时来不及，每周还差约 ${fmt(shortfall)} 小时（向上取整到 0.5 小时）。`,
-              shortfall,
-            ),
-          );
+          const description =
+            daysLeft === 0
+              ? `今天截止（${opp.deadline}），还有约 ${fmt(prepHours)} 小时的必需准备没有完成，今天之内来不及。`
+              : `截止前（还剩 ${days} 天）需要完成约 ${fmt(prepHours)} 小时的必需准备，按你每周 ${fmt(available)} 小时来不及，每周还差约 ${fmt(shortfall)} 小时（向上取整到 0.5 小时）。`;
+          barriers.push(timeBarrier(description, shortfall));
         }
       }
     }

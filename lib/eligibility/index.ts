@@ -8,9 +8,10 @@
  * - grade：profile.grade 没填 → unknown；否则按 min/max（缺一侧即该侧不限）比较。
  * - age：profile.age（今天的年龄）没填 → unknown。参考日 R = rule.as_of ?? opp.deadline。
  *   R 为空 → 直接用当前年龄比较；R 非空但没传 options.today → unknown；
- *   R ≤ today → 用当前年龄；R 在 today 之后 → R 当天的年龄可能是 age+n 或 age+n+1
- *   （n = 完整年数；恰好整年时只有 age+n），全满足 → satisfied，全不满足 → not_satisfied，
- *   一个满足一个不满足 → unknown（取决于生日）。
+ *   R = today → 候选年龄 [age]；
+ *   R 早于 today → R 当天的年龄可能是 age−n−1 或 age−n（n = R 到 today 的完整年数；恰好整年时只有 age−n）；
+ *   R 晚于 today → R 当天的年龄可能是 age+n 或 age+n+1（n = today 到 R 的完整年数；恰好整年时只有 age+n）。
+ *   候选全满足 → satisfied，全不满足 → not_satisfied，混合 → unknown（取决于生日）。
  * - region：profile.region 没填 → unknown；国家代码大小写不敏感；国家不匹配 → not_satisfied；
  *   国家匹配且 states 非空时：region.state 没填 → unknown，匹配 → satisfied，否则 not_satisfied。
  * - citizenship：profile.citizenships 为 null/undefined → unknown；数组（含空）按交集判定。
@@ -161,31 +162,42 @@ function judgeAge(
       confirm: `这一条依赖日期计算；请对照官网原文「${req.source_text}」向官方确认你在 ${refRaw} 是否符合年龄要求。`,
     };
   }
-  if (compareYMD(ref, today) <= 0) {
-    return judgeCurrent(`年龄按${refWhich}（${refRaw}）计算，该日不晚于今天，`);
+  const cmp = compareYMD(ref, today);
+  if (cmp === 0) {
+    return judgeCurrent(`年龄按${refWhich}（${refRaw}）计算，该日就是今天，`);
   }
 
-  const { years, exact } = wholeYearsBetween(today, ref);
-  const candidates = exact ? [age + years] : [age + years, age + years + 1];
+  let candidates: number[];
+  if (cmp < 0) {
+    // 参考日已过：那天的年龄 = 今天的年龄 − 期间经过的生日数（n 或 n+1）。
+    const { years, exact } = wholeYearsBetween(ref, today);
+    candidates = exact ? [age - years] : [age - years - 1, age - years];
+  } else {
+    // 参考日在未来：那天的年龄 = 今天的年龄 + 期间经过的生日数（n 或 n+1）。
+    const { years, exact } = wholeYearsBetween(today, ref);
+    candidates = exact ? [age + years] : [age + years, age + years + 1];
+  }
+  const verbWill = cmp < 0 ? '是' : '将是';
   const oks = candidates.map((a) => inRange(a, req.min, req.max));
   const candText = candidates.map((a) => `${a} 岁`).join('或');
   if (oks.every(Boolean)) {
     return {
       status: 'satisfied',
-      explanation: `年龄按${refWhich}（${refRaw}）计算：你那天将是 ${candText}，要求为 ${range}，符合。`,
+      explanation: `年龄按${refWhich}（${refRaw}）计算：你那天${verbWill} ${candText}，要求为 ${range}，符合。`,
       used_profile_fields: fields,
     };
   }
   if (oks.every((o) => !o)) {
     return {
       status: 'not_satisfied',
-      explanation: `年龄按${refWhich}（${refRaw}）计算：你那天将是 ${candText}，要求为 ${range}，不符合。`,
+      explanation: `年龄按${refWhich}（${refRaw}）计算：你那天${verbWill} ${candText}，要求为 ${range}，不符合。`,
       used_profile_fields: fields,
     };
   }
+  const birthdayHint = cmp < 0 ? '取决于你的生日在那天之前还是之后' : '取决于你的生日是否在这之前';
   return {
     status: 'unknown',
-    explanation: `年龄按${refWhich}（${refRaw}）计算：你那天可能是 ${candText}，取决于你的生日是否在这之前，要求为 ${range}，所以无法确定。`,
+    explanation: `年龄按${refWhich}（${refRaw}）计算：你那天可能是 ${candText}，${birthdayHint}，要求为 ${range}，所以无法确定。`,
     used_profile_fields: fields,
     confirm: `结果取决于你的生日；请对照官网原文「${req.source_text}」向官方确认按哪一天计算年龄、你是否符合。`,
   };

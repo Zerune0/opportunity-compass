@@ -86,9 +86,9 @@ describe('checkEligibility — age', () => {
     expectUnknownWithHint(item, NO_REF);
   });
 
-  it('参考日不晚于 today → 用当前年龄', () => {
+  it('参考日早于 today 且两种可能都满足 → satisfied', () => {
     const req: Requirement = { ...NO_REF, as_of: '2026-01-01' };
-    expect(one(req, { ...BASE, age: 18 }, {}, '2026-11-17').status).toBe('satisfied');
+    expect(one(req, { ...BASE, age: 18 }, {}, '2026-11-17').status).toBe('satisfied'); // 17 或 18
   });
 
   it('参考日在 today 之后：两种可能都满足 / 都不满足 / 取决于生日', () => {
@@ -101,6 +101,52 @@ describe('checkEligibility — age', () => {
     expect(edge.explanation).toContain('生日');
     const edgeMin = one(NO_REF, { ...BASE, age: 13 }, {}, today); // 13 或 14
     expect(edgeMin.status).toBe('unknown');
+  });
+
+  it('参考日早于 today：不能直接用当前年龄，候选为 age−n−1 / age−n', () => {
+    const today = '2026-11-17';
+    // 2026-09-01 → 2026-11-17 不足 1 年：那天可能是 13 或 14
+    const minReq: Requirement = { id: 'req-age', type: 'age', min: 14, as_of: '2026-09-01', label: '至少 14 岁', hard: true, source_text: 'Must be 14 by September 1, 2026.' };
+    const a = one(minReq, { ...BASE, age: 14 }, {}, today);
+    expectUnknownWithHint(a, minReq);
+    expect(a.explanation).toContain('13 岁或14 岁');
+    // 那天可能是 18 或 19
+    const maxReq: Requirement = { id: 'req-age', type: 'age', max: 18, as_of: '2026-09-01', label: '不超过 18 岁', hard: true, source_text: 'Must be 18 or younger on September 1, 2026.' };
+    expectUnknownWithHint(one(maxReq, { ...BASE, age: 19 }, {}, today), maxReq);
+    expect(one(maxReq, { ...BASE, age: 18 }, {}, today).status).toBe('satisfied'); // 17 或 18
+    expect(one(maxReq, { ...BASE, age: 20 }, {}, today).status).toBe('not_satisfied'); // 19 或 20
+    // 2020-01-01 → 2026-11-17：6 个完整年，有零头 → 那天 9 或 10 岁
+    const old: Requirement = { id: 'req-age', type: 'age', max: 14, as_of: '2020-01-01', label: '不超过 14 岁', hard: true, source_text: 'Age 14 or under as of January 1, 2020.' };
+    expect(one(old, { ...BASE, age: 16 }, {}, today).status).toBe('satisfied');
+    // 恰好整年：2025-11-17 → 2026-11-17 正好 1 年 → 只能是 age−1
+    const exact: Requirement = { ...minReq, as_of: '2025-11-17' };
+    expect(one(exact, { ...BASE, age: 15 }, {}, today).status).toBe('satisfied'); // 14
+    expect(one(exact, { ...BASE, age: 14 }, {}, today).status).toBe('not_satisfied'); // 13
+  });
+
+  it('参考日就是 today → 只用当前年龄', () => {
+    const req: Requirement = { ...NO_REF, as_of: '2026-11-17' };
+    expect(one(req, { ...BASE, age: 18 }, {}, '2026-11-17').status).toBe('satisfied');
+    expect(one(req, { ...BASE, age: 19 }, {}, '2026-11-17').status).toBe('not_satisfied');
+    expect(one(req, { ...BASE, age: 14 }, {}, '2026-11-17').status).toBe('satisfied');
+    expect(one(req, { ...BASE, age: 13 }, {}, '2026-11-17').status).toBe('not_satisfied');
+    // 截止日期作为参考日、恰好是今天
+    expect(one(NO_REF, { ...BASE, age: 18 }, { deadline: '2026-11-17' }, '2026-11-17').status).toBe('satisfied');
+  });
+
+  it('闰日参考日', () => {
+    const req: Requirement = { id: 'req-age', type: 'age', min: 14, max: 18, as_of: '2028-02-29', label: '14–18 岁', hard: true, source_text: 'Ages 14-18 as of February 29, 2028.' };
+    // today 2027-02-28 → 2028-02-29：1 个完整年、有零头 → 那天 age+1 或 age+2
+    expect(one(req, { ...BASE, age: 13 }, {}, '2027-02-28').status).toBe('satisfied'); // 14 或 15
+    expect(one(req, { ...BASE, age: 12 }, {}, '2027-02-28').status).toBe('unknown'); // 13 或 14
+    // 参考日已过：2028-02-29 → today 2029-03-01，1 个完整年、有零头 → 那天 age−2 或 age−1
+    expect(one(req, { ...BASE, age: 20 }, {}, '2029-03-01').status).toBe('unknown'); // 18 或 19
+    expect(one(req, { ...BASE, age: 19 }, {}, '2029-03-01').status).toBe('satisfied'); // 17 或 18
+    // 2028-02-29 → 2032-02-29 恰好 4 年 → 只能是 age−4
+    expect(one(req, { ...BASE, age: 22 }, {}, '2032-02-29').status).toBe('satisfied'); // 18
+    expect(one(req, { ...BASE, age: 23 }, {}, '2032-02-29').status).toBe('not_satisfied'); // 19
+    // 参考日就是闰日当天
+    expect(one(req, { ...BASE, age: 18 }, {}, '2028-02-29').status).toBe('satisfied');
   });
 
   it('as_of 优先于截止日期；恰好整年时只有一种可能', () => {

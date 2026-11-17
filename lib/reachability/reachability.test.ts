@@ -217,6 +217,77 @@ describe('analyzeReachability — cost', () => {
     // 免费且无必需费用时不需要预算
     expect(analyzeReachability({ ...GOOD, budget_usd: null }, makeOpp(), [], TODAY).reachable).toBe(true);
   });
+
+  it('多张 amount null 的 fee_waiver 只抵一次 fee，不能抵准备费', () => {
+    const o = makeOpp({
+      cost: { fee_usd: 100, requires_travel_expense: false },
+      preparation: [{ id: 'prep-kit', title: '买材料包', estimated_hours: 0, estimated_cost_usd: 100, depends_on: [], required_for_application: true }],
+    });
+    const p = { ...GOOD, budget_usd: 0 };
+    const two = [grant({ id: 'w1', type: 'fee_waiver', amount_usd: null }), grant({ id: 'w2', type: 'fee_waiver', amount_usd: null })];
+    const r = analyzeReachability(p, o, two, TODAY);
+    const cost = r.barriers.find((b) => b.type === 'cost');
+    expect(cost?.shortfall).toBe(200);
+    expect(cost?.resolved).toBe(false);
+    expect(cost?.resolved_by_grant_ids).toEqual([]);
+    expect(r.reachable).toBe(false);
+    // null 金额（免 fee 100）+ 有金额 100 → 足够
+    const mixed = [grant({ id: 'w1', type: 'fee_waiver', amount_usd: null }), grant({ id: 'w3', type: 'fee_waiver', amount_usd: 100 })];
+    expect(analyzeReachability(p, o, mixed, TODAY).reachable).toBe(true);
+  });
+
+  describe('fee_usd 为 null', () => {
+    const unknownFee = makeOpp({
+      cost: { fee_usd: null, requires_travel_expense: false },
+      preparation: [{ id: 'prep-kit', title: '买材料包', estimated_hours: 0, estimated_cost_usd: 80, depends_on: [], required_for_application: true }],
+    });
+
+    it('仅必需准备费下限就超出预算 → 未化解的 cost 障碍，reachable false，仍记 fee 缺失', () => {
+      const r = analyzeReachability({ ...GOOD, budget_usd: 30 }, unknownFee, [], TODAY);
+      const cost = r.barriers.find((b) => b.type === 'cost');
+      expect(cost).toBeDefined();
+      expect(cost!.resolved).toBe(false);
+      expect(cost!.shortfall).toBe(50);
+      expect(cost!.description).toContain('至少还差 $50');
+      expect(cost!.description).toContain('实际可能更多');
+      expect(r.missing_info).toContain('opportunity.cost.fee_usd');
+      expect(r.reachable).toBe(false);
+    });
+
+    it('有金额的 waiver 计入下限判断；null 金额 waiver 帮不了准备费', () => {
+      const p = { ...GOOD, budget_usd: 30 };
+      // 30 + 20 < 80 → 仍是障碍，至少还差 30
+      const r1 = analyzeReachability(p, unknownFee, [grant({ id: 'w', type: 'fee_waiver', amount_usd: 20 })], TODAY);
+      const c1 = r1.barriers.find((b) => b.type === 'cost');
+      expect(c1?.resolved).toBe(false);
+      expect(c1?.description).toContain('至少还差 $30');
+      expect(r1.reachable).toBe(false);
+      // 30 + 50 ≥ 80 → 下限没超，只记缺失 → null
+      const r2 = analyzeReachability(p, unknownFee, [grant({ id: 'w', type: 'fee_waiver', amount_usd: 50 })], TODAY);
+      expect(r2.barriers.filter((b) => b.type === 'cost')).toEqual([]);
+      expect(r2.missing_info).toEqual(['opportunity.cost.fee_usd']);
+      expect(r2.reachable).toBeNull();
+      // null 金额 waiver 不抵准备费 → 仍是障碍
+      const r3 = analyzeReachability(p, unknownFee, [grant({ id: 'w', type: 'fee_waiver', amount_usd: null })], TODAY);
+      expect(r3.barriers.find((b) => b.type === 'cost')?.resolved).toBe(false);
+      expect(r3.reachable).toBe(false);
+    });
+
+    it('下限不超预算 → 只记缺失，reachable null', () => {
+      const r = analyzeReachability({ ...GOOD, budget_usd: 80 }, unknownFee, [], TODAY);
+      expect(r.barriers).toEqual([]);
+      expect(r.missing_info).toEqual(['opportunity.cost.fee_usd']);
+      expect(r.reachable).toBeNull();
+    });
+
+    it('预算没填 → 同时记 profile.budget_usd', () => {
+      const r = analyzeReachability({ ...GOOD, budget_usd: null }, unknownFee, [], TODAY);
+      expect(r.missing_info).toEqual(['opportunity.cost.fee_usd', 'profile.budget_usd']);
+      expect(r.reachable).toBeNull();
+      const r2 = analyzeReachability({ ...GOOD, budget_usd: null }, makeOpp({ cost: { fee_usd: null, requires_travel_expense: false } }), [], TODAY);
+      expect(r2.missing_info).toEqual(['opportunity.cost.fee_usd', 'profile.budget_usd']);
+    });
+  });
 });
 
 describe('analyzeReachability — transport', () => {
@@ -244,6 +315,22 @@ describe('analyzeReachability — transport', () => {
     expect(t).toHaveLength(1);
     expect(t[0].description).toContain('自费差旅');
     expect(t[0].description).toContain('有限');
+  });
+
+  it('hybrid 形式也检查交通：none / limited → 障碍；reliable 且无需自费差旅 → 无障碍', () => {
+    const hybrid = makeOpp({ location: { format: 'hybrid', country: 'US' } });
+    const none = analyzeReachability({ ...GOOD, transport: { level: 'none' } }, hybrid, [], TODAY);
+    expect(none.barriers.map((b) => b.type)).toEqual(['transport']);
+    expect(none.reachable).toBe(false);
+    const limited = analyzeReachability({ ...GOOD, transport: { level: 'limited' } }, hybrid, [], TODAY);
+    expect(limited.barriers.map((b) => b.type)).toEqual(['transport']);
+    expect(limited.barriers[0].description).toContain('有限');
+    const ok = analyzeReachability(GOOD, hybrid, [], TODAY);
+    expect(ok.barriers).toEqual([]);
+    expect(ok.reachable).toBe(true);
+    const fixed = analyzeReachability({ ...GOOD, transport: { level: 'none' } }, hybrid, [grant({ id: 'g-bus', type: 'transport_subsidy', amount_usd: 40 })], TODAY);
+    expect(fixed.reachable).toBe(true);
+    expect(analyzeReachability({ ...GOOD, transport: null }, hybrid, [], TODAY).missing_info).toEqual(['profile.transport']);
   });
 
   it('transport 没填 → missing；差旅不明且无障碍 → missing', () => {
@@ -321,6 +408,42 @@ describe('analyzeReachability — time', () => {
   it('滚动截止（deadline null）→ 跳过准备时间检查', () => {
     const r = analyzeReachability(GOOD, { ...prepOpp, deadline: null }, [], TODAY);
     expect(r.reachable).toBe(true);
+    // 滚动截止时不需要 today
+    const r2 = analyzeReachability(GOOD, makeOpp({ deadline: null }), []);
+    expect(r2.missing_info).toEqual([]);
+    expect(r2.reachable).toBe(true);
+  });
+
+  it('有截止日但没有可用的 today（即使没有准备差距）→ missing options.today，reachable null', () => {
+    const opp = makeOpp(); // 截止 2027-03-01，无准备项
+    const r = analyzeReachability(GOOD, opp, []);
+    expect(r.missing_info).toEqual(['options.today']);
+    expect(r.reachable).toBeNull();
+    expect(r.summary).toContain('今天的日期');
+    const bad = analyzeReachability(GOOD, opp, [], { today: 'garbage' });
+    expect(bad.missing_info).toEqual(['options.today']);
+    expect(bad.reachable).toBeNull();
+    // 对照：传了 today → true
+    expect(analyzeReachability(GOOD, opp, [], TODAY).reachable).toBe(true);
+  });
+
+  it('截止日期无法解析（即使没有准备项）→ missing opportunity.deadline，reachable null', () => {
+    const r = analyzeReachability(GOOD, makeOpp({ deadline: 'March 1' }), [], TODAY);
+    expect(r.missing_info).toEqual(['opportunity.deadline']);
+    expect(r.reachable).toBeNull();
+  });
+
+  it('截止日就是今天：文案写「今天截止」，不出现「还剩 1 天」「每周还差」', () => {
+    const todayOpp = makeOpp({ deadline: '2026-11-17', preparation: prepOpp.preparation });
+    const r = analyzeReachability(GOOD, todayOpp, [], TODAY);
+    const t = r.barriers.filter((b) => b.type === 'time');
+    expect(t).toHaveLength(1);
+    expect(t[0].description).toContain('今天截止');
+    expect(t[0].description).not.toContain('还剩');
+    expect(t[0].description).not.toContain('每周还差');
+    expect(r.reachable).toBe(false);
+    // 今天截止但没有准备差距 → 仍然可达（还没过期）
+    expect(analyzeReachability(GOOD, makeOpp({ deadline: '2026-11-17' }), [], TODAY).reachable).toBe(true);
   });
 });
 
