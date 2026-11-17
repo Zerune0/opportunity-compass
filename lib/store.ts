@@ -95,17 +95,21 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
 }
 
-function isGrantArray(v: unknown): v is ResourceGrant[] {
+function isUnknownArray(v: unknown): v is unknown[] {
+  return Array.isArray(v);
+}
+
+/**
+ * 单条 grant 的形状校验。opportunity_id 必须是字符串或 null；
+ * 缺少该字段（undefined）视为信息不足，不合法。
+ */
+function isGrant(g: unknown): g is ResourceGrant {
+  if (typeof g !== 'object' || g === null) return false;
+  const r = g as Record<string, unknown>;
   return (
-    Array.isArray(v) &&
-    v.every(
-      (g) =>
-        typeof g === 'object' &&
-        g !== null &&
-        typeof (g as ResourceGrant).id === 'string' &&
-        typeof (g as ResourceGrant).student_id === 'string' &&
-        typeof (g as ResourceGrant).opportunity_id === 'string',
-    )
+    typeof r.id === 'string' &&
+    typeof r.student_id === 'string' &&
+    (typeof r.opportunity_id === 'string' || r.opportunity_id === null)
   );
 }
 
@@ -181,17 +185,27 @@ export function clearSavedOpportunityIds(): void {
 
 // ───────────── 主办方 grants ─────────────
 
+/**
+ * 读取 grants。存的不是数组（或 JSON 损坏、SSR）时返回 []；
+ * 是数组时逐条过滤，丢掉非法条目（如缺 opportunity_id），保留合法的。
+ */
 export function loadGrants(): ResourceGrant[] {
-  return readJSON<ResourceGrant[]>(STORE_KEYS.grants, [], isGrantArray);
+  return readJSON<unknown[]>(STORE_KEYS.grants, [], isUnknownArray).filter(isGrant);
 }
 
 export function saveGrants(grants: ResourceGrant[]): boolean {
   return writeJSON(STORE_KEYS.grants, grants);
 }
 
-/** 某学生在某机会上的 grants（供 analyzeReachability 使用）。 */
+/**
+ * 某学生在某机会上生效的 grants（供 analyzeReachability 使用）：
+ * 包括 opportunity_id 等于该机会的，以及 opportunity_id === null（对该学生所有机会有效）的。
+ * 缺少 opportunity_id 字段的条目在读取时已被过滤掉，不会生效。
+ */
 export function grantsFor(studentId: string, opportunityId: string): ResourceGrant[] {
-  return loadGrants().filter((g) => g.student_id === studentId && g.opportunity_id === opportunityId);
+  return loadGrants().filter(
+    (g) => g.student_id === studentId && (g.opportunity_id === null || g.opportunity_id === opportunityId),
+  );
 }
 
 export function clearGrants(): void {

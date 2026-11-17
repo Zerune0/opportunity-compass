@@ -396,14 +396,26 @@ export const SUPPORT_RESOLVES: Readonly<Record<SupportType, BarrierType>> = {
 };
 
 /**
- * 主办方已分配给某位学生、针对某个机会的资源。
+ * 主办方已分配给某位学生的资源（可针对某个机会，也可对该学生的所有机会有效）。
  * 只有 status = 'approved' 的资源才能在 analyzeReachability 中化解障碍；
  * 'pending' 只产生「若获批则可达」的条件性提示（docs：待定资助 ≠ 已获资助）。
  */
 export interface ResourceGrant {
   id: string;
   student_id: string;
-  opportunity_id: string;
+  /**
+   * 适用的机会：
+   * - 字符串 = 只对该机会有效；
+   * - null = 对该学生的所有机会都有效（如借出的笔记本、交通卡）。
+   * 只有 === null 表示「所有机会」；缺少该字段（undefined）的 grant 一律不生效（信息不足不猜）。
+   * null 范围主要用于可重复使用的资源（device、time_support）；按金额计的资助
+   * （transport_subsidy、fee_waiver 的 amount_usd）建议指定具体机会——analyzeReachability
+   * 对每个机会各按全额计算，同一笔钱不会在机会之间分摊。
+   * 调用方不要把它当必填字符串使用，需要做空值判断。
+   */
+  opportunity_id: string | null;
+  /** 这份资源来自哪个措施（Intervention.id），若有；缺省 / null = 不来自场景内的措施。 */
+  intervention_id?: string | null;
   type: SupportType;
   status: 'approved' | 'pending';
   /** 金额（交通补助 / 费用减免），美元。 */
@@ -615,11 +627,17 @@ export interface Intervention {
   type: SupportType;
   /** 能化解的障碍类型（通常是 SUPPORT_RESOLVES[type]，可多于一种）。 */
   resolves: BarrierType[];
-  /** 每分配给一位学生的边际成本（美元）。 */
+  /**
+   * 每服务一位**不同学生**的边际成本（美元）。
+   * 同一学生凭同一措施参加多个机会，只计一次。
+   */
   unit_cost_usd: number;
   /** 启用该措施的固定成本（只计一次），默认 0。 */
   fixed_cost_usd?: number;
-  /** 最多可服务的学生人数（如 5 台设备 = 5），null = 不限。 */
+  /**
+   * 最多可服务的**不同学生**人数（如 5 台设备 = 5），null = 不限。
+   * 同一学生凭同一措施参加多个机会，只占 1 个容量。
+   */
   capacity: number | null;
   /** 只对这些机会有效；缺省 = 对场景内所有机会有效。 */
   opportunity_ids?: string[];
@@ -653,7 +671,12 @@ export interface Scenario {
   interventions: Intervention[];
   /** 总预算（美元）。 */
   budget_usd: number;
-  /** 场景开始前已存在的 grants（计入 R0）。 */
+  /**
+   * 场景开始前已存在的 grants（计入 R0）。
+   * 带 intervention_id 的已有 grant 占用该措施的容量（按不同学生计），不重复计成本：
+   * 若某 (intervention_id, student_id) 已出现在 existing_grants 中（该 grant 带相同的 intervention_id），
+   * 则它在本方案中的所有 Allocation 的 cost_usd 都记 0，容量也不再重复占用（已有 grant 已占 1 个）。
+   */
   existing_grants?: ResourceGrant[];
 }
 
@@ -669,7 +692,13 @@ export interface SolveOptions {
   max_search_nodes?: number;
 }
 
-/** verifyPlan 的可选第三参数（第三参数是否保留，待主导与 Charles 确认）。 */
+/**
+ * verifyPlan 的可选第三参数（已确认保留）。
+ * 用途：复核损失 L（coverage_loss）时需要知道模式与损失上限。
+ * 不传，或 mode 缺省，按 protect 处理：损失 L 必须为 0；
+ * mode = 'tradeoff' 时 L ≤ loss_cap 才算通过；mode = 'tradeoff' 但没给 loss_cap 时判为不通过
+ * （与 solveJoint 在同样输入下返回 UNSUPPORTED_INPUT 一致）。
+ */
 export interface VerifyOptions {
   mode?: SolveOptions['mode'];
   loss_cap?: SolveOptions['loss_cap'];
@@ -684,7 +713,17 @@ export const JOINT_STATUSES: readonly JointStatus[] = [
   'UNSUPPORTED_INPUT',
 ] as const;
 
-/** 一次资源分配（决策变量 y）：把某措施的一个单位分给某学生的某机会。 */
+/**
+ * 一次资源分配（决策变量 y）：某措施用于某学生的某机会。
+ * 计量口径（容量与成本按「不同学生」计）：
+ * - 同一 (intervention_id, student_id) 可以有多条 Allocation（对应不同机会）；
+ * - 容量与成本按不同的 (intervention_id, student_id) 计数；
+ * - 同一 (intervention_id, student_id) 的多条 Allocation 中，cost_usd 只在其中一条记
+ *   unit_cost_usd，其余记 0（这样 JointCost.marginal_usd 仍等于各 Allocation 的 cost_usd 之和）；
+ * - 若该 (intervention_id, student_id) 已出现在 Scenario.existing_grants 中（该 grant 带相同的
+ *   intervention_id），则它在本方案中的所有 Allocation 的 cost_usd 都记 0，容量也不再重复占用
+ *   （已有 grant 已占 1 个）。
+ */
 export interface Allocation {
   intervention_id: string;
   student_id: string;
@@ -701,7 +740,10 @@ export interface JointPlan {
 export interface JointCost {
   /** 已启用措施的固定成本合计（每项只计一次）。 */
   fixed_usd: number;
-  /** 各分配的边际成本合计。 */
+  /**
+   * 各 Allocation 的 cost_usd 之和；按 Allocation 的口径，
+   * 等于每个不同 (intervention_id, student_id) 计一次 unit_cost_usd。
+   */
   marginal_usd: number;
   total_usd: number;
 }
@@ -741,6 +783,7 @@ export interface VerifyCheck {
    * 检查项名称，建议取值：
    * budget / capacity / mutual_exclusion / eligibility / barrier_resolution /
    * cost_accounting / coverage_loss / allocation_validity。
+   * capacity 与 cost_accounting 按 Allocation 注释里的口径复核（按不同 (intervention_id, student_id) 计）。
    */
   name: string;
   passed: boolean;

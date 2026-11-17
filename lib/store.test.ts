@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   addEvidence,
   clearAll,
+  grantsFor,
   loadGrants,
+  saveGrants,
   loadProfile,
   loadSavedOpportunityIds,
   saveProfile,
@@ -10,7 +12,7 @@ import {
   toggleSavedOpportunity,
   STORE_KEYS,
 } from './store';
-import type { StudentProfile } from './types';
+import type { ResourceGrant, StudentProfile } from './types';
 
 const PROFILE: StudentProfile = { id: 'p1', is_sample: true, display_name: '测试学生', evidence: [] };
 
@@ -66,6 +68,43 @@ describe('store：有 localStorage', () => {
     expect(toggleSavedOpportunity('a')).toEqual(['a']);
     expect(toggleSavedOpportunity('b')).toEqual(['a', 'b']);
     expect(toggleSavedOpportunity('a')).toEqual(['b']);
+  });
+
+  it('grants：opportunity_id 为 null 的 grant 能存取，grantsFor 对该学生的任何机会都返回它', () => {
+    installFakeWindow();
+    const base = { type: 'device' as const, device: 'laptop' as const, status: 'approved' as const, provider: 'Example Org（虚构）', is_sample: true };
+    const grants: ResourceGrant[] = [
+      { ...base, id: 'g-all', student_id: 'p1', opportunity_id: null, intervention_id: 'iv-1' },
+      { ...base, id: 'g-a', student_id: 'p1', opportunity_id: 'opp-a' },
+      { ...base, id: 'g-other', student_id: 'p2', opportunity_id: null },
+    ];
+    expect(saveGrants(grants)).toBe(true);
+    expect(loadGrants()).toEqual(grants);
+    expect(grantsFor('p1', 'opp-a').map((g) => g.id)).toEqual(['g-all', 'g-a']);
+    expect(grantsFor('p1', 'opp-b').map((g) => g.id)).toEqual(['g-all']);
+    expect(grantsFor('p2', 'opp-a').map((g) => g.id)).toEqual(['g-other']);
+  });
+
+  it('grants：一组里混有缺 opportunity_id 的条目时，只丢掉非法条目，保留合法的', () => {
+    const data = installFakeWindow();
+    const base = { type: 'device', device: 'laptop', status: 'approved', provider: 'Example Org（虚构）', is_sample: true };
+    data.set(
+      storageKey(STORE_KEYS.grants),
+      JSON.stringify([
+        { ...base, id: 'g-ok', student_id: 'p1', opportunity_id: 'opp-a' },
+        { ...base, id: 'g-missing', student_id: 'p1' },
+        { ...base, id: 'g-null', student_id: 'p1', opportunity_id: null },
+        'not-an-object',
+      ]),
+    );
+    expect(loadGrants().map((g) => g.id)).toEqual(['g-ok', 'g-null']);
+    expect(grantsFor('p1', 'opp-b').map((g) => g.id)).toEqual(['g-null']);
+  });
+
+  it('grants：存的不是数组时回退 []', () => {
+    const data = installFakeWindow();
+    data.set(storageKey(STORE_KEYS.grants), JSON.stringify({ id: 'g' }));
+    expect(loadGrants()).toEqual([]);
   });
 
   it('损坏的 JSON 回退默认值', () => {
