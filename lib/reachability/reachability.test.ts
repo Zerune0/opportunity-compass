@@ -4,6 +4,7 @@ import { findCoveringEvidence } from './coverage';
 import profilesJson from '@/data/profiles.json';
 import {
   BARRIER_TYPES,
+  SUPPORT_RESOLVES,
   type Opportunity,
   type ResourceGrant,
   type StudentProfile,
@@ -331,6 +332,66 @@ describe('analyzeReachability — transport', () => {
     const fixed = analyzeReachability({ ...GOOD, transport: { level: 'none' } }, hybrid, [grant({ id: 'g-bus', type: 'transport_subsidy', amount_usd: 40 })], TODAY);
     expect(fixed.reachable).toBe(true);
     expect(analyzeReachability({ ...GOOD, transport: null }, hybrid, [], TODAY).missing_info).toEqual(['profile.transport']);
+  });
+
+  it('alternative_access（替代参与方式）：approved 化解交通障碍、可达；pending 不化解，只列入 pending_grant_ids', () => {
+    const p: StudentProfile = { ...GOOD, transport: { level: 'none' } };
+    const before = analyzeReachability(p, inPerson, [], TODAY);
+    expect(before.barriers.map((b) => b.type)).toEqual(['transport']);
+    expect(before.reachable).toBe(false);
+
+    const approvedAlt = analyzeReachability(p, inPerson, [grant({ id: 'g-online-entry', type: 'alternative_access' })], TODAY);
+    expect(approvedAlt.barriers).toHaveLength(1);
+    expect(approvedAlt.barriers[0].type).toBe('transport');
+    expect(approvedAlt.barriers[0].resolved).toBe(true);
+    expect(approvedAlt.barriers[0].resolved_by_grant_ids).toEqual(['g-online-entry']);
+    expect(approvedAlt.applied_grant_ids).toEqual(['g-online-entry']);
+    expect(approvedAlt.reachable).toBe(true);
+
+    const pendingAlt = analyzeReachability(
+      p,
+      inPerson,
+      [grant({ id: 'g-online-entry', type: 'alternative_access', status: 'pending' })],
+      TODAY,
+    );
+    expect(pendingAlt.barriers[0].resolved).toBe(false);
+    expect(pendingAlt.barriers[0].resolved_by_grant_ids).toEqual([]);
+    expect(pendingAlt.barriers[0].pending_grant_ids).toEqual(['g-online-entry']);
+    expect(pendingAlt.applied_grant_ids).toEqual([]);
+    expect(pendingAlt.reachable).toBe(false);
+  });
+
+  it('transport_subsidy 与 alternative_access 同等对待：两者都 approved 时都记入 resolved_by_grant_ids（按输入顺序）', () => {
+    const p: StudentProfile = { ...GOOD, transport: { level: 'none' } };
+    const r = analyzeReachability(
+      p,
+      inPerson,
+      [
+        grant({ id: 'g-alt', type: 'alternative_access' }),
+        grant({ id: 'g-bus', type: 'transport_subsidy', amount_usd: 80 }),
+        grant({ id: 'g-alt-pending', type: 'alternative_access', status: 'pending' }),
+        grant({ id: 'g-bus-pending', type: 'transport_subsidy', status: 'pending' }),
+      ],
+      TODAY,
+    );
+    expect(r.barriers[0].resolved).toBe(true);
+    expect(r.barriers[0].resolved_by_grant_ids).toEqual(['g-alt', 'g-bus']);
+    expect(r.barriers[0].pending_grant_ids).toEqual(['g-alt-pending', 'g-bus-pending']);
+    expect(r.reachable).toBe(true);
+  });
+
+  it('alternative_access 不化解其他类型的障碍（如设备）', () => {
+    const p: StudentProfile = { ...GOOD, devices: [] };
+    const opp = makeOpp({ required_devices: ['laptop'] });
+    const r = analyzeReachability(p, opp, [grant({ id: 'g-alt', type: 'alternative_access' })], TODAY);
+    expect(r.barriers.map((b) => b.type)).toEqual(['device']);
+    expect(r.barriers[0].resolved).toBe(false);
+    expect(r.reachable).toBe(false);
+  });
+
+  it('SUPPORT_RESOLVES：alternative_access 与 transport_subsidy 都映射到 transport', () => {
+    expect(SUPPORT_RESOLVES.alternative_access).toBe('transport');
+    expect(SUPPORT_RESOLVES.transport_subsidy).toBe('transport');
   });
 
   it('transport 没填 → missing；差旅不明且无障碍 → missing', () => {
