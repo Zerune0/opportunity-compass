@@ -26,3 +26,9 @@ data/private/
 data/raw/
 uploads/
 tmp/
+
+# Next.js / TypeScript / Vercel
+next-env.d.ts
+*.tsbuildinfo
+.vercel/
+out/

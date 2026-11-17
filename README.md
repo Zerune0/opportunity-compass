@@ -6,7 +6,17 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 帮助缺少资源、人脉和专业指导的学生发现真实机会，理解资格、准备差距与现实参与障碍，选择可执行的成长路线，并以技能证据和申请规划采取行动。
 
 ## Project status
-**Planning and repository scaffold only.** No application, API, discovery pipeline, eligibility engine, optimizer, or deployed service has been implemented or tested. All capabilities below are planned product goals. This is an independent project; no ExamPilot code is included.
+**Early scaffold for Bridge The Gap Hacks.** A Next.js app skeleton with four placeholder pages exists. No eligibility engine, route planner, optimizer, or deployed service has been completed yet. All capabilities below are product goals unless stated otherwise; the four-day scope is defined in `CONTRACT.md`. This is an independent project; no ExamPilot code is included.
+
+## Getting started
+Requires Node.js >= 20.9 and npm.
+
+```bash
+npm install
+npm run dev     # http://localhost:3000
+npm test        # Vitest (lib/**/*.test.ts)
+npm run build
+```
 
 ## Student-first product
 1. **Discover:** verified opportunity cards with official links, deadlines, restrictions, source trust and verification dates.
@@ -33,26 +43,26 @@ Organizer tools support the student journey; they do not replace it.
 - [Source and decisions](docs/decisions.md)
 
 ## Structure
+Stack: Next.js (App Router) + TypeScript + Tailwind + Vitest, deployed on Vercel. No backend or database: opportunities and sample profiles live in `data/*.json`; student input stays in browser localStorage.
+
 ```text
-apps/student/           Student Compass and dual views (placeholder)
-apps/organizer/         Supporting organizer interface (placeholder)
-src/opportunity_compass/
-  discovery/            Sources and opportunity records
-  eligibility/          Source-backed requirement evaluation
-  reachability/         Practical participation constraints
-  pathways/             Adaptive growth routes
-  evidence/             Skill Passport and replay
-  applications/         Multi-opportunity planning
-  connect/              Consent-based publishing and matching
-  organizer/            Supporting intervention scenarios
-  shared_decision/      Shared capacity, cost and allocation
-  validation/           Independent candidate verification
-tests/                  Future behavioral tests
-data/examples/          Future explicitly synthetic fixtures
+app/                    Next.js routes: /, /quests, /map, /passport, /organizer (placeholders for now)
+lib/                    Pure decision functions and shared types (tested with Vitest)
+components/             Shared UI components (planned)
+data/profiles.json      Sample student profiles (is_sample: true)
+data/opportunities.json Verified opportunity records (planned)
+data/scenarios/         Simulated organizer scenarios (planned)
+data/examples/          Explicitly synthetic fixtures
+tests/                  Reserved for future behavioral tests
 docs/                   Product and engineering plans
 ```
 
-These directories contain documentation placeholders, not working modules. No framework or dependency stack is frozen. There is no application run command yet.
+## 后续计划 / Future work
+Not built in the four-day competition scope and not implemented:
+- Accounts and a database
+- Quest Creator (verified organizer publishing)
+- Talent Board (optional field-level sharing)
+- Consent-based two-way matching
 
 ## Boundaries
 No admission guarantees, AI-invented opportunities, virtual-level eligibility, public ability rankings, mandatory streaks, virtual currency, generalized social network, recruitment ATS or complete course platform. Simulation outputs are not real-world impact evidence.

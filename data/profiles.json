@@ -1,0 +1,67 @@
+[
+  {
+    "id": "sample-maya",
+    "is_sample": true,
+    "display_name": "示例学生 Maya",
+    "grade": 11,
+    "age": 16,
+    "region": { "country": "US", "state": "CA", "city": "Example City", "locality": "urban" },
+    "citizenships": ["US"],
+    "statuses": ["high_school_student", "low_income", "first_generation"],
+    "school_name": "Example Bay High School（虚构）",
+    "hours_per_week_available": 4,
+    "budget_usd": 20,
+    "transport": { "level": "reliable", "max_one_way_minutes": 45, "note": "坐公交" },
+    "devices": ["smartphone"],
+    "skills": [{ "name": "python", "level": "beginner" }],
+    "evidence": [
+      {
+        "id": "ev-maya-1",
+        "title": "用手机完成的 Python 入门练习（示例）",
+        "kind": "course",
+        "skills": ["python"],
+        "status": "self_reported",
+        "url": null,
+        "description": "示例证据：课后打工时间多，只能用手机零碎学习。",
+        "added_on": "2026-11-01"
+      }
+    ],
+    "interests": ["computer_science", "climate"]
+  },
+  {
+    "id": "sample-leo",
+    "is_sample": true,
+    "display_name": "示例学生 Leo",
+    "grade": 10,
+    "age": null,
+    "region": { "country": "US", "state": "MT", "locality": "rural" },
+    "school_name": "Example Valley Rural School（虚构）",
+    "hours_per_week_available": 10,
+    "transport": { "level": "none", "max_one_way_minutes": null, "note": "最近的城市单程两小时，没有公共交通" },
+    "devices": ["laptop", "home_internet"],
+    "skills": [{ "name": "python", "level": "intermediate" }],
+    "evidence": [],
+    "interests": ["biology", "data_science"]
+  },
+  {
+    "id": "sample-ana",
+    "is_sample": true,
+    "display_name": "示例学生 Ana",
+    "grade": 12,
+    "age": 17,
+    "region": { "country": "US", "state": "NY", "city": "Example Town", "locality": "suburban" },
+    "citizenships": ["US"],
+    "statuses": ["high_school_student"],
+    "school_name": "Example Heights High School（虚构）",
+    "hours_per_week_available": 12,
+    "budget_usd": 200,
+    "transport": { "level": "reliable", "max_one_way_minutes": 60, "note": "家里可以开车接送" },
+    "devices": ["laptop", "webcam", "home_internet", "smartphone"],
+    "skills": [
+      { "name": "python", "level": "intermediate" },
+      { "name": "data_analysis", "level": "beginner" }
+    ],
+    "evidence": [],
+    "interests": ["computer_science", "public_health"]
+  }
+]
