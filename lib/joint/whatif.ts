@@ -3,13 +3,15 @@
  *
  * 流程：
  * 1. 处理勾选：enabledIds = 纳入考虑的措施；requiredIds = 主办方要求必须启用的措施（须是 enabledIds 的子集）。
- *    **前置依赖的处理**：已纳入、但其前置依赖（requires）未纳入的措施会被排除（迭代到不动点），并在
- *    `excluded` 与 `assumptions` 里写明原因。这样不会出现「依赖没开、措施照样生效」——
- *    因为 withEnabledInterventions 会删掉指向未启用措施的 requires 引用，不先排除的话依赖就被悄悄绕过了。
+ *    **前置依赖的处理**：已纳入、但其前置依赖（requires）未纳入的措施会被排除（迭代到不动点，规则与
+ *    ./scenarios 的 resolveEnabledInterventions / withEnabledInterventions 相同），并在 `excluded` 与
+ *    `assumptions` 里写明原因。不会出现「依赖没开、措施照样生效」。
  *    runWhatIf 不会替用户自动补上依赖（页面可以提供「一键带上」）。
  *    不在纳入范围内的必须启用项会被忽略，并在 `ignored_required` 里说明。
  * 2. withEnabledInterventions / withBudget 得到场景 → solveJoint。
  * 3. 对主结果**独立再调用一次 verifyPlan**（相同的 mode / loss_cap / 软要求），页面展示的是这次复核。
+ *    例外：求解器因「内部复核未通过」返回 UNSUPPORTED_INPUT 时，展示求解器保留的那次失败复核（被舍弃方案的复核），
+ *    让页面能看到哪一项没通过。
  * 4. 汇总成 WhatIfView：只含汇总数字，不含任何学生的 id、姓名、学校或逐人明细；
  *    求解器 / 验证器文字里出现的学生 id、姓名、学校会被替换为「某学生」，并注明涉及人数。
  *
@@ -19,7 +21,7 @@
 import { analyzeReachability } from '../reachability';
 import { solveJoint } from './solve';
 import { verifyPlan } from './verify';
-import { withBudget, withEnabledInterventions } from './scenarios';
+import { resolveEnabledInterventions, withBudget, withEnabledInterventions } from './scenarios';
 import type {
   Allocation,
   BarrierType,
@@ -232,7 +234,8 @@ const STATUS_EXPLANATIONS: Record<JointStatus, string> = {
     '做不到：在不突破容量、预算、互斥、前置依赖等硬约束的前提下，无法同时满足你提的要求（必须启用的措施 / 最低新增目标）。当前结果是「不启用任何措施」；放松要求后的替代方案见下方，求解器没有悄悄降低要求。',
   SEARCH_LIMIT_REACHED:
     '达到搜索上限后停止：显示的是上限内找到的、经独立复核通过的最好方案，不保证最优，也不代表没有更好的方案。',
-  UNSUPPORTED_INPUT: '输入不合法或超出求解器支持范围，未做评估。原因见求解器说明。',
+  UNSUPPORTED_INPUT:
+    '输入不合法或超出求解器支持范围（或求解器的内部复核未通过，按不支持的输入处理），没有给出方案。原因见求解器说明。',
 };
 
 export const CHECK_LABELS: Record<string, string> = {
@@ -305,36 +308,24 @@ function humanizeInterventionIds(text: string, scenario: Scenario): string {
   return out;
 }
 
-/** 已纳入、但前置依赖未纳入的措施会被排除（迭代到不动点）。 */
+/** 已纳入、但前置依赖未纳入的措施会被排除（迭代到不动点；规则见 resolveEnabledInterventions）。 */
 function resolvePrerequisites(
   scenario: Scenario,
   enabledIds: readonly string[],
 ): { enabled: string[]; excluded: WhatIfExcluded[] } {
   const byId = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const title = (id: string) => byId.get(id)?.title ?? id;
-  const enabled = new Set(enabledIds.filter((id) => byId.has(id)));
-  const excluded: WhatIfExcluded[] = [];
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const iv of scenario.interventions) {
-      if (!enabled.has(iv.id)) continue;
-      const missing = (iv.requires ?? []).filter((r) => !enabled.has(r));
-      if (missing.length > 0) {
-        enabled.delete(iv.id);
-        const names = missing.map(title);
-        excluded.push({
-          id: iv.id,
-          title: iv.title,
-          missing_requires: names,
-          reason: `「${iv.title}」需要同时纳入${names.map((n) => `「${n}」`).join('、')}，后者未纳入，所以本措施没有参与求解。`,
-        });
-        changed = true;
-      }
-    }
-  }
-  const enabledList = scenario.interventions.filter((iv) => enabled.has(iv.id)).map((iv) => iv.id);
-  return { enabled: enabledList, excluded };
+  const { enabled, removed } = resolveEnabledInterventions(scenario, enabledIds);
+  const excluded: WhatIfExcluded[] = removed.map((r) => {
+    const names = r.missing_requires.map(title);
+    return {
+      id: r.id,
+      title: title(r.id),
+      missing_requires: names,
+      reason: `「${title(r.id)}」需要同时纳入${names.map((n) => `「${n}」`).join('、')}，后者未纳入，所以本措施没有参与求解。`,
+    };
+  });
+  return { enabled, excluded };
 }
 
 function synthGrant(scenario: Scenario, iv: Intervention, a: Allocation): ResourceGrant {
@@ -563,9 +554,14 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
   if (opts.required_intervention_ids) vOpts.required_intervention_ids = opts.required_intervention_ids;
   if (opts.min_gain !== undefined) vOpts.min_gain = opts.min_gain;
   const plainPlan = { selected_intervention_ids: result.selected_intervention_ids, allocations: result.allocations };
-  const vr = verifyPlan(eff, result.status === 'UNSUPPORTED_INPUT' ? plainPlan : result, vOpts);
+  // 内部复核未通过（UNSUPPORTED_INPUT 且求解器保留了失败的复核）：展示那次失败的复核。
+  const internalFailure = result.status === 'UNSUPPORTED_INPUT' && result.verification != null;
+  const vr =
+    internalFailure && result.verification
+      ? result.verification
+      : verifyPlan(eff, result.status === 'UNSUPPORTED_INPUT' ? plainPlan : result, vOpts);
   const verification: WhatIfVerification = {
-    passed: vr.passed,
+    passed: vr.passed && result.status !== 'UNSUPPORTED_INPUT',
     checks: vr.checks.map((c) => ({
       name: c.name,
       label: CHECK_LABELS[c.name] ?? c.name,
@@ -575,9 +571,11 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     note:
       result.status === 'INFEASIBLE'
         ? '主结果是「不启用任何措施」的空方案，它本来就不满足你提的要求，所以「主办方要求」一项不通过是预期的；其余硬约束检查用来确认空方案本身合法。'
-        : result.status === 'UNSUPPORTED_INPUT'
-          ? '输入不合法，未做评估；复核里「输入合法」一项会说明原因。'
-          : null,
+        : internalFailure
+          ? '求解器找到的方案没有通过独立复核，已舍弃、未给出（当前结果为空方案）；下面是被舍弃方案的复核结果。请检查场景数据。'
+          : result.status === 'UNSUPPORTED_INPUT'
+            ? '输入不合法，未做评估；复核里「输入合法」一项会说明原因。'
+            : null,
   };
 
   // 4. 汇总
@@ -614,7 +612,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
         N: c.N - result.N,
         total_usd: round2(c.cost.total_usd - result.cost.total_usd),
       },
-      verification_passed: c.status === 'INFEASIBLE' ? false : cv.passed,
+      verification_passed: c.status === 'INFEASIBLE' || c.status === 'UNSUPPORTED_INPUT' ? false : cv.passed,
       note: scrubStudentInfo(c.note, scenario),
     };
   }
@@ -637,6 +635,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
       : '待审批的措施不计入当前结果；本次没有纳入待审批的措施。',
     '每项措施的作用只通过它提供的资源（设备 / 补助 / 替代参与方式 / 时间）是否化解学生的现实障碍来判断，措施不能改变官方资格。',
     '若勾选的措施有前置依赖而依赖项没有纳入，该措施会被排除、不参与求解（不会出现「依赖没开、措施照样生效」）。',
+    '名额或预算不够、多名学生条件相同时，按学生编号顺序决定分给谁（模拟中的确定性规则），不代表谁更需要。',
   ];
   for (const e of excluded) assumptions.push(e.reason);
   for (const r of ignored_required) assumptions.push(r.reason);

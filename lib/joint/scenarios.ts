@@ -3,8 +3,9 @@
  *
  * - `deviceLoanScenario`：data/scenarios/device-loan.json —— 一场需要笔记本电脑的线下活动（占位机会，
  *   真实机会待队友 A 提供），10 名示例学生都缺笔记本，其中 3 人（dl-s03 / dl-s06 / dl-s09）还缺交通条件。
- * - `withEnabledInterventions(scenario, ids)`：只保留指定措施（What-if 页面「勾选措施」用），
- *   并清理对被移除措施的 requires / mutually_exclusive_with 引用。
+ * - `withEnabledInterventions(scenario, ids)`：只保留指定措施（What-if 页面「勾选措施」用）；
+ *   前置依赖没有全部启用的措施一并移除（不放松依赖），并清理指向已移除措施的互斥引用。
+ * - `resolveEnabledInterventions(scenario, ids)`：同一套规则，返回保留与被移除的措施（及缺少的依赖）。
  * - `withBudget(scenario, budget)`：改预算。
  *
  * 纯函数：不修改输入，返回新对象；无 IO（JSON 在构建时导入）。
@@ -45,20 +46,57 @@ export const DEVICE_LOAN_IDS = {
   transportLackingStudents: ['dl-s03', 'dl-s06', 'dl-s09'],
 } as const;
 
+/** 因前置依赖没有全部启用而被移除的措施。 */
+export interface RemovedIntervention {
+  id: string;
+  /** 移除时尚未启用（未勾选或已被移除）的前置依赖 id。 */
+  missing_requires: string[];
+}
+
+/**
+ * 计算 What-if 勾选后真正参与求解的措施：先取 `ids` 中存在于场景的措施，
+ * 再把「前置依赖（requires）没有全部启用」的措施移除，反复判断直到不再变化（闭包）。
+ * 不会替用户自动补上依赖，也不会删掉 requires 让措施单独生效。
+ * 返回 enabled（按场景原顺序）与 removed（按移除顺序）。纯函数。
+ */
+export function resolveEnabledInterventions(
+  scenario: Scenario,
+  ids: readonly string[],
+): { enabled: string[]; removed: RemovedIntervention[] } {
+  const exists = new Set(scenario.interventions.map((iv) => iv.id));
+  const enabled = new Set(ids.filter((id) => exists.has(id)));
+  const removed: RemovedIntervention[] = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const iv of scenario.interventions) {
+      if (!enabled.has(iv.id)) continue;
+      const missing = (iv.requires ?? []).filter((r) => !enabled.has(r));
+      if (missing.length > 0) {
+        enabled.delete(iv.id);
+        removed.push({ id: iv.id, missing_requires: missing });
+        changed = true;
+      }
+    }
+  }
+  return { enabled: scenario.interventions.filter((iv) => enabled.has(iv.id)).map((iv) => iv.id), removed };
+}
+
 /**
  * 只保留 `ids` 中列出的措施（保持原顺序；不存在的 id 忽略），
- * 并把保留措施的 requires / mutually_exclusive_with 里指向被移除措施的引用删掉。
- * 注意：删掉 requires 引用会让原本「必须连同 X 一起启用」的措施可以单独启用——
- * 这是 What-if 勾选的语义（主办方明确只考虑这些措施）；若想保留依赖，请把依赖项一起勾上。
+ * **前置依赖没有全部启用的措施一并移除**（按闭包反复判断，见 resolveEnabledInterventions），
+ * 不会删掉 requires 让措施单独生效。保留措施的 mutually_exclusive_with 中指向已移除措施的引用会被清理
+ * （互斥对象不在场景里，不构成约束）。保留措施的 requires 必然都已启用，原样保留。
+ * 想知道移除了哪些，请调用 resolveEnabledInterventions。
  */
 export function withEnabledInterventions(scenario: Scenario, ids: readonly string[]): Scenario {
-  const keep = new Set(ids);
+  const keep = new Set(resolveEnabledInterventions(scenario, ids).enabled);
   const interventions: Intervention[] = scenario.interventions
     .filter((iv) => keep.has(iv.id))
     .map((iv) => {
       const next: Intervention = { ...iv, resolves: [...iv.resolves] };
       if (iv.opportunity_ids) next.opportunity_ids = [...iv.opportunity_ids];
-      if (iv.requires) next.requires = iv.requires.filter((r) => keep.has(r));
+      if (iv.requires) next.requires = [...iv.requires];
       if (iv.mutually_exclusive_with) {
         next.mutually_exclusive_with = iv.mutually_exclusive_with.filter((r) => keep.has(r));
       }

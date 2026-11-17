@@ -173,10 +173,11 @@ describe('verifyPlan：正确方案全部通过', () => {
     expect(failedNames(res)).toEqual([]);
   });
 
-  it('tradeoff 模式 L ≤ loss_cap 通过', () => {
+  it('tradeoff 模式 L ≤ loss_cap 时 coverage_loss 通过（负小时措施本身使 input_validity 不通过）', () => {
     const { scenario, plan } = lossCase();
     const res = verifyPlan(scenario, plan, { mode: 'tradeoff', loss_cap: 1 });
     expect(check(res, 'coverage_loss').passed).toBe(true);
+    expectFail(res, 'input_validity');
   });
 });
 
@@ -444,7 +445,11 @@ describe('verifyPlan：指标与交叉检查', () => {
   });
 });
 
-/** 构造 L > 0：s6 原本靠已有 time_support 5 小时补上每周缺口；分配一个 hours_per_week 为负的措施后缺口不再被化解。 */
+/**
+ * 构造 L > 0：s6 原本靠已有 time_support 5 小时补上每周缺口；分配一个 hours_per_week 为负的措施后缺口不再被化解。
+ * 负的 hours_per_week 是**不合法输入**（契约第 6 条）：合法输入下 grant 只帮忙，L 恒为 0。
+ * 这里仍用它来检验 coverage_loss 的判定逻辑——input_validity 不通过时其余检查照常给出。
+ */
 function lossCase(): { scenario: Scenario; plan: JointPlan } {
   const busy = makeStudent('s6', { devices: ['laptop'], hours_per_week_available: 0 });
   const scenario = makeScenario({
@@ -465,7 +470,14 @@ describe('verifyPlan：损失', () => {
     expect(analyzeReachability(scenario.students[0], O1, g, TODAY).reachable).toBe(true);
   });
 
-  it('protect 模式下 L > 0', () => {
+  it('负小时措施是不合法输入：input_validity 不通过', () => {
+    const { scenario, plan } = lossCase();
+    const res = verifyPlan(scenario, plan);
+    expectFail(res, 'input_validity');
+    expect(check(res, 'input_validity').detail).toContain('hours_per_week');
+  });
+
+  it('protect 模式下 L > 0（不合法输入下仍给出 coverage_loss 判定）', () => {
     const { scenario, plan } = lossCase();
     const res = verifyPlan(scenario, plan);
     expectFail(res, 'coverage_loss');
@@ -482,6 +494,15 @@ describe('verifyPlan：损失', () => {
   it('tradeoff 下 L > loss_cap', () => {
     const { scenario, plan } = lossCase();
     expectFail(verifyPlan(scenario, plan, { mode: 'tradeoff', loss_cap: 0 }), 'coverage_loss');
+  });
+
+  it('合法输入下 plan 自带 L > 0（造假）：metrics 不通过，coverage_loss 按重算的 L = 0 通过', () => {
+    const plan = { ...GOOD, L: 1, N: 2, G: 3 };
+    const res = verifyPlan(base(), plan);
+    expect(check(res, 'input_validity').passed).toBe(true);
+    expect(check(res, 'coverage_loss').passed).toBe(true);
+    expectFail(res, 'metrics');
+    expect(check(res, 'metrics').detail).toContain('L 自带 1');
   });
 });
 
@@ -520,6 +541,15 @@ describe('verifyPlan：输入不合法与畸形方案', () => {
     ['min_gain 非有限', base(), { min_gain: Number.NaN }],
     ['required 引用不存在', base(), { required_intervention_ids: ['ghost'] }],
     ['assume_approved 引用不存在', base(), { assume_approved_intervention_ids: ['ghost'] }],
+    ['评估日前后有空格', base({ evaluation_date: ` ${EVAL_DATE} ` })],
+    ['时段标签不是字符串', base({ opportunity_time_slots: { o1: 1 as unknown as string } })],
+    ['时段标签为空字符串', base({ opportunity_time_slots: { o1: '' } })],
+    ['时段表不是对象', base({ opportunity_time_slots: ['AM'] as unknown as Record<string, string> })],
+    ['措施 amount_usd 为负', base({ interventions: [{ ...LOAN, amount_usd: -1 }] })],
+    ['措施 hours_per_week 非有限', base({ interventions: [{ ...LOAN, hours_per_week: Number.NaN }] })],
+    ['已有 grant 的 amount_usd 为负', base({ existing_grants: [laptopGrant('s5', null, { amount_usd: -10 })] })],
+    ['已有 grant 不是对象', base({ existing_grants: [null as unknown as ResourceGrant] })],
+    ['mode 不合法', base(), { mode: 'whatever' as 'protect' }],
   ];
   for (const [name, scenario, options] of cases) {
     it(`input_validity 不通过：${name}（其余检查照常给出）`, () => {
@@ -528,6 +558,29 @@ describe('verifyPlan：输入不合法与畸形方案', () => {
       for (const n of ALL_CHECKS) expect(res.checks.some((c) => c.name === n)).toBe(true);
     });
   }
+
+  it('null 视同未给：loss_cap / min_gain / required 为 null，措施 capacity 缺省（undefined）视同不限', () => {
+    const res = verifyPlan(base(), GOOD, { loss_cap: null, min_gain: null, required_intervention_ids: null } as unknown as VerifyOptions);
+    expect(failedNames(res)).toEqual([]);
+    expect(res.checks.some((c) => c.name === 'organizer_requirements')).toBe(false);
+    const unlimited = base({ interventions: [{ ...LOAN, capacity: undefined as unknown as null }] });
+    expect(failedNames(verifyPlan(unlimited, GOOD))).toEqual([]);
+  });
+
+  it('pending 的已有 grant 占容量但不免成本', () => {
+    const scenario = base({
+      interventions: [{ ...LOAN, capacity: 1 }],
+      existing_grants: [laptopGrant('s1', 'o1', { intervention_id: 'loan', status: 'pending' })],
+    });
+    // s1 已占名额 → 再分配给 s1 不超容量，但要记单价。
+    const charged: JointPlan = { selected_intervention_ids: ['loan'], allocations: [alloc('loan', 's1', 'o1', 100)] };
+    expect(failedNames(verifyPlan(scenario, charged))).toEqual([]);
+    const free: JointPlan = { selected_intervention_ids: ['loan'], allocations: [alloc('loan', 's1', 'o1', 0)] };
+    expectFail(verifyPlan(scenario, free), 'cost_accounting');
+    // 名额被 s1 占着：分给 s2 超容量。
+    const other: JointPlan = { selected_intervention_ids: ['loan'], allocations: [alloc('loan', 's2', 'o1', 100)] };
+    expectFail(verifyPlan(scenario, other), 'capacity');
+  });
 
   it('畸形 plan 不抛异常，判不通过', () => {
     const weird: unknown[] = [
@@ -609,7 +662,7 @@ describe('exhaustiveBest：小场景手算', () => {
 function bruteNoPrune(scenario: Scenario, options: VerifyOptions = {}) {
   const ints = scenario.interventions.map((i) => i.id);
   const pairs = scenario.students.flatMap((s) => scenario.opportunities.map((o) => [s.id, o.id] as const));
-  let best: { N: number; total: number; count: number } | null = null;
+  let best: { N: number; total: number; count: number; selected: number } | null = null;
   for (let mask = 0; mask < 1 << ints.length; mask++) {
     const selected = ints.filter((_, k) => mask & (1 << k));
     const per = 1 << selected.length;
@@ -634,7 +687,9 @@ function bruteNoPrune(scenario: Scenario, options: VerifyOptions = {}) {
         const k = a.intervention_id + '|' + a.student_id;
         if (charged.has(k)) continue;
         charged.add(k);
-        const covered = (scenario.existing_grants ?? []).some((g) => g.intervention_id === a.intervention_id && g.student_id === a.student_id);
+        const covered = (scenario.existing_grants ?? []).some(
+          (g) => g.intervention_id === a.intervention_id && g.student_id === a.student_id && g.status === 'approved',
+        );
         a.cost_usd = covered ? 0 : (scenario.interventions.find((i) => i.id === a.intervention_id)?.unit_cost_usd ?? 0);
       }
       const plan = { selected_intervention_ids: selected, allocations: raw };
@@ -643,11 +698,14 @@ function bruteNoPrune(scenario: Scenario, options: VerifyOptions = {}) {
       const m = check(res, 'metrics').detail;
       const N = Number(/N = (-?\d+)/.exec(m)?.[1]);
       const cost = Number(/成本 \$([\d.]+)/.exec(m)?.[1]);
-      const cand = { N, total: cost, count: raw.length };
+      const cand = { N, total: cost, count: raw.length, selected: selected.length };
+      const tieCost = best !== null && Math.abs(cand.total - best.total) <= 1e-6;
       if (
         !best ||
         cand.N > best.N ||
-        (cand.N === best.N && (cand.total < best.total - 1e-6 || (Math.abs(cand.total - best.total) <= 1e-6 && cand.count < best.count)))
+        (cand.N === best.N &&
+          (cand.total < best.total - 1e-6 ||
+            (tieCost && (cand.count < best.count || (cand.count === best.count && cand.selected < best.selected)))))
       ) {
         best = cand;
       }
@@ -680,7 +738,17 @@ describe('exhaustiveBest：剪枝不改变最优指标（对照不剪枝的暴�
         existing_grants: [laptopGrant('s2', 'o2', { intervention_id: 'loan' })],
       }),
     ],
-    ['tradeoff 下可能有损失的场景', lossCase().scenario, { mode: 'tradeoff', loss_cap: 1 }],
+    ['不合法输入（负小时措施）：两边都不可行', lossCase().scenario, { mode: 'tradeoff', loss_cap: 1 }],
+    [
+      'tradeoff 模式 + pending 的已有 grant（占容量、不免成本）',
+      makeScenario({
+        students: [S1, S2],
+        opportunities: [O1],
+        interventions: [{ ...LOAN, capacity: 2 }, makeIntervention('free', { type: 'time_support', resolves: ['time'], hours_per_week: 0, unit_cost_usd: 0, device: null })],
+        existing_grants: [laptopGrant('s1', null, { intervention_id: 'loan', status: 'pending' })],
+      }),
+      { mode: 'tradeoff', loss_cap: 1 },
+    ],
     [
       'min_gain + required',
       makeScenario({
@@ -697,7 +765,7 @@ describe('exhaustiveBest：剪枝不改变最优指标（对照不剪枝的暴�
       const brute = bruteNoPrune(scenario, options ?? {});
       const ex = exhaustiveBest(scenario, options ?? {});
       if (!brute) expect(ex.feasible).toBe(false);
-      else expect({ N: ex.N, total: ex.total_usd, count: ex.allocationCount }).toEqual(brute);
+      else expect({ N: ex.N, total: ex.total_usd, count: ex.allocationCount, selected: ex.selectedCount }).toEqual(brute);
     });
   }
 });

@@ -7,7 +7,9 @@
  * 2. R0 = 只带 existing_grants 时可达的（学生, 机会）对。
  * 3. 精确搜索（见下）→ OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED；INFEASIBLE 时再算 alternative
  *    （只放松软要求，并明示）；场景里有 pending 措施时，把全部 pending 当作已批准再求解一次得到 conditional。
- * 4. 对返回的主方案调用 ./verify 的 verifyPlan 独立复核（verifyPlan 不依赖本文件，依赖方向只能是 solve → verify）。
+ * 4. 对返回的方案调用 ./verify 的 verifyPlan 独立复核（verifyPlan 不依赖本文件，依赖方向只能是 solve → verify）。
+ *    完整搜索得到的最优方案复核不通过时，不返回 OPTIMAL：主结果改为 UNSUPPORTED_INPUT + 空方案
+ *    （notes 写「内部复核未通过……」，verification 保留失败的复核）；conditional / alternative 同理不给出该方案。
  *
  * 搜索算法：
  * - 可达性只通过 analyzeReachability(student, opp, grants, { today: evaluation_date }).reachable === true 判断，
@@ -23,13 +25,16 @@
  * - 内层：按 (student_id, opportunity_id) 升序对候选对做深度优先搜索，每个对的选项 = 该组合内的最小可达集合
  *   （按大小、再按 id 字典序）或「不分配」；边走边检查容量（按不同学生、按 capacity_scope / 时段）与预算。
  *   剪枝：当前 G + 剩余候选对数 < 已知最好 N，或相等但成本 / 分配条数已更差，则剪掉。
- *   叶子处检查 min_gain，并按目标（N 大 → 成本小 → 分配条数少 → 字典序小）与已知最好方案比较。
+ *   叶子处检查 min_gain，并按目标（N 大 → 成本小 → 分配条数少 → 选中措施数少 → 字典序小）与已知最好方案比较。
+ *   「选中措施数少」一步保证：每个选中措施要么有分配，要么在 required_intervention_ids 里，要么是这两类措施的
+ *   （传递）前置依赖——否则去掉它得到的方案不劣且措施数更少。
  * - 方案中 R0 里的对不分到任何资源，所以 L = 0；R1、G、L、N 最后仍按定义重新逐对计算。
  *
  * 节点（max_search_nodes 计数单位），每发生一次以下事件计 1 个节点：
  *   (a) 预处理中访问一个（对, 措施子集）；(b) 外层访问一个措施组合（无论是否被过滤）；(c) 内层进入一个搜索状态。
  *   缺省上限 DEFAULT_MAX_SEARCH_NODES = 200000。主搜索、conditional 的搜索、alternative 的每一次放松尝试各自单独计数。
- *   达到上限即停止，返回 SEARCH_LIMIT_REACHED（不声称最优，也不等于无解）。
+ *   达到上限即停止，返回 SEARCH_LIMIT_REACHED（不声称最优，也不等于无解）：从搜索中最近 HISTORY_K（= 8）次
+ *   刷新最好方案时记录的候选里，按目标顺序（最新 = 最优）依次独立复核，返回第一个通过的；都不通过返回空方案。
  *   已批准措施超过 30 项（位掩码上限）时直接按达到上限处理。
  *
  * 纯函数：确定性、不读系统时钟、无随机、无 IO、不调 AI；不修改输入对象。
@@ -62,6 +67,7 @@ import type {
 export const DEFAULT_MAX_SEARCH_NODES = 200_000;
 
 const EPS = 1e-6;
+const TIE_NOTE = '名额并列时按学生编号顺序分配（模拟），不代表谁更需要。';
 const SIM_NOTE = '以上为模拟结果，基于示例数据，不代表真实影响；可达只表示资格不冲突、现实条件走得通，不等于录取。';
 
 const cmpStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -133,15 +139,47 @@ function findDuplicates(ids: string[]): string[] {
   return [...dup].sort(cmpStr);
 }
 
-/** 返回 UNSUPPORTED_INPUT 的原因（空数组 = 输入合法）。 */
-export function validateJointInput(scenario: Scenario, options: SolveOptions = {}): string[] {
+const isPlainObject = (x: unknown): x is Record<string, unknown> =>
+  typeof x === 'object' && x !== null && !Array.isArray(x);
+/** null / undefined 视同未给；给出时必须是非负有限数。 */
+const optFiniteNonNeg = (x: unknown): boolean => x == null || finiteNonNeg(x);
+
+/**
+ * 返回 UNSUPPORTED_INPUT 的原因（空数组 = 输入合法）。规则见 CONTRACT.md「联合求解模型」第 6 条。
+ * 验证器（./verify 的 input_validity）按同一套规则各自实现（不共用代码，保持独立）。
+ */
+export function validateJointInput(scenario: Scenario, rawOptions: SolveOptions = {}): string[] {
   const reasons: string[] = [];
+  if (!isPlainObject(scenario)) return ['scenario 不是对象。'];
+  const options = (isPlainObject(rawOptions) ? rawOptions : {}) as SolveOptions;
+
+  // ── 形状（不合法时后续检查无法安全进行，直接返回） ──
+  for (const key of ['students', 'opportunities', 'interventions'] as const) {
+    if (!Array.isArray(scenario[key])) reasons.push(`${key} 不是数组。`);
+  }
+  if (scenario.existing_grants != null && !Array.isArray(scenario.existing_grants)) reasons.push('existing_grants 不是数组。');
+  if (scenario.opportunity_time_slots != null && !isPlainObject(scenario.opportunity_time_slots)) {
+    reasons.push('opportunity_time_slots 不是对象（机会 id → 时段标签）。');
+  }
+  if (reasons.length) return reasons;
+  for (const key of ['students', 'opportunities', 'interventions'] as const) {
+    const bad = (scenario[key] as unknown[]).filter((e) => !isPlainObject(e) || typeof e.id !== 'string').length;
+    if (bad) reasons.push(`${key} 中有 ${bad} 个条目不是带字符串 id 的对象。`);
+  }
+  const badGrants = (scenario.existing_grants ?? []).filter((g) => !isPlainObject(g)).length;
+  if (badGrants) reasons.push(`existing_grants 中有 ${badGrants} 个条目不是对象。`);
+  if (reasons.length) return reasons;
+
+  // ── 预算与选项 ──
   if (!finiteNonNeg(scenario.budget_usd)) reasons.push(`预算 budget_usd 必须是非负有限数（当前为 ${String(scenario.budget_usd)}）。`);
-  if (options.mode === 'tradeoff' && options.loss_cap === undefined) reasons.push('tradeoff 模式必须给出 loss_cap。');
-  if (options.loss_cap !== undefined && !finiteNonNeg(options.loss_cap)) reasons.push('loss_cap 必须是非负有限数。');
-  if (options.min_gain !== undefined && !finiteNonNeg(options.min_gain)) reasons.push('min_gain 必须是非负有限数。');
+  if (options.mode != null && options.mode !== 'protect' && options.mode !== 'tradeoff') {
+    reasons.push(`mode 只能是 protect 或 tradeoff（当前为 ${String(options.mode)}）。`);
+  }
+  if (options.mode === 'tradeoff' && options.loss_cap == null) reasons.push('tradeoff 模式必须给出 loss_cap。');
+  if (!optFiniteNonNeg(options.loss_cap)) reasons.push('loss_cap 必须是非负有限数。');
+  if (!optFiniteNonNeg(options.min_gain)) reasons.push('min_gain 必须是非负有限数。');
   if (
-    options.max_search_nodes !== undefined &&
+    options.max_search_nodes != null &&
     !(Number.isInteger(options.max_search_nodes) && options.max_search_nodes > 0)
   ) {
     reasons.push('max_search_nodes 必须是正整数。');
@@ -156,38 +194,62 @@ export function validateJointInput(scenario: Scenario, options: SolveOptions = {
 
   const ivIds = new Set(scenario.interventions.map((i) => i.id));
   const oppIds = new Set(scenario.opportunities.map((o) => o.id));
-  for (const id of options.required_intervention_ids ?? []) {
-    if (!ivIds.has(id)) reasons.push(`required_intervention_ids 引用了不存在的措施「${id}」。`);
+  if (options.required_intervention_ids != null) {
+    if (!Array.isArray(options.required_intervention_ids)) reasons.push('required_intervention_ids 不是数组。');
+    else {
+      for (const id of options.required_intervention_ids) {
+        if (!ivIds.has(id)) reasons.push(`required_intervention_ids 引用了不存在的措施「${String(id)}」。`);
+      }
+    }
   }
   for (const iv of scenario.interventions) {
     for (const [field, refs] of [
       ['requires', iv.requires],
       ['mutually_exclusive_with', iv.mutually_exclusive_with],
     ] as const) {
-      for (const r of refs ?? []) {
+      if (refs == null) continue;
+      if (!Array.isArray(refs)) {
+        reasons.push(`措施「${iv.id}」的 ${field} 不是数组。`);
+        continue;
+      }
+      for (const r of refs) {
         if (r === iv.id) reasons.push(`措施「${iv.id}」的 ${field} 引用了自己。`);
-        else if (!ivIds.has(r)) reasons.push(`措施「${iv.id}」的 ${field} 引用了不存在的措施「${r}」。`);
+        else if (!ivIds.has(r)) reasons.push(`措施「${iv.id}」的 ${field} 引用了不存在的措施「${String(r)}」。`);
       }
     }
-    for (const o of iv.opportunity_ids ?? []) {
-      if (!oppIds.has(o)) reasons.push(`措施「${iv.id}」的 opportunity_ids 引用了不存在的机会「${o}」。`);
+    if (iv.opportunity_ids != null) {
+      if (!Array.isArray(iv.opportunity_ids)) reasons.push(`措施「${iv.id}」的 opportunity_ids 不是数组。`);
+      else {
+        for (const o of iv.opportunity_ids) {
+          if (!oppIds.has(o)) reasons.push(`措施「${iv.id}」的 opportunity_ids 引用了不存在的机会「${String(o)}」。`);
+        }
+      }
     }
-    if (iv.capacity !== null && !finiteNonNeg(iv.capacity)) reasons.push(`措施「${iv.id}」的 capacity 必须是非负有限数或 null。`);
+    if (!optFiniteNonNeg(iv.capacity)) reasons.push(`措施「${iv.id}」的 capacity 必须是非负有限数或 null。`);
     if (!finiteNonNeg(iv.unit_cost_usd)) reasons.push(`措施「${iv.id}」的 unit_cost_usd 必须是非负有限数。`);
     if (iv.fixed_cost_usd !== undefined && !finiteNonNeg(iv.fixed_cost_usd)) {
       reasons.push(`措施「${iv.id}」的 fixed_cost_usd 必须是非负有限数。`);
     }
+    if (!optFiniteNonNeg(iv.amount_usd)) reasons.push(`措施「${iv.id}」的 amount_usd 必须是非负有限数或 null。`);
+    if (!optFiniteNonNeg(iv.hours_per_week)) reasons.push(`措施「${iv.id}」的 hours_per_week 必须是非负有限数或 null。`);
   }
-  for (const key of Object.keys(scenario.opportunity_time_slots ?? {})) {
+  for (const g of scenario.existing_grants ?? []) {
+    if (!optFiniteNonNeg(g.amount_usd)) reasons.push(`已有 grant「${String(g.id)}」的 amount_usd 必须是非负有限数或 null。`);
+    if (!optFiniteNonNeg(g.hours_per_week)) reasons.push(`已有 grant「${String(g.id)}」的 hours_per_week 必须是非负有限数或 null。`);
+  }
+  for (const [key, label] of Object.entries(scenario.opportunity_time_slots ?? {})) {
     if (!oppIds.has(key)) reasons.push(`opportunity_time_slots 的键引用了不存在的机会「${key}」。`);
+    if (typeof label !== 'string' || label === '') {
+      reasons.push(`opportunity_time_slots 中机会「${key}」的时段标签必须是非空字符串（当前为 ${JSON.stringify(label)}）。`);
+    }
   }
   const ed = scenario.evaluation_date;
   if (typeof ed !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ed) || parseISODate(ed) == null) {
-    reasons.push(`evaluation_date 不是合法的 YYYY-MM-DD（当前为 ${String(ed)}）。`);
+    reasons.push(`evaluation_date 不是合法的 YYYY-MM-DD（当前为 ${JSON.stringify(ed)}）。`);
   }
   // 只算 existing grant 就超容量（容量本身不合法时上面已报，这里跳过）。
   for (const iv of scenario.interventions) {
-    if (iv.capacity === null || !finiteNonNeg(iv.capacity)) continue;
+    if (iv.capacity == null || !finiteNonNeg(iv.capacity)) continue;
     for (const [k, set] of existingOccupancy(scenario, iv)) {
       if (set.size > iv.capacity + EPS) {
         const scope = k === 'T' ? '整个场景' : k === DEFAULT_SLOT ? '默认时段' : `时段「${k.slice(2)}」`;
@@ -198,6 +260,18 @@ export function validateJointInput(scenario: Scenario, options: SolveOptions = {
   return reasons;
 }
 
+/** 输入合法后，把 options 中为 null 的字段去掉（null 视同未给）。 */
+function normalizeOptions(raw: SolveOptions | undefined): SolveOptions {
+  const o: SolveOptions = {};
+  if (!raw) return o;
+  if (raw.mode != null) o.mode = raw.mode;
+  if (raw.loss_cap != null) o.loss_cap = raw.loss_cap;
+  if (raw.max_search_nodes != null) o.max_search_nodes = raw.max_search_nodes;
+  if (raw.required_intervention_ids != null) o.required_intervention_ids = [...raw.required_intervention_ids];
+  if (raw.min_gain != null) o.min_gain = raw.min_gain;
+  return o;
+}
+
 // ───────────────────────────── 评估上下文 ─────────────────────────────
 
 interface Ctx {
@@ -206,7 +280,7 @@ interface Ctx {
   opps: Map<string, Opportunity>;
   ivs: Map<string, Intervention>;
   existing: ResourceGrant[];
-  /** (intervention_id, student_id) 已有 existing grant → 成本记 0。 */
+  /** (intervention_id, student_id) 已有 approved 的 existing grant → 成本记 0（pending 的只占容量、不免成本）。 */
   exempt: Set<string>;
   cache: Map<string, boolean>;
   /** 全部对，按 (student_id, opportunity_id) 升序。 */
@@ -248,7 +322,9 @@ function reach(ctx: Ctx, s: string, o: string, ivIds: readonly string[]): boolea
 function makeCtx(scenario: Scenario): Ctx {
   const existing = scenario.existing_grants ?? [];
   const exempt = new Set<string>();
-  for (const g of existing) if (g.intervention_id != null) exempt.add(JSON.stringify([g.intervention_id, g.student_id]));
+  for (const g of existing) {
+    if (g.intervention_id != null && g.status === 'approved') exempt.add(JSON.stringify([g.intervention_id, g.student_id]));
+  }
   const pairs: CoveragePair[] = [];
   for (const s of scenario.students) for (const o of scenario.opportunities) pairs.push({ student_id: s.id, opportunity_id: o.id });
   pairs.sort(cmpPair);
@@ -302,11 +378,12 @@ function buildCandidate(ctx: Ctx, selected: string[], assign: { s: string; o: st
   };
 }
 
-/** a 比 b 更优 → 负数（第 5 条）。 */
+/** a 比 b 更优 → 负数（第 5 条：N 大 → 总成本小 → 分配条数少 → 选中措施数少 → 字典序小）。 */
 function compareCandidates(a: Candidate, b: Candidate): number {
   if (a.N !== b.N) return b.N - a.N;
   if (Math.abs(a.cost.total_usd - b.cost.total_usd) > EPS) return a.cost.total_usd - b.cost.total_usd;
   if (a.allocations.length !== b.allocations.length) return a.allocations.length - b.allocations.length;
+  if (a.selected.length !== b.selected.length) return a.selected.length - b.selected.length;
   const c = cmpStrArrays(a.selected, b.selected);
   if (c !== 0) return c;
   const n = Math.min(a.allocations.length, b.allocations.length);
@@ -331,7 +408,15 @@ interface SearchOutcome {
   complete: boolean;
   best: Candidate | null;
   nodes: number;
+  /**
+   * 最近 HISTORY_K 次「刷新最好方案」时的候选（按发现顺序；后发现的严格更优）。
+   * 达到搜索上限时，runSearch 从最新（最优）往回依次复核，返回第一个复核通过的。
+   */
+  history: Candidate[];
 }
+
+/** 达到搜索上限时保留、可依次复核的最近改进候选数。 */
+const HISTORY_K = 8;
 
 class NodeLimit extends Error {}
 
@@ -343,6 +428,7 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
     if (nodes > params.maxNodes) throw new NodeLimit();
   };
   let best = null as Candidate | null;
+  const history: Candidate[] = [];
   const budget = scenario.budget_usd;
 
   const U = scenario.interventions.filter((iv) => params.approved.has(iv.id)).map((iv) => iv.id).sort(cmpStr);
@@ -385,7 +471,7 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
       if (ctx.r0.has(pairKey(p.student_id, p.opportunity_id))) continue;
       const applicable = U.filter((id) => {
         const ids = ctx.ivs.get(id)!.opportunity_ids;
-        return ids === undefined || ids.includes(p.opportunity_id);
+        return ids == null || ids.includes(p.opportunity_id);
       });
       const minimal: number[] = [];
       // 按大小递增枚举组合；跳过已知最小集合的超集。
@@ -421,7 +507,7 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
       return c;
     };
 
-    if (requiredImpossible) return { complete: true, best: null, nodes };
+    if (requiredImpossible) return { complete: true, best: null, nodes, history };
 
     // ── 外层：措施组合 ──
     const total = 1 << U.length;
@@ -463,7 +549,7 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
       const occ = new Map<string, Map<string, Map<string, number>>>();
       for (const id of selected) {
         const iv = ctx.ivs.get(id)!;
-        if (iv.capacity === null) continue;
+        if (iv.capacity == null) continue;
         const m = new Map<string, Map<string, number>>();
         for (const [k, set] of existingOccupancy(scenario, iv)) {
           m.set(k, new Map([...set].map((s) => [s, Number.POSITIVE_INFINITY])));
@@ -537,7 +623,11 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
         if (k === pairs.length) {
           const assign = chosen.filter((c): c is { s: string; o: string; ivs: string[] } => c !== null);
           const cand = buildCandidate(ctx, selected, assign, G);
-          if (!best || compareCandidates(cand, best) < 0) best = cand;
+          if (!best || compareCandidates(cand, best) < 0) {
+            best = cand;
+            history.push(cand);
+            if (history.length > HISTORY_K) history.shift();
+          }
           return;
         }
         const p = pairs[k];
@@ -559,9 +649,9 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
       };
       dfs(0);
     }
-    return { complete: true, best, nodes };
+    return { complete: true, best, nodes, history };
   } catch (e) {
-    if (e instanceof NodeLimit) return { complete: false, best, nodes };
+    if (e instanceof NodeLimit) return { complete: false, best, nodes, history };
     throw e;
   }
 }
@@ -630,7 +720,8 @@ function verifyOutcome(ctx: Ctx, outcome: JointOutcome, vopts: VerifyOptions): V
 }
 
 interface RunResult {
-  status: Exclude<JointStatus, 'UNSUPPORTED_INPUT'>;
+  /** UNSUPPORTED_INPUT 只在「内部复核未通过」时出现（输入校验在 solveJoint 入口处理）。 */
+  status: JointStatus;
   outcome: JointOutcome;
   verification: VerifyResult | null;
   notes: string[];
@@ -643,9 +734,27 @@ function approvedSet(ctx: Ctx, assumed: string[]): Set<string> {
   return set;
 }
 
+/** 内部复核未通过时写进 notes 的定论文字（契约第 6 条）。 */
+const INTERNAL_VERIFY_FAILED = '内部复核未通过，按不支持的输入处理，请检查场景数据。';
+
+function failedCheckNames(v: VerifyResult): string {
+  return v.checks.filter((c) => !c.passed).map((c) => c.name).join('、');
+}
+
+interface RunSearchResult {
+  complete: boolean;
+  /** 可交付的方案（已通过复核）；null = 不可行，或没有复核通过的方案。 */
+  outcome: JointOutcome | null;
+  verification: VerifyResult | null;
+  /** 完整搜索找到了最优方案、但它没有通过独立复核时，为那次失败的复核结果（方案不交付）。 */
+  rejected: VerifyResult | null;
+}
+
 /**
- * 一次搜索的「可交付」结果：完整搜索 → 最优方案（或 null = 不可行）；
- * 达到上限 → 已找到的最好方案（须通过复核，否则 null）。
+ * 一次搜索的「可交付」结果：
+ * - 完整搜索 → 最优方案（须通过复核；不通过则 outcome = null、rejected = 失败的复核）；best 为 null = 不可行。
+ * - 达到上限 → 从最近记录的改进候选（至多 HISTORY_K 个）中按目标顺序（最新 = 最优）依次复核，
+ *   返回第一个通过的；都不通过则 outcome = null。
  */
 function runSearch(
   ctx: Ctx,
@@ -653,20 +762,29 @@ function runSearch(
   soft: SoftOptions,
   assumed: string[],
   maxNodes: number,
-): { complete: boolean; outcome: JointOutcome | null; verification: VerifyResult | null } {
+): RunSearchResult {
   const res = search(ctx, { approved: approvedSet(ctx, assumed), required: soft.required, minGain: soft.minGain, maxNodes });
-  if (!res.best) return { complete: res.complete, outcome: null, verification: null };
-  const outcome = toOutcome(ctx, candidatePlan(res.best));
-  const verification = verifyOutcome(ctx, outcome, verifyOptions(options, soft, assumed));
-  if (!res.complete && !verification.passed) return { complete: false, outcome: null, verification: null };
-  return { complete: res.complete, outcome, verification };
+  const vopts = verifyOptions(options, soft, assumed);
+  if (res.complete) {
+    if (!res.best) return { complete: true, outcome: null, verification: null, rejected: null };
+    const outcome = toOutcome(ctx, candidatePlan(res.best));
+    const verification = verifyOutcome(ctx, outcome, vopts);
+    if (!verification.passed) return { complete: true, outcome: null, verification: null, rejected: verification };
+    return { complete: true, outcome, verification, rejected: null };
+  }
+  for (let k = res.history.length - 1; k >= 0; k--) {
+    const outcome = toOutcome(ctx, candidatePlan(res.history[k]));
+    const verification = verifyOutcome(ctx, outcome, vopts);
+    if (verification.passed) return { complete: false, outcome, verification, rejected: null };
+  }
+  return { complete: false, outcome: null, verification: null, rejected: null };
 }
 
 function describeRequiredFailure(ctx: Ctx, required: string[], assumed: string[]): string {
   const parts: string[] = [];
   const approved = approvedSet(ctx, assumed);
   const pending = required.filter((id) => !approved.has(id));
-  if (pending.length) parts.push(`${pending.map((id) => `「${id}」`).join('、')}尚待审批，不能出现在已生效的方案里`);
+  if (pending.length) parts.push(`${pending.map((id) => `「${id}」`).join('、')}尚待审批，不能出现在主结果（仅含已批准措施）里`);
   const closure = new Set<string>();
   const stack = [...required];
   while (stack.length) {
@@ -677,7 +795,7 @@ function describeRequiredFailure(ctx: Ctx, required: string[], assumed: string[]
   }
   const fixed = [...closure].reduce((s, id) => s + (ctx.ivs.get(id)?.fixed_cost_usd ?? 0), 0);
   if (fixed > ctx.scenario.budget_usd + EPS) {
-    parts.push(`必须启用的措施（含前置依赖）固定成本合计 ${money(fixed)}，超过预算 ${money(ctx.scenario.budget_usd)}`);
+    parts.push(`固定成本合计（含前置依赖） ${money(fixed)}，超过预算 ${money(ctx.scenario.budget_usd)}`);
   }
   const ids = [...closure].sort(cmpStr);
   for (let a = 0; a < ids.length; a++) {
@@ -700,13 +818,24 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
   const main = runSearch(ctx, options, soft, assumed, maxNodes);
   const emptyOutcome = (): JointOutcome => toOutcome(ctx, emptyPlan());
 
+  // 第 6 条：不得返回「OPTIMAL 但复核不通过」——求解器对自己的最优方案复核不通过时，按不支持的输入处理。
+  if (main.rejected) {
+    return {
+      status: 'UNSUPPORTED_INPUT',
+      outcome: emptyOutcome(),
+      verification: main.rejected,
+      notes: [
+        '求解器找到的方案没有通过独立复核，未给出该方案：',
+        `${INTERNAL_VERIFY_FAILED}（未通过的检查：${failedCheckNames(main.rejected)}）`,
+      ],
+      alternative: null,
+    };
+  }
+
   if (main.complete && main.outcome) {
     const notes = [
       `已完成精确搜索并证明最优：新增可达 ${main.outcome.G} 个（学生, 机会）对，损失 ${main.outcome.L} 个，净值 ${main.outcome.N}；总成本 ${money(main.outcome.cost.total_usd)}（固定 ${money(main.outcome.cost.fixed_usd)} + 按人 ${money(main.outcome.cost.marginal_usd)}），预算 ${money(ctx.scenario.budget_usd)}。`,
     ];
-    if (main.verification && !main.verification.passed) {
-      notes.push('警告：独立复核未通过，这说明求解器或验证器有缺陷，请勿采用此方案并报告开发者。');
-    }
     return { status: 'OPTIMAL', outcome: main.outcome, verification: main.verification, notes, alternative: null };
   }
 
@@ -751,8 +880,11 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
     cost: o.cost,
   });
   let maxGainUnderRequired: number | null = null;
+  /** 有候选替代方案没有通过内部复核（已舍弃，不给出）。 */
+  let altRejected = false;
   for (const att of attempts) {
     const r = runSearch(ctx, options, att.soft, assumed, maxNodes);
+    if (r.rejected) altRejected = true;
     if (att.relaxed[0] === 'min_gain' && r.complete && r.outcome) maxGainUnderRequired = r.outcome.G;
     if (!r.outcome) continue;
     if (!found || compareCandidates(toCand(r.outcome), toCand(found.outcome)) < 0) {
@@ -761,6 +893,7 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
   }
   if (!found) {
     const r = runSearch(ctx, options, {}, assumed, maxNodes);
+    if (r.rejected) altRejected = true;
     found = {
       relaxed: (['min_gain', 'required_intervention_ids'] as const).filter((k) =>
         k === 'min_gain' ? options.min_gain !== undefined : options.required_intervention_ids !== undefined,
@@ -791,6 +924,10 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
     `替代方案放松了：${relaxedZh}（整项不再要求），硬约束（批准、互斥、前置依赖、容量、预算、损失）没有放松：` +
     `新增可达 ${found.outcome.G} 个对，总成本 ${money(found.outcome.cost.total_usd)}。` +
     (found.complete ? '' : '替代方案的搜索达到上限，未证明最优。') +
+    (altRejected
+      ? `有候选替代方案${INTERNAL_VERIFY_FAILED.replace('按不支持的输入处理，', '已舍弃、未给出；')}` +
+        (found.outcome.selected_intervention_ids.length === 0 ? '当前替代方案是不启用任何措施的占位方案。' : '')
+      : '') +
     '这不是主结果，结果为模拟。';
   const alternative: JointAlternative = { ...found.outcome, relaxed: found.relaxed, note: altNote };
   return {
@@ -806,8 +943,8 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
 
 // ───────────────────────────── 入口 ─────────────────────────────
 
-export function solveJoint(scenario: Scenario, options: SolveOptions = {}): JointResult {
-  const reasons = validateJointInput(scenario, options);
+export function solveJoint(scenario: Scenario, rawOptions: SolveOptions = {}): JointResult {
+  const reasons = validateJointInput(scenario, rawOptions);
   if (reasons.length > 0) {
     return {
       status: 'UNSUPPORTED_INPUT',
@@ -824,9 +961,27 @@ export function solveJoint(scenario: Scenario, options: SolveOptions = {}): Join
     };
   }
 
+  const options = normalizeOptions(rawOptions);
   const ctx = makeCtx(scenario);
   const maxNodes = options.max_search_nodes ?? DEFAULT_MAX_SEARCH_NODES;
   const main = solveOnce(ctx, options, [], maxNodes);
+
+  if (main.status === 'UNSUPPORTED_INPUT') {
+    // 内部复核未通过：返回空方案（与输入不合法时同形），verification 保留那次失败的复核结果。
+    return {
+      status: 'UNSUPPORTED_INPUT',
+      ...emptyPlan(),
+      R0: [],
+      R1: [],
+      G: 0,
+      L: 0,
+      N: 0,
+      notes: main.notes,
+      alternative: null,
+      conditional: null,
+      verification: main.verification,
+    };
+  }
 
   const pendingIds = scenario.interventions.filter((iv) => !isApproved(iv)).map((iv) => iv.id).sort(cmpStr);
   let conditional: JointConditional | null = null;
@@ -834,22 +989,27 @@ export function solveJoint(scenario: Scenario, options: SolveOptions = {}): Join
     const c = solveOnce(ctx, options, pendingIds, maxNodes);
     const names = pendingIds.map((id) => `「${ctx.ivs.get(id)!.title}」`).join('、');
     let what: string;
-    if (c.status === 'INFEASIBLE') what = '仍然无法满足主办方要求（结果为空方案）';
+    if (c.status === 'UNSUPPORTED_INPUT') what = '';
+    else if (c.status === 'INFEASIBLE') what = '仍然无法满足主办方要求（结果为空方案）';
     else {
       what = `新增可达 ${c.outcome.G} 个（学生, 机会）对，损失 ${c.outcome.L} 个，总成本 ${money(c.outcome.cost.total_usd)}`;
-      if (c.outcome.N === main.outcome.N && main.status !== 'INFEASIBLE') what += '（净值与当前已生效的结果相同）';
+      if (c.outcome.N === main.outcome.N && main.status !== 'INFEASIBLE') what += '（净值与主结果（仅含已批准措施）相同）';
       if (c.status === 'SEARCH_LIMIT_REACHED') what += '（达到搜索上限，未证明最优）';
     }
     conditional = {
       ...c.outcome,
       status: c.status,
       assumed_approved_intervention_ids: pendingIds,
-      note: `如果这些措施获批（${names}），则${what}；目前尚未生效，结果为模拟。`,
+      note:
+        c.status === 'UNSUPPORTED_INPUT'
+          ? `假设这些措施获批（${names}）时，${INTERNAL_VERIFY_FAILED}因此未给出条件性方案（这里是不启用任何措施的占位）；目前尚未生效，结果为模拟。`
+          : `如果这些措施获批（${names}），则${what}；目前尚未生效，结果为模拟。`,
     };
   }
 
   const notes = [...main.notes];
   if (pendingIds.length > 0) notes.push(`有 ${pendingIds.length} 项措施尚待审批，主结果不含它们；获批后的情况见 conditional（尚未生效）。`);
+  notes.push(TIE_NOTE);
   notes.push(SIM_NOTE);
 
   return {

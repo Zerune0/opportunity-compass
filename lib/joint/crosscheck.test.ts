@@ -16,7 +16,7 @@ import type {
   SupportType,
   VerifyOptions,
 } from '../types';
-import { exhaustiveBest, type ExhaustiveResult } from './exhaustive';
+import { exhaustiveBest, NAIVE_LIMITS, naiveBest, type ExhaustiveResult, type NaiveResult } from './exhaustive';
 import { solveJoint } from './solve';
 import { lcg, makeIntervention, makeOpp, makeScenario, makeStudent } from './testing/fixtures';
 import { verifyPlan } from './verify';
@@ -41,11 +41,33 @@ function without(o: VerifyOptions, relaxed: Soft[]): VerifyOptions {
   return v;
 }
 
-/** 按第 5 条比较指标：负数 = a 更优，0 = 指标完全并列。 */
+/** 按第 5 条比较指标（不含字典序）：负数 = a 更优，0 = 指标完全并列。 */
 function cmpMetrics(a: ExhaustiveResult, b: ExhaustiveResult): number {
   if (a.N !== b.N) return b.N - a.N;
   if (Math.abs(a.total_usd - b.total_usd) > EPS) return a.total_usd - b.total_usd;
-  return a.allocationCount - b.allocationCount;
+  if (a.allocationCount !== b.allocationCount) return a.allocationCount - b.allocationCount;
+  return a.selectedCount - b.selectedCount;
+}
+
+/**
+ * 规范化（第 5 条）：选中的每项措施要么有分配，要么在 required 里，要么是这两类措施的（传递）前置依赖。
+ * required 传 undefined 表示没有（或已放松）该软要求。
+ */
+function normalizationIssues(label: string, scenario: Scenario, outcome: JointOutcome, required: string[] | undefined): string[] {
+  const byId = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
+  const anchor = new Set<string>([...outcome.allocations.map((a) => a.intervention_id), ...(required ?? [])]);
+  const stack = [...anchor];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const r of byId.get(id)?.requires ?? []) {
+      if (!anchor.has(r)) {
+        anchor.add(r);
+        stack.push(r);
+      }
+    }
+  }
+  const extra = outcome.selected_intervention_ids.filter((id) => !anchor.has(id));
+  return extra.length ? [`${label}：选中了既无分配、也非必须启用或其前置依赖的措施 ${extra.join('、')}`] : [];
 }
 
 function outcomeSummary(r: JointOutcome & { status?: string }) {
@@ -68,6 +90,7 @@ function exSummary(e: ExhaustiveResult) {
     L: e.L,
     total_usd: e.total_usd,
     allocationCount: e.allocationCount,
+    selectedCount: e.selectedCount,
     selected: e.plan?.selected_intervention_ids,
     allocations: e.plan?.allocations.map((a) => `${a.intervention_id}:${a.student_id}:${a.opportunity_id}`),
   };
@@ -100,6 +123,8 @@ function compareOne(
     if (outcome.N !== ex.N) issues.push(`${label}：N 不一致 ${ctx()}`);
     if (Math.abs(outcome.cost.total_usd - ex.total_usd) > EPS) issues.push(`${label}：total_usd 不一致 ${ctx()}`);
     if (outcome.allocations.length !== ex.allocationCount) issues.push(`${label}：分配条数不一致 ${ctx()}`);
+    if (outcome.selected_intervention_ids.length !== ex.selectedCount) issues.push(`${label}：选中措施数不一致 ${ctx()}`);
+    issues.push(...normalizationIssues(label, scenario, outcome, vopts.required_intervention_ids));
     return issues;
   }
 
@@ -144,6 +169,9 @@ function compareOne(
     if (alternative.N !== match.ex.N) issues.push(`${label}：alternative N 不一致 ${altCtx}`);
     if (Math.abs(alternative.cost.total_usd - match.ex.total_usd) > EPS) issues.push(`${label}：alternative total_usd 不一致 ${altCtx}`);
     if (alternative.allocations.length !== match.ex.allocationCount) issues.push(`${label}：alternative 分配条数不一致 ${altCtx}`);
+    if (alternative.selected_intervention_ids.length !== match.ex.selectedCount) issues.push(`${label}：alternative 选中措施数不一致 ${altCtx}`);
+    const keptRequired = relaxed.includes('required_intervention_ids') ? undefined : vopts.required_intervention_ids;
+    issues.push(...normalizationIssues(`${label} alternative`, scenario, alternative, keptRequired));
   }
   return issues;
 }
@@ -447,11 +475,24 @@ function pick<T>(rnd: () => number, xs: readonly T[]): T {
   return xs[Math.floor(rnd() * xs.length)];
 }
 
-function randomScenario(seed: number): { scenario: Scenario; options: SolveOptions } {
+/**
+ * shape = 'small'：单机会 2–6 人、两机会 2–4 人，1–4 项措施（与 exhaustiveBest 对照）；
+ * shape = 'tiny'：≤ 3 人、≤ 2 个机会、≤ 3 项措施，且「措施 × 学生 × 机会」≤ 12（与朴素枚举 naiveBest 对照）。
+ */
+function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scenario: Scenario; options: SolveOptions } {
   const rnd = lcg(seed);
   const nOpp = rnd() < 0.6 ? 1 : 2;
-  const nStu = 2 + Math.floor(rnd() * (nOpp === 1 ? 5 : 3)); // 单机会 2–6 人，两机会 2–4 人
-  const nInt = 1 + Math.floor(rnd() * 3); // 1–3 项措施
+  let nStu: number;
+  let nInt: number;
+  if (shape === 'small') {
+    nStu = 2 + Math.floor(rnd() * (nOpp === 1 ? 5 : 3)); // 单机会 2–6 人，两机会 2–4 人
+    nInt = 1 + Math.floor(rnd() * 4); // 1–4 项措施
+    if (nInt === 4 && nStu * nOpp > 4) nStu = Math.max(2, Math.floor(4 / nOpp)); // 4 项措施时控制规模，保持整套测试几秒内
+  } else {
+    nInt = 1 + Math.floor(rnd() * NAIVE_LIMITS.interventions);
+    const maxStu = Math.min(NAIVE_LIMITS.students, Math.floor(NAIVE_LIMITS.triples / (nInt * nOpp)));
+    nStu = 1 + Math.floor(rnd() * maxStu);
+  }
 
   const opps: Opportunity[] = [];
   for (let k = 0; k < nOpp; k++) {
@@ -539,7 +580,7 @@ function randomScenario(seed: number): { scenario: Scenario; options: SolveOptio
 }
 
 describe('交叉检查：随机小场景（固定种子线性同余）', () => {
-  const N_RANDOM = 40;
+  const N_RANDOM = 200;
   let checked = 0;
   for (let k = 0; k < N_RANDOM; k++) {
     const seed = 1000 + k * 7919;
@@ -560,8 +601,8 @@ describe('交叉检查：随机小场景（固定种子线性同余）', () => {
       }
     });
   }
-  it('随机场景中合法、参与对照的不少于 30 个', () => {
-    expect(checked).toBeGreaterThanOrEqual(30);
+  it('随机场景中合法、参与对照的不少于 150 个', () => {
+    expect(checked).toBeGreaterThanOrEqual(150);
   });
 });
 
@@ -572,4 +613,260 @@ describe('交叉检查覆盖面', () => {
     expect(STATS.infeasible).toBeGreaterThanOrEqual(4);
     expect(STATS.conditional).toBeGreaterThanOrEqual(3);
   });
+});
+
+// ───────────────────────────── 朴素枚举：完整方案逐字段对照 ─────────────────────────────
+
+const cmpS = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** 第 5 条完整目标（含字典序）：负数 = a 更优，0 = 同一方案。两者都必须可行。 */
+function cmpNaive(a: NaiveResult, b: NaiveResult): number {
+  if (a.N !== b.N) return b.N - a.N;
+  if (Math.abs(a.total_usd - b.total_usd) > EPS) return a.total_usd - b.total_usd;
+  const pa = a.plan!;
+  const pb = b.plan!;
+  if (pa.allocations.length !== pb.allocations.length) return pa.allocations.length - pb.allocations.length;
+  const sa = pa.selected_intervention_ids;
+  const sb = pb.selected_intervention_ids;
+  if (sa.length !== sb.length) return sa.length - sb.length;
+  for (let k = 0; k < sa.length; k++) if (sa[k] !== sb[k]) return cmpS(sa[k], sb[k]);
+  for (let k = 0; k < pa.allocations.length; k++) {
+    const x = pa.allocations[k];
+    const y = pb.allocations[k];
+    const d = cmpS(x.intervention_id, y.intervention_id) || cmpS(x.student_id, y.student_id) || cmpS(x.opportunity_id, y.opportunity_id);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+function fullPlan(o: JointOutcome) {
+  return { selected: o.selected_intervention_ids, allocations: o.allocations, cost: o.cost };
+}
+
+function naivePlan(n: NaiveResult) {
+  return {
+    selected: n.plan!.selected_intervention_ids,
+    allocations: n.plan!.allocations,
+    cost: { fixed_usd: n.fixed_usd, marginal_usd: n.marginal_usd, total_usd: n.total_usd },
+  };
+}
+
+const NAIVE_STATS = { feasible: 0, infeasible: 0, nonEmpty: 0, evaluated: 0 };
+
+function naiveCompareOne(
+  label: string,
+  scenario: Scenario,
+  status: string,
+  outcome: JointOutcome,
+  vopts: VerifyOptions,
+  alternative: JointResult['alternative'] | undefined,
+): string[] {
+  const nv = naiveBest(scenario, vopts);
+  NAIVE_STATS.evaluated += nv.evaluated;
+  if (nv.feasible) {
+    NAIVE_STATS.feasible++;
+    if (nv.plan!.selected_intervention_ids.length > 0) NAIVE_STATS.nonEmpty++;
+    if (status !== 'OPTIMAL') return [`${label}：朴素枚举可行，求解器状态为 ${status}`];
+    const a = JSON.stringify(fullPlan(outcome));
+    const b = JSON.stringify(naivePlan(nv));
+    return a === b ? [] : [`${label}：完整方案不一致 solver=${a} naive=${b}`];
+  }
+  NAIVE_STATS.infeasible++;
+  if (status !== 'INFEASIBLE') return [`${label}：朴素枚举不可行，求解器状态为 ${status}`];
+  if (alternative === undefined) return [];
+  if (!alternative) return [`${label}：INFEASIBLE 但 alternative 为空`];
+  // 期望的放松方式：按 [min_gain, required] 顺序尝试 options 里给出的项，取完整目标最优；完全并列取先尝试的；都不可行两项都放松。
+  const given: Soft[] = (['min_gain', 'required_intervention_ids'] as Soft[]).filter((k) => vopts[k] !== undefined);
+  let expected: { relaxed: Soft[]; nv: NaiveResult } | null = null;
+  for (const k of given) {
+    const r = naiveBest(scenario, without(vopts, [k]));
+    if (!r.feasible) continue;
+    if (!expected || cmpNaive(r, expected.nv) < 0) expected = { relaxed: [k], nv: r };
+  }
+  if (!expected) expected = { relaxed: given, nv: naiveBest(scenario, without(vopts, given)) };
+  const issues: string[] = [];
+  if ([...alternative.relaxed].sort().join(',') !== [...expected.relaxed].sort().join(',')) {
+    issues.push(`${label}：alternative 放松项 ${alternative.relaxed.join('+')}，期望 ${expected.relaxed.join('+')}`);
+  } else {
+    const a = JSON.stringify(fullPlan(alternative));
+    const b = JSON.stringify(naivePlan(expected.nv));
+    if (a !== b) issues.push(`${label}：alternative 完整方案不一致 solver=${a} naive=${b}`);
+  }
+  return issues;
+}
+
+function naiveCrossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[] {
+  const res = solveJoint(scenario, sopts);
+  if (res.status === 'UNSUPPORTED_INPUT') return [`求解器返回 UNSUPPORTED_INPUT：${res.notes.join(' / ')}`];
+  const issues = naiveCompareOne('主结果', scenario, res.status, res, verifyOpts(sopts), res.alternative ?? null);
+  const pending = scenario.interventions.filter((i) => i.status === 'pending').map((i) => i.id).sort();
+  if (pending.length > 0 && res.conditional) {
+    issues.push(...naiveCompareOne('条件性结果', scenario, res.conditional.status, res.conditional, verifyOpts(sopts, pending), undefined));
+  }
+  return issues;
+}
+
+describe('交叉检查：朴素枚举（每个 (措施, 学生, 机会) 是否分配），比较完整方案', () => {
+  const TINY_HAND: { name: string; scenario: Scenario; options?: SolveOptions }[] = [
+    {
+      name: '两人、容量 1：并列时按学生编号取 a',
+      scenario: makeScenario({ students: [need('b'), need('a')], opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }),
+    },
+    {
+      name: '免费无作用的 time_support 不被选中（S4 复现）',
+      scenario: makeScenario({
+        students: [need('x')],
+        opportunities: [O1],
+        interventions: [
+          makeIntervention('a', { type: 'time_support', resolves: ['time'], hours_per_week: 0, unit_cost_usd: 0, device: null }),
+          makeIntervention('b', { unit_cost_usd: 10 }),
+        ],
+      }),
+    },
+    {
+      name: 'pending 的已有 grant：占容量、不免成本',
+      scenario: makeScenario({
+        students: [need('t'), need('u')],
+        opportunities: [O1],
+        interventions: [makeIntervention('loan', { unit_cost_usd: 100, capacity: 1 })],
+        existing_grants: [grant({ id: 'p', student_id: 't', opportunity_id: 'o1', intervention_id: 'loan', status: 'pending' })],
+      }),
+    },
+    {
+      name: '两机会两时段 per_time_slot + 前置依赖',
+      scenario: makeScenario({
+        students: [need('a'), need('b')],
+        opportunities: [O1, O2],
+        interventions: [
+          { ...LOAN, capacity: 1, capacity_scope: 'per_time_slot', requires: ['setup'] },
+          makeIntervention('setup', { type: 'time_support', resolves: ['time'], hours_per_week: 0, unit_cost_usd: 0, fixed_cost_usd: 10, device: null }),
+        ],
+        opportunity_time_slots: { o1: 'AM', o2: 'PM' },
+      }),
+    },
+    {
+      name: '必须启用的措施互斥 + min_gain → INFEASIBLE，alternative 完整方案',
+      scenario: makeScenario({
+        students: [need('a'), need('b')],
+        opportunities: [O1],
+        interventions: [
+          makeIntervention('x', { mutually_exclusive_with: ['y'], unit_cost_usd: 30 }),
+          makeIntervention('y', { unit_cost_usd: 60 }),
+        ],
+      }),
+      options: { required_intervention_ids: ['x', 'y'], min_gain: 1 },
+    },
+  ];
+  for (const { name, scenario, options } of TINY_HAND) {
+    it(name, () => {
+      expect(naiveCrossCheck(scenario, options ?? {})).toEqual([]);
+    });
+  }
+
+  const N_TINY = 60;
+  for (let k = 0; k < N_TINY; k++) {
+    const seed = 50_000 + k * 104_729;
+    it(`随机极小场景 seed=${seed}`, () => {
+      const { scenario, options } = randomScenario(seed, 'tiny');
+      const valid = verifyPlan(scenario, { selected_intervention_ids: [], allocations: [] }, verifyOpts(options)).checks.find(
+        (c) => c.name === 'input_validity',
+      )?.passed;
+      if (!valid) {
+        expect(solveJoint(scenario, options).status).toBe('UNSUPPORTED_INPUT');
+        return;
+      }
+      const issues = naiveCrossCheck(scenario, options);
+      if (issues.length > 0) expect({ seed, scenario, options, issues }).toEqual({ seed, scenario, options, issues: [] });
+    });
+  }
+
+  it('朴素对照覆盖了可行（含非空方案）与不可行，且确实枚举了大量候选', () => {
+    console.info('[naive stats]', JSON.stringify(NAIVE_STATS));
+    expect(NAIVE_STATS.nonEmpty).toBeGreaterThanOrEqual(20);
+    expect(NAIVE_STATS.infeasible).toBeGreaterThanOrEqual(3);
+    expect(NAIVE_STATS.evaluated).toBeGreaterThan(10_000);
+  });
+});
+
+// ───────────────────────────── 边界输入：求解器与验证器判定一致 ─────────────────────────────
+
+describe('边界输入对照：求解器返回 UNSUPPORTED_INPUT ⇔ 验证器 input_validity 不通过', () => {
+  const baseIv = makeIntervention('loan', { unit_cost_usd: 50, capacity: 2 });
+  const base = (o: Partial<Scenario> = {}) =>
+    makeScenario({ students: [need('a'), need('b')], opportunities: [O1, O2], interventions: [baseIv, makeIntervention('loan2', { unit_cost_usd: 70 })], ...o });
+  const iv = (patch: Record<string, unknown>) => base({ interventions: [{ ...baseIv, ...patch } as Intervention, makeIntervention('loan2')] });
+  const eg = (patch: Record<string, unknown>) =>
+    base({ existing_grants: [{ ...grant({ id: 'e1', student_id: 'a', opportunity_id: 'o1' }), ...patch } as ResourceGrant] });
+  const cast = <T,>(x: unknown) => x as T;
+
+  const cases: [string, Scenario, Record<string, unknown>, boolean][] = [
+    // [名称, 场景, options, 期望合法?]
+    ['基准', base(), {}, true],
+    ['预算为负', base({ budget_usd: -1 }), {}, false],
+    ['预算 NaN', base({ budget_usd: Number.NaN }), {}, false],
+    ['预算 Infinity', base({ budget_usd: Number.POSITIVE_INFINITY }), {}, false],
+    ['预算是字符串', base({ budget_usd: cast<number>('100') }), {}, false],
+    ['评估日前有空格', base({ evaluation_date: ' 2026-11-17' }), {}, false],
+    ['评估日后有空格', base({ evaluation_date: '2026-11-17 ' }), {}, false],
+    ['评估日不补零', base({ evaluation_date: '2026-1-7' }), {}, false],
+    ['评估日 2 月 30 日', base({ evaluation_date: '2026-02-30' }), {}, false],
+    ['评估日是数字', base({ evaluation_date: cast<string>(20261117) }), {}, false],
+    ['评估日为 null', base({ evaluation_date: cast<string>(null) }), {}, false],
+    ['loss_cap 为 null（protect）', base(), { loss_cap: null }, true],
+    ['min_gain 为 null', base(), { min_gain: null }, true],
+    ['required 为 null', base(), { required_intervention_ids: null }, true],
+    ['mode 为 null', base(), { mode: null }, true],
+    ['tradeoff + loss_cap null', base(), { mode: 'tradeoff', loss_cap: null }, false],
+    ['tradeoff + loss_cap 0', base(), { mode: 'tradeoff', loss_cap: 0 }, true],
+    ['mode 拼错', base(), { mode: 'Protect' }, false],
+    ['min_gain 为负', base(), { min_gain: -1 }, false],
+    ['min_gain NaN', base(), { min_gain: Number.NaN }, false],
+    ['loss_cap Infinity', base(), { mode: 'tradeoff', loss_cap: Number.POSITIVE_INFINITY }, false],
+    ['required 是字符串', base(), { required_intervention_ids: 'loan' }, false],
+    ['required 引用不存在', base(), { required_intervention_ids: ['ghost'] }, false],
+    ['capacity 为 undefined', iv({ capacity: undefined }), {}, true],
+    ['capacity 为 null', iv({ capacity: null }), {}, true],
+    ['capacity 为负', iv({ capacity: -1 }), {}, false],
+    ['capacity Infinity', iv({ capacity: Number.POSITIVE_INFINITY }), {}, false],
+    ['unit_cost 缺失', iv({ unit_cost_usd: undefined }), {}, false],
+    ['fixed_cost 为 null', iv({ fixed_cost_usd: null }), {}, false],
+    ['amount_usd 为 null', iv({ amount_usd: null }), {}, true],
+    ['amount_usd 为负', iv({ amount_usd: -1 }), {}, false],
+    ['hours_per_week NaN', iv({ hours_per_week: Number.NaN }), {}, false],
+    ['hours_per_week 为 0', iv({ hours_per_week: 0 }), {}, true],
+    ['requires 为 null', iv({ requires: null }), {}, true],
+    ['requires 是字符串', iv({ requires: 'loan2' }), {}, false],
+    ['互斥为 null', iv({ mutually_exclusive_with: null }), {}, true],
+    ['互斥引用自己', iv({ mutually_exclusive_with: ['loan'] }), {}, false],
+    ['opportunity_ids 为 null', iv({ opportunity_ids: null }), {}, true],
+    ['opportunity_ids 是字符串', iv({ opportunity_ids: 'o1' }), {}, false],
+    ['时段表为 null', base({ opportunity_time_slots: cast<Record<string, string>>(null) }), {}, true],
+    ['时段表是字符串', base({ opportunity_time_slots: cast<Record<string, string>>('AM') }), {}, false],
+    ['时段表是数组', base({ opportunity_time_slots: cast<Record<string, string>>(['AM']) }), {}, false],
+    ['时段标签是数字', base({ opportunity_time_slots: cast<Record<string, string>>({ o1: 1, o2: 2 }) }), {}, false],
+    ['时段标签为空', base({ opportunity_time_slots: { o1: '' } }), {}, false],
+    ['时段标签为空格（非空字符串）', base({ opportunity_time_slots: { o1: ' ' } }), {}, true],
+    ['时段标签为 null', base({ opportunity_time_slots: cast<Record<string, string>>({ o1: null }) }), {}, false],
+    ['existing_grants 为 null', base({ existing_grants: cast<ResourceGrant[]>(null) }), {}, true],
+    ['existing_grants 是字符串', base({ existing_grants: cast<ResourceGrant[]>('x') }), {}, false],
+    ['existing_grants 含 null', base({ existing_grants: cast<ResourceGrant[]>([null]) }), {}, false],
+    ['已有 grant amount 为负', eg({ amount_usd: -5 }), {}, false],
+    ['已有 grant hours Infinity', eg({ hours_per_week: Number.POSITIVE_INFINITY }), {}, false],
+    ['已有 grant amount 为 null', eg({ amount_usd: null }), {}, true],
+    ['students 为 null', base({ students: cast<StudentProfile[]>(null) }), {}, false],
+    ['students 含没有 id 的条目', base({ students: cast<StudentProfile[]>([{ grade: 10 }]) }), {}, false],
+    ['interventions 含 null', base({ interventions: cast<Intervention[]>([null]) }), {}, false],
+    ['学生 id 重复', base({ students: [need('a'), need('a')] }), {}, false],
+  ];
+  for (const [name, scenario, options, expectValid] of cases) {
+    it(name, () => {
+      const solver = solveJoint(scenario, options as SolveOptions);
+      const v = verifyPlan(scenario, { selected_intervention_ids: [], allocations: [] }, options as VerifyOptions);
+      const verifierValid = v.checks.find((c) => c.name === 'input_validity')?.passed === true;
+      expect({ solverUnsupported: solver.status === 'UNSUPPORTED_INPUT', verifierInvalid: !verifierValid }).toEqual({
+        solverUnsupported: !expectValid,
+        verifierInvalid: !expectValid,
+      });
+    });
+  }
 });

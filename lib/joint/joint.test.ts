@@ -14,7 +14,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { solveJoint, verifyPlan } from './index';
-import { DEVICE_LOAN_IDS as IDS, deviceLoanScenario, withBudget, withEnabledInterventions } from './scenarios';
+import {
+  DEVICE_LOAN_IDS as IDS,
+  deviceLoanScenario,
+  resolveEnabledInterventions,
+  withBudget,
+  withEnabledInterventions,
+} from './scenarios';
 import type { Intervention, JointPlan, JointResult, Opportunity, ResourceGrant, Scenario } from '../types';
 
 const OPP = IDS.opportunity;
@@ -297,17 +303,41 @@ describe('existing_grants 占容量、免成本', () => {
     expect(r.R1).toHaveLength(5);
   });
 
-  it('已有同一措施的 pending grant：该学生再分配不重复计成本、不重复占名额', () => {
+  it('已有同一措施的 pending grant：占名额（保守），但不免成本——该学生再分配要照常计费', () => {
     const grant: ResourceGrant = { ...laptopGrant('dl-s01'), id: 'pending-loan-s01', intervention_id: LAPTOP, status: 'pending' };
     const r = solveJoint(laptopOnly({ ...deviceLoanScenario, existing_grants: [grant] }));
     expect(r.R0).toEqual([]);
     expect(r.status).toBe('OPTIMAL');
-    // dl-s01 免成本、不另占名额 → 仍可服务 5 人：$100 + 4 × $20 = $180。
+    // dl-s01 已占 1 个名额：再分配给 dl-s01 不另占名额，其他人最多 4 个 → 仍可服务 5 人；
+    // 但 pending 不免成本：$100 + 5 × $20 = $200。
     expect(r.G).toBe(5);
     expect(studentsOf(r)).toEqual(['dl-s01', 'dl-s02', 'dl-s04', 'dl-s05', 'dl-s07']);
-    expect(r.allocations.find((a) => a.student_id === 'dl-s01')?.cost_usd).toBe(0);
-    expect(r.cost.total_usd).toBe(180);
+    expect(r.allocations.find((a) => a.student_id === 'dl-s01')?.cost_usd).toBe(20);
+    expect(r.cost.total_usd).toBe(200);
     expect(r.verification?.passed).toBe(true);
+  });
+
+  it('复现：措施已批准、容量 1、单价 $100，学生 t 有同措施的 pending 已有 grant → 给 t 分配计 $100', () => {
+    const base = deviceLoanScenario.opportunities[0];
+    const t = { ...clone(deviceLoanScenario.students[0]), id: 't' };
+    const s: Scenario = {
+      ...deviceLoanScenario,
+      students: [t],
+      opportunities: [base],
+      interventions: [
+        { id: 'loan', title: '示例借用', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 100, fixed_cost_usd: 0, capacity: 1 },
+      ],
+      existing_grants: [{ ...laptopGrant('t'), id: 'pending-t', intervention_id: 'loan', status: 'pending' }],
+      opportunity_time_slots: undefined,
+    };
+    const r = solveJoint(s);
+    expect(r.status).toBe('OPTIMAL');
+    expect(r.allocations).toEqual([{ intervention_id: 'loan', student_id: 't', opportunity_id: OPP, cost_usd: 100 }]);
+    expect(r.cost.total_usd).toBe(100);
+    expect(r.verification?.passed).toBe(true);
+    // 复核也不接受把它记 0。
+    const cheat: JointPlan = { selected_intervention_ids: ['loan'], allocations: [{ ...r.allocations[0], cost_usd: 0 }] };
+    expect(verifyPlan(s, cheat).checks.find((c) => c.name === 'cost_accounting')?.passed).toBe(false);
   });
 });
 
@@ -426,6 +456,17 @@ describe('UNSUPPORTED_INPUT', () => {
     ['固定成本为负', withInterventionPatch(S, LAPTOP, { fixed_cost_usd: -5 }), {}],
     ['评估日期不合法', { ...S, evaluation_date: '2026-02-30' }, {}],
     ['评估日期格式不对', { ...S, evaluation_date: '2026/11/17' }, {}],
+    ['评估日期前后有空格', { ...S, evaluation_date: ' 2026-11-17' }, {}],
+    ['评估日期末尾有空格', { ...S, evaluation_date: '2026-11-17 ' }, {}],
+    ['时段标签不是字符串', { ...S, opportunity_time_slots: { [OPP]: 1 as unknown as string } }, {}],
+    ['时段标签为空字符串', { ...S, opportunity_time_slots: { [OPP]: '' } }, {}],
+    ['opportunity_time_slots 不是对象', { ...S, opportunity_time_slots: 'x' as unknown as Record<string, string> }, {}],
+    ['措施 amount_usd 为负', withInterventionPatch(S, SUBSIDY, { amount_usd: -25 }), {}],
+    ['措施 hours_per_week 非有限数', withInterventionPatch(S, LAPTOP, { hours_per_week: Number.POSITIVE_INFINITY }), {}],
+    ['已有 grant 的 hours_per_week 为负', { ...S, existing_grants: [{ ...laptopGrant('dl-s01'), type: 'time_support', hours_per_week: -3 }] }, {}],
+    ['已有 grant 的 amount_usd 非有限数', { ...S, existing_grants: [{ ...laptopGrant('dl-s01'), amount_usd: Number.NaN }] }, {}],
+    ['mode 不是 protect / tradeoff', S, { mode: 'aggressive' as 'protect' }],
+    ['students 不是数组', { ...S, students: null as unknown as Scenario['students'] }, {}],
     [
       '只算 existing grant 就超容量',
       {
@@ -529,20 +570,128 @@ describe('确定性与纯函数', () => {
 });
 
 describe('scenarios 辅助函数', () => {
-  it('withEnabledInterventions 只保留指定措施并清理引用，不修改原场景', () => {
+  it('withEnabledInterventions：前置依赖未启用的措施一并移除（不放松依赖），清理互斥引用，不修改原场景', () => {
     const before = clone(deviceLoanScenario);
+    // 线上入口 requires 设备借用；设备借用没勾 → 线上入口被移除，而不是删掉 requires 让它单独生效。
     const s = withEnabledInterventions(deviceLoanScenario, [ONLINE, SATELLITE]);
-    expect(s.interventions.map((i) => i.id)).toEqual([ONLINE, SATELLITE]);
-    const online = s.interventions.find((i) => i.id === ONLINE)!;
-    expect(online.requires).toEqual([]);
-    expect(online.mutually_exclusive_with).toEqual([SATELLITE]);
+    expect(s.interventions.map((i) => i.id)).toEqual([SATELLITE]);
+    expect(resolveEnabledInterventions(deviceLoanScenario, [ONLINE, SATELLITE]).removed).toEqual([
+      { id: ONLINE, missing_requires: [LAPTOP] },
+    ]);
     expect(deviceLoanScenario).toEqual(before);
     expect(solveJoint(s).status).not.toBe('UNSUPPORTED_INPUT');
+    // 依赖一起勾上：都保留，requires 原样保留；互斥对象没勾 → 清理该互斥引用。
+    const both = withEnabledInterventions(deviceLoanScenario, [ONLINE, LAPTOP]);
+    expect(both.interventions.map((i) => i.id)).toEqual([LAPTOP, ONLINE]);
+    const online = both.interventions.find((i) => i.id === ONLINE)!;
+    expect(online.requires).toEqual([LAPTOP]);
+    expect(online.mutually_exclusive_with).toEqual([]);
+  });
+
+  it('withEnabledInterventions：依赖链按闭包移除（c 需要 b，b 需要 a，只勾 b、c → 都移除）', () => {
+    const mk = (id: string, requires?: string[]): Intervention => ({
+      id,
+      title: `示例措施 ${id}`,
+      type: 'device',
+      resolves: ['device'],
+      device: 'laptop',
+      unit_cost_usd: 1,
+      capacity: null,
+      ...(requires ? { requires } : {}),
+    });
+    const s: Scenario = { ...deviceLoanScenario, interventions: [mk('c', ['b']), mk('b', ['a']), mk('a')] };
+    const r = resolveEnabledInterventions(s, ['c', 'b']);
+    expect(r.enabled).toEqual([]);
+    expect(r.removed.map((x) => x.id).sort()).toEqual(['b', 'c']);
+    expect(withEnabledInterventions(s, ['c', 'b']).interventions).toEqual([]);
+    expect(withEnabledInterventions(s, ['c', 'b', 'a']).interventions.map((i) => i.id)).toEqual(['c', 'b', 'a']);
+    // 依赖成环且都勾上：都保留。
+    const cyc: Scenario = { ...deviceLoanScenario, interventions: [mk('x', ['y']), mk('y', ['x'])] };
+    expect(resolveEnabledInterventions(cyc, ['x', 'y']).enabled).toEqual(['x', 'y']);
+    expect(resolveEnabledInterventions(cyc, ['x']).enabled).toEqual([]);
   });
 
   it('withBudget 返回新场景', () => {
     const s = withBudget(deviceLoanScenario, 123);
     expect(s.budget_usd).toBe(123);
     expect(deviceLoanScenario.budget_usd).toBe(400);
+  });
+});
+
+describe('第 1 层评审修复', () => {
+  it('M1(a) 复现：时段标签不是字符串 → UNSUPPORTED_INPUT（不再给出复核不通过的 OPTIMAL）', () => {
+    const base = deviceLoanScenario.opportunities[0];
+    const o1: Opportunity = { ...clone(base), id: 'o1', title: '【示例 / 占位】o1', requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min: 9, max: 10 } : r)) };
+    const o2: Opportunity = { ...clone(base), id: 'o2', title: '【示例 / 占位】o2', requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min: 11, max: 12 } : r)) };
+    const a = { ...clone(deviceLoanScenario.students[0]), id: 'a', grade: 10 };
+    const b = { ...clone(deviceLoanScenario.students[0]), id: 'b', grade: 11 };
+    const loan: Intervention = { id: 'loan', title: '示例借用', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, capacity: 1, capacity_scope: 'per_time_slot' };
+    const sc: Scenario = {
+      ...deviceLoanScenario,
+      students: [a, b],
+      opportunities: [o1, o2],
+      interventions: [loan],
+      opportunity_time_slots: { o1: 1, o2: 2 } as unknown as Record<string, string>,
+    };
+    const r = solveJoint(sc);
+    expect(r.status).toBe('UNSUPPORTED_INPUT');
+    expect(r.notes.join('')).toContain('时段标签');
+    expect(verifyPlan(sc, { selected_intervention_ids: [], allocations: [] }).checks.find((c) => c.name === 'input_validity')?.passed).toBe(false);
+    // 标签改成合法字符串后：两个时段各 1 个名额 → G = 2，OPTIMAL 且复核通过。
+    const ok = solveJoint({ ...sc, opportunity_time_slots: { o1: 'AM', o2: 'PM' } });
+    expect(ok.status).toBe('OPTIMAL');
+    expect(ok.G).toBe(2);
+    expect(ok.verification?.passed).toBe(true);
+  });
+
+  it('S1：options 中 loss_cap / min_gain 为 null 视同未给；措施 capacity 缺省（undefined）视同不限', () => {
+    const r = solveJoint(laptopOnly(), { loss_cap: null, min_gain: null } as unknown as Parameters<typeof solveJoint>[1]);
+    expect(r.status).toBe('OPTIMAL');
+    expect(r.G).toBe(5);
+    expect(r.verification?.passed).toBe(true);
+    const unlimited = laptopOnly(
+      withInterventionPatch(deviceLoanScenario, LAPTOP, { capacity: undefined as unknown as null }),
+    );
+    const u = solveJoint(unlimited);
+    expect(u.status).toBe('OPTIMAL');
+    expect(u.G).toBe(7); // 不限名额：7 名交通可靠的学生都能借到
+    expect(u.verification?.passed).toBe(true);
+  });
+
+  it('S4 复现：免费且无作用的 time_support 不会被选中（选中措施数更少者优先）', () => {
+    const base = deviceLoanScenario.opportunities[0];
+    const online: Opportunity = { ...clone(base), id: 'o-online', title: '【示例 / 占位】线上', location: { format: 'online' } };
+    const stu = { ...clone(deviceLoanScenario.students[0]), id: 'x' };
+    const sc: Scenario = {
+      ...deviceLoanScenario,
+      students: [stu],
+      opportunities: [online],
+      opportunity_time_slots: undefined,
+      interventions: [
+        { id: 'a', title: '示例时间支持', type: 'time_support', resolves: ['time'], hours_per_week: 0, unit_cost_usd: 0, fixed_cost_usd: 0, capacity: null },
+        { id: 'b', title: '示例笔记本借用', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, fixed_cost_usd: 0, capacity: null },
+      ],
+    };
+    const r = solveJoint(sc);
+    expect(r.status).toBe('OPTIMAL');
+    expect(r.selected_intervention_ids).toEqual(['b']);
+    expect(r.allocations.map((x) => x.intervention_id)).toEqual(['b']);
+    expect(r.cost.total_usd).toBe(10);
+  });
+
+  it('S2：合法输入下 L 恒为 0（措施额度非负 → grant 只帮忙）', () => {
+    for (const r of [solveJoint(deviceLoanScenario), solveJoint(laptopOnly(), { mode: 'tradeoff', loss_cap: 3 })]) {
+      expect(r.L).toBe(0);
+      expect(r.conditional?.L ?? 0).toBe(0);
+    }
+  });
+
+  it('notes 写明名额并列按学生编号（模拟、不代表谁更需要）；conditional 不说「已生效」', () => {
+    const r = solveJoint(deviceLoanScenario);
+    expect(r.notes.join('')).toContain('名额并列时按学生编号顺序分配（模拟），不代表谁更需要');
+    expect(r.conditional?.note).toContain('主结果（仅含已批准措施）');
+    expect(r.conditional?.note).not.toContain('当前已生效');
+    const req = solveJoint(deviceLoanScenario, { required_intervention_ids: [SATELLITE] });
+    expect(req.alternative?.note).not.toContain('已生效');
   });
 });

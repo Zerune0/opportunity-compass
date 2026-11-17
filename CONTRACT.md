@@ -24,10 +24,10 @@
 | `PlanResult` | `planRoutes` 的返回 | `status: 'routes'` → `routes`（2–3 条）；`status: 'blocked'` → `routes: []` + `blocking_requirements`、`reasons`、`alternatives`（下一届 / 同领域替代） |
 | `RouteDiff` | 两次规划的变化 | `status_change`、`route_changes[]`（新增 / 移除 / 新跳过 / 取消跳过的步骤，小时与费用变化）、**`reasons`（为什么变）** |
 | `SupportType` | 支持 / 资源类型（grant 与措施共用） | `device`、`transport_subsidy`、`fee_waiver`、`time_support`、**`alternative_access`**（替代参与方式，如线上参与入口、卫星会场，让学生不必前往主会场；与 `transport_subsidy` 同等化解 transport 障碍） |
-| `Scenario` | 主办方 what-if 场景（一律示例/模拟） | `students`、`opportunities`、`interventions`、`budget_usd`、`evaluation_date`、`existing_grants`（带 `intervention_id` 的已有 grant 占用该措施的容量，按不同学生计，不重复计成本）、`opportunity_time_slots?`（机会 id → 时段标签；未列出的机会归入同一个默认时段） |
-| `Intervention` | 可选支持措施 | `type`、`resolves`（障碍类型，仅展示）、`unit_cost_usd`（每服务一位**不同学生**的边际成本）、`fixed_cost_usd`（只计一次）、`capacity`（最多可服务的**不同学生**人数）、`opportunity_ids?`、`mutually_exclusive_with`、`status?`（approved / pending，缺省 approved）、`requires?`（前置依赖）、`capacity_scope?`（total / per_time_slot，缺省 total）。同一学生凭同一措施参加多个机会，只占 1 个容量、只计一次成本 |
+| `Scenario` | 主办方 what-if 场景（一律示例/模拟） | `students`、`opportunities`、`interventions`、`budget_usd`、`evaluation_date`、`existing_grants`（带 `intervention_id` 的已有 grant 不论 status 都占用该措施的容量，按不同学生计；只有 **approved** 的已有 grant 让同一 (措施, 学生) 的分配免成本）、`opportunity_time_slots?`（机会 id → 非空字符串时段标签；未列出的机会归入同一个默认时段） |
+| `Intervention` | 可选支持措施 | `type`、`resolves`（障碍类型，仅展示）、`unit_cost_usd`（每服务一位**不同学生**的边际成本）、`fixed_cost_usd`（只计一次）、`capacity`（最多可服务的**不同学生**人数；null 或缺省 = 不限）、`amount_usd?` / `hours_per_week?`（给出时须非负）、`opportunity_ids?`、`mutually_exclusive_with`、`status?`（approved / pending，缺省 approved）、`requires?`（前置依赖）、`capacity_scope?`（total / per_time_slot，缺省 total）。同一学生凭同一措施参加多个机会，只占 1 个容量、只计一次成本 |
 | `SolveOptions` | `solveJoint` 的可选第二参数 | `mode?`（protect / tradeoff）、`loss_cap?`、`max_search_nodes?`、`required_intervention_ids?`、`min_gain?`（后两项是主办方的**软要求**） |
-| `Allocation` | 一次资源分配（某措施用于某学生的某机会） | `intervention_id`、`student_id`、`opportunity_id`、`cost_usd`。同一 (`intervention_id`, `student_id`) 可有多条（对应不同机会）；容量与成本按不同的 (`intervention_id`, `student_id`) 计数；其中只有一条的 `cost_usd` 记 `unit_cost_usd`，其余记 0；若该 (`intervention_id`, `student_id`) 已出现在 `existing_grants` 中（grant 带相同 `intervention_id`），则其所有 `Allocation` 的 `cost_usd` 都记 0，容量也不再重复占用（已有 grant 已占 1 个） |
+| `Allocation` | 一次资源分配（某措施用于某学生的某机会） | `intervention_id`、`student_id`、`opportunity_id`、`cost_usd`。同一 (`intervention_id`, `student_id`) 可有多条（对应不同机会）；容量与成本按不同的 (`intervention_id`, `student_id`) 计数；其中只有一条的 `cost_usd` 记 `unit_cost_usd`，其余记 0；若该 (`intervention_id`, `student_id`) 已出现在 `existing_grants` 中（grant 带相同 `intervention_id`），容量不再重复占用（已有 grant 已占 1 个，不论 status）；若该 grant 为 **approved**，其所有 `Allocation` 的 `cost_usd` 还都记 0（pending 的不免成本） |
 | `JointPlan` | 候选方案（`verifyPlan` 的输入） | `selected_intervention_ids`、`allocations` |
 | `JointOutcome` | 一个方案的结果指标（不含状态） | `JointPlan` 字段 + `R1`、`G`、`L`、`N`、`cost` |
 | `JointAlternative` | INFEASIBLE 时只放松软要求后的替代方案 | `JointOutcome` 字段 + `relaxed`（放松了 `required_intervention_ids` / `min_gain` 中的哪些）、`note` |
@@ -55,13 +55,13 @@
 | `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => ReachabilityResult` | 已实现 |
 | `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => PlanResult` | 已实现 |
 | `diffRoutes` | `lib/path` | `(before: PlanResult, after: PlanResult) => RouteDiff` | 已实现 |
-| `solveJoint` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | MOCK，待按「联合求解模型」替换 |
-| `verifyPlan` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | MOCK，待按「联合求解模型」替换 |
+| `solveJoint` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | 已实现（精确搜索，见「联合求解模型」） |
+| `verifyPlan` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | 已实现（独立复核，不 import 求解器） |
 
 `VerifyOptions = { mode?: 'protect' | 'tradeoff'; loss_cap?: number; assume_approved_intervention_ids?: string[]; required_intervention_ids?: string[]; min_gain?: number }`（字段类型沿用 `SolveOptions`）。**第三参数确定保留，为可选**：复核损失 `L` 时需要知道模式与损失上限。不传（或不给 `mode`）按 protect 处理，即损失 `L` 必须为 0；`mode: 'tradeoff'` 时 `L ≤ loss_cap` 才算通过；`mode: 'tradeoff'` 但没给 `loss_cap` 时 `verifyPlan` 判为不通过（与 `solveJoint` 在同样输入下返回 `UNSUPPORTED_INPUT` 一致）。
 
 导入：`import { checkEligibility } from '@/lib/eligibility'`，类型 `import type { Opportunity } from '@/lib/types'`。
-**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。四个学生端函数（`checkEligibility` / `analyzeReachability` / `planRoutes` / `diffRoutes`）已是真实实现；仍为 mock 的两个函数（`solveJoint` / `verifyPlan`）的说明文字带「MOCK」字样。
+**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。六个共享函数都已是真实实现。
 
 ### 联合求解模型（`solveJoint` / `verifyPlan` 的实现者只读这一节）
 
@@ -75,6 +75,7 @@
 - 字符串比较一律按 UTF-16 码元（JS 的 `<` / 默认 `sort()`），不用 `localeCompare`。
 - 稳定排序：`selected_intervention_ids` 按 id 升序；`allocations` 按 (`intervention_id`, `student_id`, `opportunity_id`) 升序；`R0` / `R1` 按 (`student_id`, `opportunity_id`) 升序。
 - 金额与指标比较允许 `1e-6` 的浮点误差（`a ≤ b` 判为 `a ≤ b + 1e-6`；相等判为 `|a − b| ≤ 1e-6`）。
+- **null 视同未给**：`SolveOptions` / `VerifyOptions` 中值为 `null` 的字段（如 `loss_cap`、`min_gain`、`required_intervention_ids`、`mode`），措施的 `capacity`（`undefined` 视同 `null` = 不限）/ `opportunity_ids` / `requires` / `mutually_exclusive_with` / `amount_usd` / `hours_per_week`，以及 `existing_grants`、`opportunity_time_slots` 为 `null` 时，都按「没给」处理。例外：`fixed_cost_usd` 给出（含 `null`）时必须是非负有限数。
 
 **1. 评估**
 - `reach(pair, grants)` = `analyzeReachability(student, opp, grants, { today: scenario.evaluation_date }).reachable === true`。`null`（信息不足）一律当作**不可达**，不猜。`grants` 传整个列表即可（`analyzeReachability` 自己按 `student_id` / `opportunity_id` 筛选）。
@@ -94,17 +95,18 @@
 4. **分配合法**（`allocation_validity`）：每条 Allocation 的 `intervention_id` 是选中的措施，`student_id` ∈ `S`，`opportunity_id` ∈ `O`；该措施给出 `opportunity_ids` 时必须包含该机会；没有重复的 (i, s, o)。选中但没有任何 Allocation 的措施是允许的（仍计固定成本）。
 5. **容量**（`capacity`）：对每个选中措施 i（`capacity` 为 null 时不限）：
    - 时段：`slot(o)` = `scenario.opportunity_time_slots?.[o]`；没列出的机会都属于同一个**默认时段**，它与任何显式标签都不同。
-   - 已占用：`E_i` = `E` 中 `intervention_id === i` 的 grant（**不看 status，也不看 student_id 是否在场景内**）。
+   - 已占用：`E_i` = `E` 中 `intervention_id === i` 的 grant（**不看 status，也不看 student_id 是否在场景内**：已有承诺就占位，保守）。
    - `capacity_scope` 缺省或为 `'total'`：`|{ g.student_id : g ∈ E_i } ∪ { s : (i, s, ·) ∈ allocations }| ≤ capacity`。
    - `'per_time_slot'`：对每个时段 t：`|{ g.student_id : g ∈ E_i 且 (g.opportunity_id === null 或 slot(g.opportunity_id) = t) } ∪ { s : (i, s, o) ∈ allocations 且 slot(o) = t }| ≤ capacity`。要检查的时段 = 所有显式标签 + 默认时段。
    - 即：同一学生在同一范围内只计 1 次；已被 existing grant 占用的学生再分配不重复占容量。
 6. **成本**（`cost_accounting` 与 `budget`）：
    - `fixed_usd` = 选中措施的 `fixed_cost_usd ?? 0` 之和（每项一次）。
    - `marginal_usd` = 各 Allocation 的 `cost_usd` 之和。
-   - 对每个出现在 allocations 中的 (i, s)：若 `E` 中有 `intervention_id === i` 且 `student_id === s` 的 grant（不看 status），则这组 Allocation 的 `cost_usd` 全为 0；否则这组中**恰好一条**记 `unit_cost_usd`、其余为 0（`unit_cost_usd` 为 0 时全为 0）。求解器把全额记在这组按稳定排序的第一条上；复核只检查「恰好一条为全额、其余为 0」。
+   - 对每个出现在 allocations 中的 (i, s)：若 `E` 中有 `intervention_id === i`、`student_id === s` 且 **`status === 'approved'`** 的 grant，则这组 Allocation 的 `cost_usd` 全为 0（pending 的已有 grant 只占容量、**不免成本**）；否则这组中**恰好一条**记 `unit_cost_usd`、其余为 0（`unit_cost_usd` 为 0 时全为 0）。求解器把全额记在这组按稳定排序的第一条上；复核只检查「恰好一条为全额、其余为 0」。
    - `total_usd = fixed_usd + marginal_usd ≤ scenario.budget_usd`（`budget` 检查）。
 7. **损失**（`coverage_loss`）：`L = |R0 \ R1|`；`mode` 缺省或 `'protect'` 要求 `L = 0`（此时忽略 `loss_cap`）；`'tradeoff'` 要求给出 `loss_cap` 且 `L ≤ loss_cap`。
-- 原有口径（保留）：`Intervention.capacity` = 最多可服务的**不同学生**人数；`unit_cost_usd` = 每服务一位不同学生的边际成本；同一学生凭同一措施参加多个机会只占 1 个容量、只计一次成本；同一 (`intervention_id`, `student_id`) 可有多条 Allocation（对应不同机会），`JointCost.marginal_usd` 仍等于各 Allocation 的 `cost_usd` 之和；existing grant 已覆盖的 (`intervention_id`, `student_id`) 成本记 0、不重复占容量。
+   - **合法输入下 `L` 恒为 0**：措施与已有 grant 的 `amount_usd` / `hours_per_week` 必须非负（第 6 条），`analyzeReachability` 对 grant 单调（多一条 approved grant 只会多化解障碍，不会让原本可达的对变为不可达）。`mode: 'tradeoff'` / `loss_cap` 仅为向前兼容保留（例如将来引入会占用学生时间的措施）。
+- 原有口径（保留）：`Intervention.capacity` = 最多可服务的**不同学生**人数；`unit_cost_usd` = 每服务一位不同学生的边际成本；同一学生凭同一措施参加多个机会只占 1 个容量、只计一次成本；同一 (`intervention_id`, `student_id`) 可有多条 Allocation（对应不同机会），`JointCost.marginal_usd` 仍等于各 Allocation 的 `cost_usd` 之和；existing grant 已覆盖的 (`intervention_id`, `student_id`) 不重复占容量，其中 approved 的还让成本记 0。
 
 **4. 软要求**（主办方自己提的，检查名 `organizer_requirements`；只有 INFEASIBLE 时才可放松，并且必须明示）
 - `required_intervention_ids` 全部在选中集合里。
@@ -115,27 +117,38 @@
 1. 最大化 `N = G − L`；
 2. 并列取 `cost.total_usd` 更小的；
 3. 再并列取 Allocation 条数更少的；
-4. 再并列取字典序最小：先逐元素比较排序后的 `selected_intervention_ids`（前缀更短者更小），再逐元素比较排序后的 allocations（按 (`intervention_id`, `student_id`, `opportunity_id`) 元组比较）。
+4. 再并列取选中措施数（`selected_intervention_ids.length`）更少的；
+5. 再并列取字典序最小：先逐元素比较排序后的 `selected_intervention_ids`（前缀更短者更小），再逐元素比较排序后的 allocations（按 (`intervention_id`, `student_id`, `opportunity_id`) 元组比较）。
 同输入必须同输出；返回的数组都按第 0 条的稳定顺序排序。
+- **规范化（由第 4 步保证）**：求解器返回的任何方案（主结果、`alternative`、`conditional`）中，每个选中措施要么至少有一条 Allocation，要么在（该方案仍要求的）`required_intervention_ids` 里，要么是前两类措施的（传递）前置依赖；其余措施不会被选中（去掉它们得到的方案同样可行、N / 成本 / 分配条数不变或更好、措施数更少）。
+- 名额或预算不够、多名学生条件相同时，按学生编号顺序（字典序）决定——这是模拟中的确定性规则，**不代表谁更需要**；`notes` 中写明这一点。
 
 **6. 状态**（按以下顺序判定）
-- **`UNSUPPORTED_INPUT`**（不做评估；返回空方案，`R0 = R1 = []`，`notes` 写明原因；`alternative` / `conditional` / `verification` 为 null）：
+- **`UNSUPPORTED_INPUT`**（不做评估；返回空方案，`R0 = R1 = []`，`notes` 写明原因；`alternative` / `conditional` / `verification` 为 null）。求解器（`validateJointInput`）与验证器（`input_validity`）**各自实现、规则相同**（第 0 条「null 视同未给」同样适用）：
+  - 形状：`students` / `opportunities` / `interventions` 不是数组，或其中有不是「带字符串 `id` 的对象」的条目；`existing_grants` 给出但不是数组，或含非对象条目；`opportunity_time_slots` 给出但不是（非数组的）对象；
   - `budget_usd` 为负或非有限数；
-  - `mode: 'tradeoff'` 但没给 `loss_cap`；`loss_cap` 或 `min_gain` 为负或非有限数；`max_search_nodes` 给出但不是正整数；
+  - `mode` 给出但不是 `'protect'` / `'tradeoff'`；`mode: 'tradeoff'` 但没给 `loss_cap`；`loss_cap` 或 `min_gain` 为负或非有限数；`max_search_nodes` 给出但不是正整数（只有求解器检查）；
   - 学生 / 机会 / 措施 id 有重复；
-  - `required_intervention_ids`、`requires`、`mutually_exclusive_with` 引用了不存在的措施 id，或 `requires` / `mutually_exclusive_with` 引用了措施自己；`opportunity_ids` 或 `opportunity_time_slots` 的键引用了不存在的机会 id；
+  - `required_intervention_ids`、`requires`、`mutually_exclusive_with` 给出但不是数组、引用了不存在的措施 id，或 `requires` / `mutually_exclusive_with` 引用了措施自己；`opportunity_ids` 给出但不是数组或引用了不存在的机会 id；`opportunity_time_slots` 的键引用了不存在的机会 id；
+  - `opportunity_time_slots` 的**标签不是非空字符串**（如数字、`null`、`''`）；
   - `capacity`（非 null 时）、`unit_cost_usd`、`fixed_cost_usd` 为负或非有限数；
-  - `evaluation_date` 不是合法的 `YYYY-MM-DD`；
+  - 措施的 `amount_usd` / `hours_per_week`，或 existing grant 的 `amount_usd` / `hours_per_week`（非 null 时）为负或非有限数；
+  - `evaluation_date` 不是**严格**的 `YYYY-MM-DD` 合法日期（前后有空格、不补零、不存在的日期都不合法）；
   - 只算 existing grant 就已经超过某措施的容量（任一范围 / 时段）。
+- **不得返回「OPTIMAL 但复核不通过」**（兜底）：求解器对自己将返回的方案调用 `verifyPlan` 复核（传入相同的 `mode` / `loss_cap` / `required_intervention_ids` / `min_gain`，条件性方案另传 `assume_approved_intervention_ids`）。完整搜索得到的最优方案复核不通过时：
+  - 主结果返回 `UNSUPPORTED_INPUT` + 空方案（`R0 = R1 = []`，`alternative` / `conditional` 为 null），`notes` 写「内部复核未通过，按不支持的输入处理，请检查场景数据」（并列出未通过的检查项），**`verification` 保留那次失败的复核结果**（这是 `UNSUPPORTED_INPUT` 时 `verification` 非 null 的唯一情况）；
+  - `conditional`：不给出该方案，`conditional.status = 'UNSUPPORTED_INPUT'`、方案为空方案占位，`note` 写明内部复核未通过；
+  - `alternative`：舍弃复核不通过的候选，从其余放松方式中选；都不可用时给出空方案占位，`note` 写明内部复核未通过。
+  - 合法输入下求解器与验证器应当一致，这条兜底不应被触发；触发即说明场景数据或实现有问题。
 - **`INFEASIBLE`**：搜索完成，证明没有方案同时满足硬约束和软要求。由于空方案总满足全部硬约束（预算 ≥ 0、R1 = R0、L = 0），INFEASIBLE 只可能由软要求造成（例如：必须启用的措施的固定成本超出预算、必须启用的措施是 pending、两个必须启用的措施互斥、`min_gain` 达不到）。
   - 主结果为空方案（`R1 = R0`，`G = L = N = 0`，成本 0），`verification = null`。
   - `alternative`（必须非空）= 只放松软要求后的最优方案（按第 5 条），`relaxed` 写明放松了哪些、`note` 写明原要求为何达不到。放松 = 整项不再要求（不做部分放松）。依次尝试：只放松 `min_gain`、只放松 `required_intervention_ids`（只尝试 options 里确实给出的那一项）；两种都可行时取按第 5 条更优者，完全并列取只放松 `min_gain`；都不可行时两项都放松（此时空方案必可行）。**不得悄悄降低要求**：主结果的 `status` 仍是 INFEASIBLE。
-- **`SEARCH_LIMIT_REACHED`**：达到 `max_search_nodes` 时停止。只返回已找到的、经 `verifyPlan`（传入相同的 `mode` / `loss_cap` / `required_intervention_ids` / `min_gain`）复核通过的最好方案，`verification` 为该复核结果；`notes` 写明「未证明最优」。没有复核通过的方案时返回空方案，`verification` 为空方案的复核结果（有软要求时可能不通过），`notes` 写明「搜索上限内未找到满足全部要求的方案，这是不启用任何措施的占位方案」。不得声称最优，也不等于无解。
-- **`OPTIMAL`**：搜索完成并证明最优；`verification` 必须非空且通过。
+- **`SEARCH_LIMIT_REACHED`**：达到 `max_search_nodes` 时停止。只返回已找到的、经 `verifyPlan`（传入相同的 `mode` / `loss_cap` / `required_intervention_ids` / `min_gain`）复核通过的最好方案，`verification` 为该复核结果；`notes` 写明「未证明最优」。做法：搜索中每次刷新最好方案时记录该候选（只保留最近 K = 8 个，后记录的严格更优）；达到上限时按目标顺序（最新 = 最优）依次复核，返回第一个通过的。没有复核通过的方案时返回空方案，`verification` 为空方案的复核结果（有软要求时可能不通过），`notes` 写明「搜索上限内未找到满足全部要求的方案，这是不启用任何措施的占位方案」。不得声称最优，也不等于无解。
+- **`OPTIMAL`**：搜索完成并证明最优；`verification` 必须非空且通过（不通过时按上面的兜底返回 `UNSUPPORTED_INPUT`）。
 - `alternative` 的搜索也受同一个 `max_search_nodes`（单独计数）；达到上限时给出已找到的、复核通过的最好替代方案，并在 `note` 中写明未证明最优。
 
 **7. 条件性结果**
-- 场景里存在 pending 措施、且主状态不是 UNSUPPORTED_INPUT 时：`conditional` = 把**全部** pending 措施当作已批准、其他条件（含 options 中的软要求与 `max_search_nodes`）相同再求解一次的结果；`status` 为这次求解的状态（规则同第 6 条），`assumed_approved_intervention_ids` 列出这些措施（升序），`note` 写明「如果这些措施获批，则……，目前尚未生效」。否则 `conditional` 为 null。
+- 场景里存在 pending 措施、且主状态不是 UNSUPPORTED_INPUT 时：`conditional` = 把**全部** pending 措施当作已批准、其他条件（含 options 中的软要求与 `max_search_nodes`）相同再求解一次的结果；`status` 为这次求解的状态（规则同第 6 条，含「内部复核未通过 → UNSUPPORTED_INPUT」），`assumed_approved_intervention_ids` 列出这些措施（升序），`note` 写明「如果这些措施获批，则……，目前尚未生效」；与主结果比较时称「主结果（仅含已批准措施）」，不说「已生效」。否则 `conditional` 为 null。
 - `existing_grants` 不变：pending 的 existing grant 仍按 pending 处理，R0 与主结果相同。
 - **主结果永远不含 pending 措施。**
 
@@ -143,7 +156,7 @@
 - 不得 import 求解器的任何代码（建议求解器与验证器放在 `lib/joint/` 下不同文件，验证器文件不 import 求解器文件；求解器可以调用验证器）。可以调用学生端的 `analyzeReachability` / `checkEligibility`（它们不是求解器）。
 - 自己重算 R0、R1、G、L、N 与成本，不信任 plan 里自带的任何指标或可行性标记。
 - 输出的每项检查一条 `VerifyCheck`，`passed` = 全部检查都通过。检查项（名称固定）：
-  - `input_validity`：scenario / options 是否命中第 6 条 UNSUPPORTED_INPUT 的任一条件（`max_search_nodes` 除外），或 `assume_approved_intervention_ids` 引用了不存在的措施。命中则不通过（其余检查仍尽量给出）。
+  - `input_validity`：scenario / options 是否命中第 6 条 UNSUPPORTED_INPUT 的任一条件（`max_search_nodes` 除外），或 `assume_approved_intervention_ids` 引用了不存在的措施。命中则不通过（其余检查仍尽量给出）。规则与求解器相同，但在验证器文件里**独立实现**（不共用校验函数）；对任一输入，「求解器返回 UNSUPPORTED_INPUT（输入校验）」⇔「`input_validity` 不通过」（有对照测试）。
   - `approval`、`mutual_exclusion`、`prerequisite`、`allocation_validity`、`capacity`、`cost_accounting`、`budget`、`coverage_loss`：对应第 3 条的硬约束 1–7（`approval` 中 `assume_approved_intervention_ids` 列出的 pending 措施算已批准；`coverage_loss` 按 `options.mode` / `loss_cap`，不传按 protect，tradeoff 缺 `loss_cap` 判不通过）。
   - `eligibility`（交叉检查）：`R1 \ R0` 中每个对的 `checkEligibility(student, opp, { today: evaluation_date }).overall === 'eligible'`。
   - `deadline`（交叉检查）：`R1 \ R0` 中每个对的机会 `deadline` 为 null 或不早于 `evaluation_date`。
@@ -152,9 +165,10 @@
   - `metrics`：始终输出。plan 若带有 `R0` / `R1` / `G` / `L` / `N` / `cost` 中的任一字段（如传入的是 `JointResult`），逐项与重算值比较（`R0` / `R1` 按集合比较且不得有重复对；数值按第 0 条的误差），任一不一致则不通过；plan 不带这些字段时通过，`detail` 写明「plan 未携带指标，仅重算」。
 - 复核条件性方案时，调用方传 `assume_approved_intervention_ids: conditional.assumed_approved_intervention_ids`。
 
-**9. 当前 mock 行为**（只为让界面能跑，不是真实求解）：
-- `solveJoint`：正常输入返回 `SEARCH_LIMIT_REACHED` + 空方案（不启用任何措施），`notes` 写明「MOCK：未进行搜索」，**不声称 OPTIMAL**；预算为负或 tradeoff 缺 `loss_cap` 返回 `UNSUPPORTED_INPUT`。不返回 `alternative` / `conditional` / `verification`。
-- `verifyPlan`：不做检查，返回 `passed = false`。
+**9. 实现位置与测试**
+- `lib/joint/solve.ts`（`solveJoint`，精确搜索；节点计数与缺省上限见 `lib/joint/index.ts` 文件头）、`lib/joint/verify.ts`（`verifyPlan`）、`lib/joint/exhaustive.ts`（只用于测试的穷举 / 朴素枚举参考实现）、`lib/joint/whatif.ts`（What-if 页面视图模型 `runWhatIf`）、`lib/joint/scenarios.ts`（演示场景与 `withEnabledInterventions` / `resolveEnabledInterventions` / `withBudget`）。
+- 独立性：`verify.ts` / `exhaustive.ts` 不 import `./solve`、`./index`、`./scenarios`（有静态守卫测试）。
+- `withEnabledInterventions(scenario, ids)`：只保留勾选的措施；**前置依赖没有全部启用的措施一并移除**（按闭包反复判断），不会删掉 `requires` 让措施单独生效；指向已移除措施的互斥引用会被清理（互斥对象不在场景里不构成约束）。`resolveEnabledInterventions` 返回同一规则下保留与被移除的措施。
 
 ### 接入学生端函数的提示
 
@@ -167,7 +181,11 @@
 - **证据关联准备项**：证据的 `prep_item_ids` 建议写成 `<opportunity_id>:<prep_id>`，避免跨机会误匹配（裸 `prep_id` 也能匹配，但不同机会的同名准备项会被一起覆盖）。
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
   `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。带校验的加载函数待定。
-- **仍为 mock 的 `solveJoint` / `verifyPlan`**：mock 永远不会返回 `OPTIMAL` / `INFEASIBLE` 或 `passed = true`。要调这些界面状态，请在**自己的页面 / 测试里手写符合类型的 fixture**（标 `is_sample: true`），**不要改 mock**。
+- **主办方 What-if（`solveJoint` / `verifyPlan`）**：
+  - 页面用 `runWhatIf(scenario, input)`（`lib/joint/whatif.ts`）拿汇总视图：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，并把结果整理成只含人数和汇总数字的 `WhatIfView`。
+  - 直接用 `solveJoint` 时，展示前**自己再调一次 `verifyPlan`**（相同的 `mode` / `loss_cap` / 软要求；复核 `conditional` 时传 `assume_approved_intervention_ids`），不要只信结果里自带的 `verification`。
+  - 所有结果都是**模拟**（示例学生、示例场景），界面标「示例 / 模拟」；可达 ≠ 录取；`SEARCH_LIMIT_REACHED` 不等于最优也不等于无解；`INFEASIBLE` 的主结果是空方案，替代方案要写明放松了什么。
+  - **不要在界面显示单个学生的信息**（id、姓名、学校、逐人分配）；只显示人数与汇总。`runWhatIf` 已把说明文字里的学生 id / 姓名 / 学校替换为「某学生」。
 
 语义约定：
 - **unknown**：信息不全（学生没填、或官方要求机器判定不了）时返回 unknown，并给出「请向官方确认」提示。界面要把 unknown 显示成「待确认」，不能显示成通过或不通过。
@@ -259,4 +277,13 @@ npm run build      # 生产构建（提交前必须通过）
   - 新可选字段：`Intervention.status?`、`requires?`、`capacity_scope?`；`Scenario.opportunity_time_slots?`；`SolveOptions.required_intervention_ids?`、`min_gain?`；`VerifyOptions.assume_approved_intervention_ids?`、`required_intervention_ids?`、`min_gain?`；`JointResult.alternative?`、`conditional?`、`verification?`。
   - 新类型：`JointOutcome`、`JointAlternative`、`JointConditional`；`JointResult` 改为 `extends JointOutcome`，字段集合与类型不变。
   - `VerifyCheck.name` 建议取值补充 `input_validity`、`approval`、`prerequisite`、`deadline`、`organizer_requirements`、`metrics`。
-  - 原「联合求解的计量口径」并入新的「联合求解模型」一节（原有口径保留）；`solveJoint` / `verifyPlan` 仍为 MOCK。
+  - 原「联合求解的计量口径」并入新的「联合求解模型」一节（原有口径保留）；当时 `solveJoint` / `verifyPlan` 尚未实现（占位）。
+- 2026-11-17：**`solveJoint` / `verifyPlan` 已实现**（签名不变），按第 1 层评审修订「联合求解模型」（只影响联合求解，学生端函数不变）：
+  - 第 6 条：不得返回「OPTIMAL 但复核不通过」——内部复核不通过时返回 `UNSUPPORTED_INPUT` + 空方案并保留失败的复核；`conditional` / `alternative` 同理不给出该方案。`JointConditional.status` 因此可能是 `UNSUPPORTED_INPUT`（仅此一种情况）。
+  - 第 6 条：`UNSUPPORTED_INPUT` 补充——时段标签必须是非空字符串；`evaluation_date` 必须严格 `YYYY-MM-DD`；措施与已有 grant 的 `amount_usd` / `hours_per_week` 不得为负或非有限；`mode` 只能是 protect / tradeoff；形状不对（非数组、非对象条目）。求解器与验证器各自实现、规则相同。第 0 条：`null` 视同未给，`capacity` 为 `undefined` 视同不限。
+  - 第 7 条（损失）：合法输入下 `L` 恒为 0；`tradeoff` / `loss_cap` 仅为向前兼容保留。
+  - 第 5 条：并列规则在「分配条数更少」之后加「选中措施数更少」，并写明规范化（不选无分配、非必须、非依赖的措施）与「名额并列按学生编号，不代表谁更需要」。
+  - 第 3 条第 6 款：**pending 的已有 grant 只占容量、不再免成本**（免成本只认 approved）。**可能影响调用方**：带 pending 已有 grant 的场景，成本会比之前高。
+  - 第 6 条 `SEARCH_LIMIT_REACHED`：保留最近 8 个改进候选，达到上限时按目标顺序依次复核、返回第一个通过的。
+  - `withEnabledInterventions`：前置依赖未全部启用的措施改为一并移除（之前是删掉 `requires` 引用，会悄悄放松依赖）；新增 `resolveEnabledInterventions`。
+  - 「接入提示」改为 What-if 的用法（`runWhatIf`、直接调用时自行复核、模拟标注、不显示单个学生信息）。字段与签名都没有变化。

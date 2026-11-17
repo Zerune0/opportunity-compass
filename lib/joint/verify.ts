@@ -8,14 +8,16 @@
  * 检查项（每项都输出，通过的也输出；passed = 全部通过）：
  * - input_validity：scenario / options 是否命中第 6 条 UNSUPPORTED_INPUT 的条件（max_search_nodes 除外），
  *   或 assume_approved_intervention_ids 引用了不存在的措施。命中则不通过，其余检查照常给出。
+ *   规则与求解器的输入校验相同，但由本文件独立实现（不共用代码）；options 中值为 null 的字段视同未给。
  * - approval：选中的措施存在、不重复、已批准（pending 只有在 assume_approved 中列出时才算已批准）。
  * - mutual_exclusion：选中集合内没有互斥的两项（mutually_exclusive_with 按对称关系处理）。
  * - prerequisite：每个选中措施的 requires 全部在选中集合里。
  * - allocation_validity：分配引用的措施已选中且存在、学生 / 机会在场景内、机会在措施的 opportunity_ids 内、无重复 (i, s, o)。
  * - capacity：按 capacity_scope（total / per_time_slot）统计不同学生数（含 existing grant 占位）≤ capacity。
- * - cost_accounting：每个 (i, s) 组恰好一条记 unit_cost_usd、其余 0（已有 grant 覆盖的组全为 0）；
+ * - cost_accounting：每个 (i, s) 组恰好一条记 unit_cost_usd、其余 0（approved 的已有 grant 覆盖的组全为 0；
+ *   pending 的已有 grant 只占容量、不免成本）；
  *   cost_usd 必须是有限数；plan 若带 cost 字段，还核对 fixed / marginal / total 的记账口径。
- * - budget：重算的正确总成本（固定 + 每个不同 (i, s) 一次单价，已有 grant 覆盖的不计）≤ budget_usd。
+ * - budget：重算的正确总成本（固定 + 每个不同 (i, s) 一次单价，approved 的已有 grant 覆盖的不计）≤ budget_usd。
  * - eligibility / deadline / barrier_resolution：对新增覆盖（重算的 R1 \ R0，并上 plan 自带 R1 中声称新增的对）
  *   做交叉检查：资格 eligible、截止日期为 null 或不早于评估日、所有障碍已化解且至少一条由 'alloc:' 合成 grant 化解。
  * - coverage_loss：protect（缺省）要求 L = 0；tradeoff 要求给出 loss_cap 且 L ≤ loss_cap。
@@ -285,14 +287,27 @@ function inputValidity(scenario: Scenario, norm: Norm, options: VerifyOptions): 
   if (!Array.isArray(sc.students)) problems.push('students 不是数组');
   if (!Array.isArray(sc.opportunities)) problems.push('opportunities 不是数组');
   if (!Array.isArray(sc.interventions)) problems.push('interventions 不是数组');
-  if (sc.existing_grants !== undefined && !Array.isArray(sc.existing_grants)) problems.push('existing_grants 不是数组');
-
-  if (!isNonNegFinite(sc.budget_usd)) problems.push(`budget_usd 为负或不是有限数（${String(sc.budget_usd)}）`);
-  if (parseISODate(isStr(sc.evaluation_date) ? sc.evaluation_date : null) == null) {
-    problems.push(`evaluation_date 不是合法的 YYYY-MM-DD（${String(sc.evaluation_date)}）`);
+  if (sc.existing_grants != null && !Array.isArray(sc.existing_grants)) problems.push('existing_grants 不是数组');
+  else {
+    const badGrants = arr(sc.existing_grants).filter((g) => !isObj(g)).length;
+    if (badGrants > 0) problems.push(`existing_grants 中有 ${badGrants} 个条目不是对象`);
+  }
+  const slotsRaw = sc.opportunity_time_slots;
+  if (slotsRaw != null && (!isObj(slotsRaw) || Array.isArray(slotsRaw))) {
+    problems.push('opportunity_time_slots 不是对象（机会 id → 时段标签）');
   }
 
-  // options
+  if (!isNonNegFinite(sc.budget_usd)) problems.push(`budget_usd 为负或不是有限数（${String(sc.budget_usd)}）`);
+  // 严格 YYYY-MM-DD（前后不得有空格），且是合法日期。
+  const ed = sc.evaluation_date;
+  if (!isStr(ed) || !/^\d{4}-\d{2}-\d{2}$/.test(ed) || parseISODate(ed) == null) {
+    problems.push(`evaluation_date 不是合法的 YYYY-MM-DD（${JSON.stringify(ed)}）`);
+  }
+
+  // options（值为 null 的字段视同未给）
+  if (options.mode != null && options.mode !== 'protect' && options.mode !== 'tradeoff') {
+    problems.push(`mode 只能是 protect 或 tradeoff（${String(options.mode)}）`);
+  }
   if (options.mode === 'tradeoff' && options.loss_cap == null) problems.push("mode 为 'tradeoff' 但没给 loss_cap");
   if (options.loss_cap != null && !isNonNegFinite(options.loss_cap)) {
     problems.push(`loss_cap 为负或不是有限数（${String(options.loss_cap)}）`);
@@ -315,14 +330,14 @@ function inputValidity(scenario: Scenario, norm: Norm, options: VerifyOptions): 
   }
 
   // options 引用
-  if (options.required_intervention_ids !== undefined) {
+  if (options.required_intervention_ids != null) {
     if (!Array.isArray(options.required_intervention_ids)) problems.push('required_intervention_ids 不是数组');
     else {
       const bad = options.required_intervention_ids.filter((id) => !norm.intById.has(id));
       if (bad.length > 0) problems.push(`required_intervention_ids 引用了不存在的措施：${bad.map(q).join('、')}`);
     }
   }
-  if (options.assume_approved_intervention_ids !== undefined) {
+  if (options.assume_approved_intervention_ids != null) {
     if (!Array.isArray(options.assume_approved_intervention_ids)) problems.push('assume_approved_intervention_ids 不是数组');
     else {
       const bad = options.assume_approved_intervention_ids.filter((id) => !norm.intById.has(id));
@@ -334,7 +349,7 @@ function inputValidity(scenario: Scenario, norm: Norm, options: VerifyOptions): 
   for (const i of norm.interventions) {
     for (const field of ['requires', 'mutually_exclusive_with'] as const) {
       const v = i[field];
-      if (v === undefined) continue;
+      if (v == null) continue;
       if (!Array.isArray(v)) {
         problems.push(`措施 ${q(i.id)} 的 ${field} 不是数组`);
         continue;
@@ -344,7 +359,7 @@ function inputValidity(scenario: Scenario, norm: Norm, options: VerifyOptions): 
         else if (!norm.intById.has(ref)) problems.push(`措施 ${q(i.id)} 的 ${field} 引用了不存在的措施 ${q(ref)}`);
       }
     }
-    if (i.opportunity_ids !== undefined) {
+    if (i.opportunity_ids != null) {
       if (!Array.isArray(i.opportunity_ids)) problems.push(`措施 ${q(i.id)} 的 opportunity_ids 不是数组`);
       else {
         const bad = i.opportunity_ids.filter((o) => !norm.oppById.has(o));
@@ -360,11 +375,29 @@ function inputValidity(scenario: Scenario, norm: Norm, options: VerifyOptions): 
     if (i.fixed_cost_usd !== undefined && !isNonNegFinite(i.fixed_cost_usd)) {
       problems.push(`措施 ${q(i.id)} 的 fixed_cost_usd 为负或不是有限数（${String(i.fixed_cost_usd)}）`);
     }
+    // 资源额度：null / 缺省 = 未给；给出时必须是非负有限数（保证 grant 只会帮助、不会让原本可达的变为不可达）。
+    for (const field of ['amount_usd', 'hours_per_week'] as const) {
+      const v = i[field];
+      if (v != null && !isNonNegFinite(v)) problems.push(`措施 ${q(i.id)} 的 ${field} 为负或不是有限数（${String(v)}）`);
+    }
+  }
+  for (const g of norm.existing) {
+    for (const field of ['amount_usd', 'hours_per_week'] as const) {
+      const v = g[field];
+      if (v != null && !isNonNegFinite(v)) problems.push(`已有 grant ${q(g.id)} 的 ${field} 为负或不是有限数（${String(v)}）`);
+    }
   }
 
-  // 时段表的键
+  // 时段表：键必须是场景内的机会，标签必须是非空字符串
   const badSlotKeys = Object.keys(norm.timeSlots).filter((k) => !norm.oppById.has(k));
   if (badSlotKeys.length > 0) problems.push(`opportunity_time_slots 的键引用了不存在的机会：${badSlotKeys.map(q).join('、')}`);
+  const badLabels = Object.keys(norm.timeSlots).filter((k) => {
+    const v = norm.timeSlots[k];
+    return !isStr(v) || v === '';
+  });
+  if (badLabels.length > 0) {
+    problems.push(`opportunity_time_slots 中这些机会的时段标签不是非空字符串：${badLabels.map(q).join('、')}`);
+  }
 
   // 只算 existing grant 就超过容量
   for (const i of norm.intById.values()) {
@@ -578,8 +611,9 @@ export function verifyAndMeasure(
     g.costs.push(a.cost_usd);
     groups.set(k, g);
   }
+  // 免成本只认 approved 的已有 grant（pending 的已有 grant 只占容量）。
   const coveredByExisting = (iid: string, s: string) =>
-    norm.existing.some((g) => g.intervention_id === iid && g.student_id === s);
+    norm.existing.some((g) => g.intervention_id === iid && g.student_id === s && g.status === 'approved');
   for (const g of groups.values()) {
     if (!coveredByExisting(g.i.id, g.s) && isFiniteNum(g.i.unit_cost_usd)) marginalUsd += g.i.unit_cost_usd;
   }
@@ -601,7 +635,7 @@ export function verifyAndMeasure(
       const nums = g.costs.map((c) => (isFiniteNum(c) ? c : NaN));
       if (coveredByExisting(g.i.id, g.s)) {
         if (!nums.every((c) => approxEq(c, 0))) {
-          problems.push(`${label} 已由 existing grant 覆盖，应全部记 0，实际记了 ${nums.map((c) => String(c)).join(' + ')}`);
+          problems.push(`${label} 已由 approved 的 existing grant 覆盖，应全部记 0，实际记了 ${nums.map((c) => String(c)).join(' + ')}`);
         }
         continue;
       }
@@ -644,7 +678,7 @@ export function verifyAndMeasure(
         ? check(
             'cost_accounting',
             true,
-            `成本记账正确：固定成本 ${money(fixedUsd)}（${selectedExisting.length} 项各计一次），边际成本 ${money(marginalUsd)}（${groups.size} 个不同 (措施, 学生) 组，已有 grant 覆盖的记 0），合计 ${money(totalUsd)}${tail}。`,
+            `成本记账正确：固定成本 ${money(fixedUsd)}（${selectedExisting.length} 项各计一次），边际成本 ${money(marginalUsd)}（${groups.size} 个不同 (措施, 学生) 组，approved 的已有 grant 覆盖的记 0），合计 ${money(totalUsd)}${tail}。`,
           )
         : check('cost_accounting', false, `成本记账不正确：${list(problems)}${tail}。`),
     );
@@ -815,17 +849,17 @@ export function verifyAndMeasure(
   }
 
   // organizer_requirements
-  if (opts.required_intervention_ids !== undefined || opts.min_gain !== undefined) {
+  if (opts.required_intervention_ids != null || opts.min_gain != null) {
     const problems: string[] = [];
     const notes: string[] = [];
-    if (opts.required_intervention_ids !== undefined) {
+    if (opts.required_intervention_ids != null) {
       const req = arr<unknown>(opts.required_intervention_ids);
       if (!Array.isArray(opts.required_intervention_ids)) problems.push('required_intervention_ids 不是数组');
       const miss = req.filter((id) => !isStr(id) || !selectedSet.has(id));
       if (miss.length > 0) problems.push(`必须启用但未选中的措施：${miss.map(q).join('、')}`);
       else notes.push(`必须启用的措施 ${req.map(q).join('、') || '（空列表）'} 都已选中`);
     }
-    if (opts.min_gain !== undefined) {
+    if (opts.min_gain != null) {
       const ok = isFiniteNum(opts.min_gain) && G >= opts.min_gain - EPS;
       if (ok) notes.push(`G = ${G} ≥ min_gain = ${String(opts.min_gain)}`);
       else problems.push(`G = ${G} 未达到 min_gain = ${String(opts.min_gain)}`);

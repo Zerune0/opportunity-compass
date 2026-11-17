@@ -642,7 +642,10 @@ export interface RouteDiff {
  * - 硬约束（任何情况下不放松）：措施存在 / 不重复 / approved；互斥；前置依赖；分配合法；
  *   容量（按 capacity_scope 与不同学生计）；成本与预算；损失（protect: L = 0；tradeoff: L ≤ loss_cap）。
  * - 软要求（主办方自己提的，INFEASIBLE 时可放松并明示）：required_intervention_ids、min_gain。
- * - 目标：最大化 N = G − L；并列取 total_usd 小的；再并列取 Allocation 条数少的；再并列取字典序最小。
+ * - 目标：最大化 N = G − L；并列取 total_usd 小的；再并列取 Allocation 条数少的；再并列取选中措施数少的；
+ *   再并列取字典序最小。因此选中的每项措施要么有分配，要么必须启用，要么是这两类措施的（传递）前置依赖。
+ * - 输入里措施与已有 grant 的额度（amount_usd / hours_per_week）必须非负，grant 只会帮忙：合法输入下 L 恒为 0。
+ * - 求解器不会返回「OPTIMAL 但复核不通过」：内部复核不通过时按 UNSUPPORTED_INPUT 处理（见 CONTRACT 第 6 条）。
  * - 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
  */
 
@@ -666,20 +669,20 @@ export interface Intervention {
   /** 启用该措施的固定成本（只计一次），默认 0。 */
   fixed_cost_usd?: number;
   /**
-   * 最多可服务的**不同学生**人数（如 5 台设备 = 5），null = 不限。
-   * 同一学生凭同一措施参加多个机会，只占 1 个容量。
+   * 最多可服务的**不同学生**人数（如 5 台设备 = 5），null = 不限（缺省 / undefined 视同 null）。
+   * 同一学生凭同一措施参加多个机会，只占 1 个容量。给出时必须是非负有限数，否则 UNSUPPORTED_INPUT。
    */
   capacity: number | null;
-  /** 只对这些机会有效；缺省 = 对场景内所有机会有效。引用不存在的机会 id → UNSUPPORTED_INPUT。 */
+  /** 只对这些机会有效；缺省（或 null）= 对场景内所有机会有效。引用不存在的机会 id → UNSUPPORTED_INPUT。 */
   opportunity_ids?: string[];
   /**
    * 与这些措施互斥（不能同时启用）。按对称关系处理：A 列出 B 或 B 列出 A，A 与 B 都不能同时选中。
    * 引用不存在的 id 或引用自己 → UNSUPPORTED_INPUT。
    */
   mutually_exclusive_with?: string[];
-  /** 时间支持类措施每位学生增加的每周小时数。 */
+  /** 时间支持类措施每位学生增加的每周小时数。给出（非 null）时必须是非负有限数，否则 UNSUPPORTED_INPUT。 */
   hours_per_week?: number | null;
-  /** 交通补助 / 费用减免每位学生的额度（美元）。 */
+  /** 交通补助 / 费用减免每位学生的额度（美元）。给出（非 null）时必须是非负有限数，否则 UNSUPPORTED_INPUT。 */
   amount_usd?: number | null;
   /** 借设备类措施提供的设备。 */
   device?: DeviceType | null;
@@ -718,7 +721,10 @@ export interface Scenario {
   title: string;
   /** 场景一律是示例 / 模拟，界面标「示例 / 模拟」。 */
   is_sample: true;
-  /** 统一评估时间（docs：R0 与 R1 必须在同一评估时间和假设下比较）。 */
+  /**
+   * 统一评估时间（docs：R0 与 R1 必须在同一评估时间和假设下比较）。
+   * 必须严格是合法的 `YYYY-MM-DD`（前后不得有空格），否则 UNSUPPORTED_INPUT。
+   */
   evaluation_date: ISODate;
   students: StudentProfile[];
   opportunities: Opportunity[];
@@ -728,10 +734,14 @@ export interface Scenario {
   budget_usd: number;
   /**
    * 场景开始前已存在的 grants（计入 R0，也照样计入 R1；方案不能撤销它们）。
-   * 带 intervention_id 的已有 grant 占用该措施的容量（按不同学生计），不重复计成本：
-   * 若某 (intervention_id, student_id) 已出现在 existing_grants 中（该 grant 带相同的 intervention_id），
-   * 则它在本方案中的所有 Allocation 的 cost_usd 都记 0，容量也不再重复占用（已有 grant 已占 1 个）。
-   * 占容量 / 免成本时不看该 grant 的 status 和 student_id 是否在场景内（已有承诺就占位）。
+   * 带 intervention_id 的已有 grant 占用该措施的容量（按不同学生计）：
+   * - 占容量**不看** status 和 student_id 是否在场景内（已有承诺就占位，保守）；该 (intervention_id, student_id)
+   *   在本方案中再分配时不重复占容量（已有 grant 已占 1 个）。
+   * - 免成本**只认 approved**：若 existing_grants 中有带相同 intervention_id、相同 student_id 且
+   *   status = 'approved' 的 grant，则该 (intervention_id, student_id) 在本方案中的所有 Allocation 的
+   *   cost_usd 都记 0；pending 的已有 grant 不免成本（照常按 unit_cost_usd 计一次）。
+   * 每条 grant 的 amount_usd / hours_per_week 给出（非 null）时必须是非负有限数，否则 UNSUPPORTED_INPUT。
+   * 为 null 视同未给（空列表）。
    * per_time_slot 时：opportunity_id 为具体机会的 grant 计入该机会所在时段；
    * opportunity_id 为 null 的 grant 计入每一个时段。
    * intervention_id 指向场景里不存在的措施时，它只参与可达性计算，不占任何容量。
@@ -741,18 +751,20 @@ export interface Scenario {
    * 机会 id → 时段标签（如 `'2027-03-06-AM'`），用于 capacity_scope = 'per_time_slot' 的措施。
    * 没有列出的机会都归入同一个「默认时段」；默认时段与任何显式给出的标签都不相同。
    * 标签相同即同一时段（区分大小写，按字符串全等比较）。
-   * 键引用场景里不存在的机会 id → UNSUPPORTED_INPUT。
+   * 键引用场景里不存在的机会 id、或标签不是非空字符串 → UNSUPPORTED_INPUT。为 null 视同未给。
    */
   opportunity_time_slots?: Record<string, string>;
 }
 
+/** 下列字段值为 null 时一律视同未给（求解器与验证器同一口径）。 */
 export interface SolveOptions {
   /**
    * protect（默认）= 不允许任何原有覆盖损失（L 必须为 0）；
-   * tradeoff = 允许损失，但必须给出 loss_cap。
+   * tradeoff = 允许损失，但必须给出 loss_cap。其他取值 → UNSUPPORTED_INPUT。
+   * 注：合法输入下（措施额度非负）grant 只会帮忙，L 恒为 0；tradeoff / loss_cap 仅为向前兼容保留。
    */
   mode?: 'protect' | 'tradeoff';
-  /** tradeoff 模式下允许的最大损失 L。 */
+  /** tradeoff 模式下允许的最大损失 L（非负有限数）。 */
   loss_cap?: number;
   /**
    * 搜索上限（节点数），达到即返回 SEARCH_LIMIT_REACHED。
@@ -820,8 +832,8 @@ export const JOINT_STATUSES: readonly JointStatus[] = [
  * - 同一 (intervention_id, student_id) 的多条 Allocation 中，cost_usd 只在其中一条记
  *   unit_cost_usd，其余记 0（这样 JointCost.marginal_usd 仍等于各 Allocation 的 cost_usd 之和）；
  * - 若该 (intervention_id, student_id) 已出现在 Scenario.existing_grants 中（该 grant 带相同的
- *   intervention_id），则它在本方案中的所有 Allocation 的 cost_usd 都记 0，容量也不再重复占用
- *   （已有 grant 已占 1 个）。
+ *   intervention_id），容量不再重复占用（已有 grant 已占 1 个，不论 status）；若该 grant 的
+ *   status = 'approved'，它在本方案中的所有 Allocation 的 cost_usd 还都记 0（pending 的不免成本）。
  */
 export interface Allocation {
   intervention_id: string;
@@ -881,7 +893,11 @@ export interface JointAlternative extends JointOutcome {
  * R0 与主结果相同（existing_grants 不变，pending 的 existing grant 仍按 pending 处理）。
  */
 export interface JointConditional extends JointOutcome {
-  /** 这次条件性求解的状态（不会是 UNSUPPORTED_INPUT：主结果 UNSUPPORTED_INPUT 时 conditional 为 null）。 */
+  /**
+   * 这次条件性求解的状态（规则同 JointResult.status）。只有一种情况会是 UNSUPPORTED_INPUT：
+   * 条件性最优方案没有通过内部复核——此时不给出该方案（空方案占位），note 写明原因。
+   * 主结果 UNSUPPORTED_INPUT 时 conditional 为 null。
+   */
   status: JointStatus;
   /** 被当作已批准的 pending 措施 id（升序）。 */
   assumed_approved_intervention_ids: string[];
@@ -906,12 +922,13 @@ export interface JointResult extends JointOutcome {
    * OPTIMAL = 搜索完成并证明最优；
    * INFEASIBLE = 搜索完成，证明没有方案同时满足硬约束和软要求（主结果为空方案，见 alternative；不得悄悄放松）；
    * SEARCH_LIMIT_REACHED = 达到搜索上限（不等于无解，也不得声称最优，只返回经 verifyPlan 复核通过的方案）；
-   * UNSUPPORTED_INPUT = 输入不合法或超出求解器支持范围（返回空方案，notes 说明原因）。
+   * UNSUPPORTED_INPUT = 输入不合法或超出求解器支持范围，或求解器对自己的最优方案做独立复核未通过
+   * （返回空方案，notes 说明原因；不会出现「OPTIMAL 但复核不通过」）。
    */
   status: JointStatus;
   /** 原始覆盖：只带 existing_grants 时可达的学生-机会对，按 (student_id, opportunity_id) 升序。 */
   R0: CoveragePair[];
-  /** 面向界面的说明（含状态解释、mock 标记等）。 */
+  /** 面向界面的说明（状态解释、待审批说明、并列规则、模拟标注等）。 */
   notes: string[];
   /**
    * 仅 status = 'INFEASIBLE' 时非空：只放松软要求后的最优方案；其他状态为 null 或缺省。
@@ -924,8 +941,10 @@ export interface JointResult extends JointOutcome {
   /**
    * 求解器对自己返回的主方案调用 verifyPlan 的独立复核结果（传入与求解相同的 mode / loss_cap /
    * required_intervention_ids / min_gain）。
-   * OPTIMAL、SEARCH_LIMIT_REACHED 时必须非空；SEARCH_LIMIT_REACHED 时只有复核通过的方案才能作为主方案返回，
-   * 否则返回空方案（此时 verification 为空方案的复核结果）。INFEASIBLE、UNSUPPORTED_INPUT 时为 null。
+   * OPTIMAL 时必须非空且通过。SEARCH_LIMIT_REACHED 时必须非空：只有复核通过的方案才能作为主方案返回
+   * （从搜索中记录的若干改进候选里按目标顺序依次复核，取第一个通过的），都不通过则返回空方案
+   * （此时 verification 为空方案的复核结果）。INFEASIBLE 时为 null。UNSUPPORTED_INPUT 时：输入不合法为 null；
+   * 内部复核未通过为那次失败的复核结果（对应的方案没有返回）。
    */
   verification?: VerifyResult | null;
 }
