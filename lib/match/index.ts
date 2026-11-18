@@ -1,6 +1,6 @@
 /**
  * explainMatch(profile, opp, options?) — 这个机会为什么适合 / 不适合这名学生（不含分数或名次）。
- * findAlternatives(profile, opp, catalog, options?) — 从传入的机会目录里找替代机会（完整实现，第二阶段第 1 层）。
+ * findAlternatives(profile, opp, catalog, options?: MatchOptions) — 从传入的机会目录里找替代机会（完整实现，第二阶段第 1 层）。
  *
  * ── explainMatch ── PHASE 2 SAMPLE VERSION — replaced in layer 2
  * 示例版本：签名与返回形状和最终版一致，内容简化但如实。
@@ -18,12 +18,15 @@
  * 产品依据（Quest Recovery）：申请过期、费用难以承担或资格暂时不符时，找下一届或同领域的其他机会；
  * 不把任何候选说成目标机会的官方前置条件。只从传入的 catalog 里找，不编造机会。
  *
+ * 0. options 为 MatchOptions：today 与 grants（缺省 []；与 analyzeGaps / explainMatch 的 grants 同义，
+ *    页面上三者传同一组）。grants 只经由 analyzeReachability 起作用，引擎自己只认与该学生、该机会匹配的 approved grant。
  * 1. 先算学生在 opp 上「受阻的原因」（可多个；日期只来自 options.today）：
  *    - eligibility_block：checkEligibility 总体 not_eligible。每条硬性 not_satisfied 的要求按 ./block.ts 的
- *      blockNature（与 lib/path/plan.ts 同一规则）分为 improvable（grade / age 低于 min）、
- *      permanent（高于 max、region、citizenship、status 等）、fixable（prerequisite_skill、portfolio）。
+ *      blockNature 分为 improvable（grade / age 在参考日确定低于 min，且 max 缺省或 ≥ min——与 analyzeGaps 共用
+ *      lib/requirement-timing.ts 的 belowMinimumLater）、permanent（高于 max、region、citizenship、status 等）、
+ *      fixable（prerequisite_skill、portfolio）。
  *    - past_deadline：给了 today，且 opp.deadline 可解析并早于 today。
- *    - not_reachable：资格不是 not_eligible，且 analyzeReachability(profile, opp, [], options) 有未化解的障碍
+ *    - not_reachable：资格不是 not_eligible，且 analyzeReachability(profile, opp, grants, options) 有未化解的障碍
  *      （「已过截止日期」那条障碍不算——它已由 past_deadline 表示）。
  *    - too_little_time：资格不是 not_eligible、截止没过，planRoutes 返回 routes 且每条路线 feasible_by_deadline === false。
  *    都没有 → 学生没有受阻，返回 []（不在学生没问题时推销别的机会）。
@@ -34,7 +37,7 @@
  *    不承诺下一届能申请、提醒届时按官网最新要求确认；recurring_annually 为 null / 缺省时注明「是否每年举办未确认」。
  * 3. same_field（最多 3 条，仅在学生受阻时给）：catalog 中 id 非空、不是 opp.id、id 不重复（重复只取第一条）、
  *    与 opp.fields 至少一个共同标签（normalizeTag 比较；shared_fields 用候选原本的写法并去重）、
- *    给了 today 时截止日期没过（null / 无法解析的保留）、analyzeReachability(profile, cand, [], options) 不出错且
+ *    给了 today 时截止日期没过（null / 无法解析的保留）、analyzeReachability(profile, cand, grants, options) 不出错且
  *    资格不是 not_eligible 的机会。排序键依次为：
  *    source_tier = 'user_posted' 排在所有其他候选之后 → 资格 eligible 在 unknown 前 →
  *    （仅当受阻原因含 not_reachable）reachable true < null < false → 共同标签数多的在前 →
@@ -189,7 +192,13 @@ function isPastDeadline(deadline: unknown, todayDay: number | null): boolean {
   return d != null && dayNumber(d) < todayDay;
 }
 
-function blockState(p: StudentProfile, o: Opportunity, options: EvalOptions | undefined, todayDay: number | null): BlockState {
+function blockState(
+  p: StudentProfile,
+  o: Opportunity,
+  grants: ResourceGrant[],
+  options: EvalOptions | undefined,
+  todayDay: number | null,
+): BlockState {
   const pastDeadline = isPastDeadline(o.deadline, todayDay);
 
   let elig: EligibilityResult | null = null;
@@ -201,13 +210,13 @@ function blockState(p: StudentProfile, o: Opportunity, options: EvalOptions | un
   const notEligible = elig?.overall === 'not_eligible';
   const blocking =
     elig != null && notEligible
-      ? elig.items.filter((i) => i.hard && i.status === 'not_satisfied').map((item) => ({ item, nature: blockNature(item, p, o) }))
+      ? elig.items.filter((i) => i.hard && i.status === 'not_satisfied').map((item) => ({ item, nature: blockNature(item, p, o, options) }))
       : [];
 
   let notReachable = false;
   if (!notEligible) {
     try {
-      const r = analyzeReachability(p, o, [], options);
+      const r = analyzeReachability(p, o, grants, options);
       if (r.reachable === false) {
         // 「已过截止日期」障碍（time、shortfall 为 null、无法化解）单独算作 pastDeadline，不计入现实障碍。
         notReachable = r.barriers.some((b) => !b.resolved && !(pastDeadline && b.type === 'time' && b.shortfall == null));
@@ -310,6 +319,7 @@ function sameFieldCandidate(
   p: StudentProfile,
   raw: unknown,
   targetTags: Set<string>,
+  grants: ResourceGrant[],
   options: EvalOptions | undefined,
   todayDay: number | null,
 ): Candidate | null {
@@ -319,7 +329,7 @@ function sameFieldCandidate(
   if (isPastDeadline(c.deadline, todayDay)) return null; // 截止日期已过，不再推荐。
   let r: ReachabilityResult;
   try {
-    r = analyzeReachability(p, c, [], options);
+    r = analyzeReachability(p, c, grants, options);
   } catch {
     return null; // 数据不完整，无法确认 → 不推荐。
   }
@@ -368,16 +378,19 @@ export function findAlternatives(
   profile: StudentProfile,
   opp: Opportunity,
   catalog: Opportunity[],
-  options?: EvalOptions,
+  options?: MatchOptions,
 ): AlternativeSuggestion[] {
   try {
     const p = safeProfile(profile);
     const o = safeOpportunity(opp);
     const evalOptions: EvalOptions | undefined = options?.today == null ? undefined : { today: options.today };
+    const grants = asArray<unknown>(options?.grants).filter(
+      (g) => g != null && typeof g === 'object' && !Array.isArray(g),
+    ) as ResourceGrant[];
     const todayYMD = parseISODate(evalOptions?.today);
     const todayDay = todayYMD ? dayNumber(todayYMD) : null;
 
-    const block = blockState(p, o, evalOptions, todayDay);
+    const block = blockState(p, o, grants, evalOptions, todayDay);
     if (!isBlocked(block)) return []; // 学生没有受阻：不推销别的机会。
 
     const out: AlternativeSuggestion[] = [];
@@ -392,7 +405,7 @@ export function findAlternatives(
         const id = raw != null && typeof raw === 'object' && typeof (raw as { id?: unknown }).id === 'string' ? (raw as { id: string }).id : '';
         if (id === '' || id === o.id || seen.has(id)) continue;
         seen.add(id);
-        const cand = sameFieldCandidate(p, raw, targetTags, evalOptions, todayDay);
+        const cand = sameFieldCandidate(p, raw, targetTags, grants, evalOptions, todayDay);
         if (cand) candidates.push(cand);
       }
       candidates.sort((a, b) => compareCandidates(a, b, block.notReachable));

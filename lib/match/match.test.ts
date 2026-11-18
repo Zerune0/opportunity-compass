@@ -546,6 +546,80 @@ describe('findAlternatives：给了 today 时不推荐截止日期已过的同�
   });
 });
 
+describe('findAlternatives：options.grants（MatchOptions）', () => {
+  const CAT = [opp('fictional-same', { fields: ['climate'] })];
+  const CAM_TARGET = opp('fictional-target', { fields: ['climate'], recurring_annually: true, required_devices: ['webcam'] });
+  const camGrant = (over: Partial<ResourceGrant> = {}): ResourceGrant => ({
+    id: 'g-cam',
+    student_id: STUDENT.id,
+    opportunity_id: CAM_TARGET.id,
+    type: 'device',
+    device: 'webcam',
+    status: 'approved',
+    provider: 'Example Org (fictional)',
+    is_sample: true,
+    ...over,
+  });
+
+  it('缺 webcam、已批准 webcam 的 device grant：analyzeGaps 可达，findAlternatives 不再判为受阻；不传 grants 时仍受阻', () => {
+    expect(analyzeGaps(STUDENT, CAM_TARGET, [camGrant()], TODAY).reachable).toBe(true);
+    expect(fa(STUDENT, CAM_TARGET, CAT, { ...TODAY, grants: [camGrant()] })).toEqual([]);
+    expect(kinds(fa(STUDENT, CAM_TARGET, CAT, TODAY))).toEqual(['same_field']);
+    expect(kinds(fa(STUDENT, CAM_TARGET, CAT, { ...TODAY, grants: [] }))).toEqual(['same_field']);
+  });
+
+  it('不生效的 grant（pending、别的学生、别的机会、缺 opportunity_id）不解除受阻', () => {
+    for (const g of [
+      camGrant({ status: 'pending' }),
+      camGrant({ student_id: 'someone-else' }),
+      camGrant({ opportunity_id: 'another-opportunity' }),
+      { ...camGrant(), opportunity_id: undefined } as unknown as ResourceGrant,
+    ]) {
+      expect(kinds(fa(STUDENT, CAM_TARGET, CAT, { ...TODAY, grants: [g] }))).toEqual(['same_field']);
+    }
+  });
+
+  it('候选机会的可达性也用同一组 grants', () => {
+    const target = opp('fictional-target', { fields: ['climate'], requirements: [REQ_GRADE_12] });
+    const cand = opp('fictional-cam-cand', { fields: ['climate'], required_devices: ['webcam'] });
+    const without = fa(STUDENT, target, [cand], TODAY).find((a) => a.kind === 'same_field')!;
+    expect(without.reason).toContain('unresolved barriers for you right now (device)');
+    const withG = fa(STUDENT, target, [cand], { ...TODAY, grants: [camGrant({ opportunity_id: null })] }).find((a) => a.kind === 'same_field')!;
+    expect(withG.reason).toContain('realistically doable');
+  });
+
+  it('grants 不是数组时按 [] 处理，不抛错', () => {
+    expect(() => fa(STUDENT, CAM_TARGET, CAT, { ...TODAY, grants: 'x' as unknown as ResourceGrant[] })).not.toThrow();
+    expect(kinds(fa(STUDENT, CAM_TARGET, CAT, { ...TODAY, grants: [null, 5] as unknown as ResourceGrant[] }))).toEqual(['same_field']);
+  });
+});
+
+describe('findAlternatives：年龄 / 年级「低于下限」与 analyzeGaps 同一口径', () => {
+  const CAT = [opp('fictional-same', { fields: ['climate'] })];
+  const T = (req: Requirement) => opp('fictional-target', { fields: ['climate'], recurring_annually: true, requirements: [req] });
+
+  it('参考日在未来、学生到参考日会超过上限 → 不给 next_cycle，analyzeGaps 也不说以后可能满足', () => {
+    const target = T({ id: 'req-age', type: 'age', min: 16, max: 16, as_of: '2029-11-17', label: 'Age 16 on Nov 17, 2029', hard: true, source_text: 'Must be 16 on Nov 17, 2029.' });
+    const s = { ...STUDENT, age: 15 };
+    expect(checkEligibility(s, target, TODAY).overall).toBe('not_eligible');
+    expect(kinds(fa(s, target, CAT, TODAY))).toEqual(['same_field']);
+    const gap = analyzeGaps(s, target, [], TODAY).items.find((i) => i.id === 'unchangeable_eligibility:req-age')!;
+    expect(gap.detail).not.toContain('may be met later');
+  });
+
+  it('参考日在未来、到参考日仍低于下限 → 给 next_cycle，analyzeGaps 说以后可能满足', () => {
+    const target = T({ id: 'req-age', type: 'age', min: 18, as_of: '2027-11-17', label: '18+', hard: true, source_text: 'Must be 18.' });
+    const s = { ...STUDENT, age: 15 };
+    expect(kinds(fa(s, target, CAT, TODAY))).toEqual(['next_cycle', 'same_field']);
+    expect(analyzeGaps(s, target, [], TODAY).items.find((i) => i.id === 'unchangeable_eligibility:req-age')!.detail).toContain('as you get older');
+  });
+
+  it('grade 区间无效（max < min）→ 不给 next_cycle', () => {
+    const target = T({ id: 'req-g', type: 'grade', min: 12, max: 9, label: 'Broken range', hard: true, source_text: 'Grades 12-9.' });
+    expect(kinds(fa(STUDENT, target, CAT, TODAY))).toEqual(['same_field']);
+  });
+});
+
 describe('findAlternatives：所有理由文字的措辞', () => {
   it('不含 prerequisite / stepping stone / required before / guarantee / score / rank（大小写不敏感）', () => {
     expect(ALL_REASONS.length).toBeGreaterThan(30);

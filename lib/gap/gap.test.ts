@@ -562,13 +562,224 @@ describe('analyzeGaps — 示例档案 × 真实机会', () => {
   });
 });
 
+// ───────────────────────────── 第 1 层评审后的修订 ─────────────────────────────
+
+function grant(id: string, type: ResourceGrant['type'], status: ResourceGrant['status'], extra: Partial<ResourceGrant> = {}): ResourceGrant {
+  return { id, student_id: OK_STUDENT.id, opportunity_id: null, type, status, provider: 'Example Org (fictional)', is_sample: true, ...extra };
+}
+
+/** 只有费用问题的机会：报名费 $100 + 必需准备费 $30（0 小时，不产生时间障碍）。 */
+const COST_OPP: Opportunity = {
+  ...OPP,
+  id: 'fictional-cost-only',
+  location: { format: 'online' },
+  required_devices: [],
+  requirements: [],
+  cost: { fee_usd: 100, requires_travel_expense: false },
+  time_commitment: { hours_per_week: 1, total_weeks: 4 },
+  preparation: [prep({ id: 'prep-kit', title: 'Buy a starter kit', estimated_hours: 0, estimated_cost_usd: 30, required_for_application: true })],
+};
+const BROKE: StudentProfile = { ...OK_STUDENT, budget_usd: 0 };
+
+/** 只有每周时间问题的机会：每周需要 10 小时，学生有 4 小时 → 缺 6 小时。 */
+const TIME_OPP: Opportunity = { ...COST_OPP, id: 'fictional-time-only', cost: { fee_usd: 0, requires_travel_expense: false }, preparation: [], time_commitment: { hours_per_week: 10, total_weeks: 4 } };
+const BUSY: StudentProfile = { ...OK_STUDENT, hours_per_week_available: 4 };
+
+describe('analyzeGaps — pending 支持按引擎口径判断（M1）', () => {
+  it('cost：已批准 $30 + 待批准 $100，获批后合计 $130 ≥ 缺口 $130 → 会化解（不说只覆盖一部分）', () => {
+    const grants = [grant('a30', 'fee_waiver', 'approved', { amount_usd: 30 }), grant('p100', 'fee_waiver', 'pending', { amount_usd: 100 })];
+    const g = analyzeGaps(BROKE, COST_OPP, grants, TODAY);
+    const cost = byId(g, 'time_and_cost:cost');
+    expect(cost.title).toBe('Cost: short $130');
+    expect(cost.action).toContain('once approved, this barrier would be resolved');
+    expect(cost.action).not.toContain('only part');
+    expect(cost.action).toContain('not in effect yet');
+    // 与引擎一致：把 pending 当作 approved 时引擎确实化解
+    const flipped = analyzeReachability(BROKE, COST_OPP, grants.map((x) => ({ ...x, status: 'approved' as const })), TODAY);
+    expect(flipped.barriers.find((b) => b.type === 'cost')?.resolved).toBe(true);
+  });
+
+  it('cost：已批准 $30 + 待批准 $50 → 只能化解一部分，写出剩余 $50', () => {
+    const grants = [grant('a30', 'fee_waiver', 'approved', { amount_usd: 30 }), grant('p50', 'fee_waiver', 'pending', { amount_usd: 50 })];
+    const cost = byId(analyzeGaps(BROKE, COST_OPP, grants, TODAY), 'time_and_cost:cost');
+    expect(cost.action).toContain('would cover only part of the gap: you would still be short $50.');
+    expect(cost.action).toContain('not in effect yet');
+  });
+
+  it('cost：已批准一张无金额减免 + 待批准一张无金额减免 → 获批也不改变，如实说明，不说覆盖一部分', () => {
+    const grants = [grant('a-null', 'fee_waiver', 'approved', { amount_usd: null }), grant('p-null', 'fee_waiver', 'pending', { amount_usd: null })];
+    const cost = byId(analyzeGaps(BROKE, COST_OPP, grants, TODAY), 'time_and_cost:cost');
+    expect(cost.action).toContain('even if approved it would not reduce this gap');
+    expect(cost.action).toContain('only covers the official fee once');
+    expect(cost.action).not.toContain('only part');
+    expect(cost.action).not.toContain('would be resolved');
+    expect(cost.action).toContain('not in effect yet');
+    expect(cost.action).toContain('fee waiver or financial aid'); // 仍给出无 pending 时的建议
+    // 建议里注明已生效的支持已抵掉的部分（缺口 $130 中 $100 已由无金额减免抵掉）
+    expect(cost.action).toContain('approved support already covers $100 of it, so about $30 is still uncovered');
+  });
+
+  it('time_support：已批准 2 小时 + 待批准 4 小时 → 会化解；待批准 1 小时 → 一部分（还差 3 小时）；待批准 0 小时 → 不改变', () => {
+    const a2 = grant('a2', 'time_support', 'approved', { hours_per_week: 2 });
+    const full = byId(analyzeGaps(BUSY, TIME_OPP, [a2, grant('p4', 'time_support', 'pending', { hours_per_week: 4 })], TODAY), 'time_and_cost:time');
+    expect(full.title).toBe('Time: short 6 hours per week');
+    expect(full.action).toContain('this barrier would be resolved');
+    expect(full.action).toContain('not in effect yet');
+    const part = byId(analyzeGaps(BUSY, TIME_OPP, [a2, grant('p1', 'time_support', 'pending', { hours_per_week: 1 })], TODAY), 'time_and_cost:time');
+    expect(part.action).toContain('would cover only part of the gap: you would still be short about 3 hours per week.');
+    const none = byId(analyzeGaps(BUSY, TIME_OPP, [a2, grant('p0', 'time_support', 'pending', { hours_per_week: 0 })], TODAY), 'time_and_cost:time');
+    expect(none.action).toContain('would not reduce this gap');
+    expect(none.action).not.toContain('only part');
+    expect(none.action).toContain('not in effect yet');
+  });
+
+  it('device：待批准的同设备 grant → 会化解；设备按名称对应', () => {
+    const o: Opportunity = { ...COST_OPP, cost: { fee_usd: 0, requires_travel_expense: false }, preparation: [], required_devices: ['laptop', 'webcam'] };
+    const s: StudentProfile = { ...OK_STUDENT, devices: ['laptop'] };
+    const g = analyzeGaps(s, o, [grant('p-cam', 'device', 'pending', { device: 'webcam' })], TODAY);
+    expect(ids(g, 'time_and_cost')).toEqual(['time_and_cost:device:webcam']);
+    expect(byId(g, 'time_and_cost:device:webcam').action).toContain('this barrier would be resolved');
+  });
+});
+
+describe('analyzeGaps — 报名费未知时的缺口数字（M2）', () => {
+  const FEE_NULL: Opportunity = {
+    ...COST_OPP,
+    id: 'fictional-fee-null',
+    cost: { fee_usd: null, requires_travel_expense: false },
+    preparation: [prep({ id: 'prep-kit', title: 'Buy a starter kit', estimated_hours: 0, estimated_cost_usd: 100, required_for_application: true })],
+  };
+  const S = { ...OK_STUDENT, budget_usd: 50 };
+
+  it('fee 未知、必需准备 $100、预算 $50、已批准 $20：标题、行动、estimated_cost_usd、detail 都是至少 $30', () => {
+    const cost = byId(analyzeGaps(S, FEE_NULL, [grant('a20', 'fee_waiver', 'approved', { amount_usd: 20 })], TODAY), 'time_and_cost:cost');
+    expect(cost.title).toBe('Cost: short at least $30');
+    expect(cost.estimated_cost_usd).toBe(30);
+    expect(cost.action).toContain('at least $30');
+    expect(cost.detail).toContain('short at least $30');
+    // 缺口数字只有一个口径（detail 里的 $50 是预算，不是缺口）
+    for (const t of [cost.title, cost.action ?? '']) expect(t).not.toContain('$50');
+    expect(cost.detail).not.toMatch(/short (at least )?\$50/);
+  });
+
+  it('fee 未知且有 pending：获批后可算出的缺口被抵掉时，说明官方费用不清楚、总额可能仍超出', () => {
+    const grants = [grant('a20', 'fee_waiver', 'approved', { amount_usd: 20 }), grant('p30', 'fee_waiver', 'pending', { amount_usd: 30 })];
+    const cost = byId(analyzeGaps(S, FEE_NULL, grants, TODAY), 'time_and_cost:cost');
+    expect(cost.action).toContain('official fee is not clear');
+    expect(cost.action).toContain('not in effect yet');
+    const part = byId(analyzeGaps(S, FEE_NULL, [grant('a20', 'fee_waiver', 'approved', { amount_usd: 20 }), grant('p10', 'fee_waiver', 'pending', { amount_usd: 10 })], TODAY), 'time_and_cost:cost');
+    expect(part.action).toContain('you would still be short at least $20.');
+  });
+});
+
+describe('analyzeGaps — 成环依赖、档案损坏、非法 today', () => {
+  it('准备项 A、B 互相依赖：不互相写「先做对方」，改为中性说明', () => {
+    const o: Opportunity = {
+      ...OPP,
+      preparation: [
+        prep({ id: 'prep-a', title: 'Item A', depends_on: ['prep-b'] }),
+        prep({ id: 'prep-b', title: 'Item B', depends_on: ['prep-a'] }),
+        prep({ id: 'prep-c', title: 'Item C', depends_on: ['prep-a'] }),
+      ],
+    };
+    const g = analyzeGaps(OK_STUDENT, o, [], TODAY);
+    const a = byId(g, 'knowledge_or_experience:prep-a');
+    const b = byId(g, 'knowledge_or_experience:prep-b');
+    expect(a.action).not.toMatch(/first:/);
+    expect(b.action).not.toMatch(/first:/);
+    expect(a.action).toContain('this item and "Item B" depend on each other');
+    expect(b.action).toContain('this item and "Item A" depend on each other');
+    expect(a.action).toContain('ask the organizer');
+    // 不成环的依赖照常提示先后
+    expect(byId(g, 'knowledge_or_experience:prep-c').action).toMatch(/^Do "Item A" first/);
+  });
+
+  it.each([
+    ['skills 元素的 name 不是字符串', { skills: [{ name: 5, level: 'beginner' }] }, 'profile.skills'],
+    ['skills 元素的 level 不合法', { skills: [{ name: 'python', level: 'expert' }] }, 'profile.skills'],
+    ['citizenships 含非字符串', { citizenships: [5] }, 'profile.citizenships'],
+    ['devices 不是数组', { devices: 'laptop' }, 'profile.devices'],
+    ['region.country 不是字符串', { region: { country: 5 } }, 'profile.region'],
+    ['evidence 某条 title 不是字符串', { evidence: [{ id: 'e1', title: 5, kind: 'project', skills: [], status: 'self_reported', added_on: '2026-11-01' }] }, 'profile.evidence'],
+  ])('档案损坏（%s）→ 列为档案字段，不说官方要求读不了', (_name, patch, field) => {
+    const g = analyzeGaps({ ...STUDENT, ...patch } as unknown as StudentProfile, OPP, [], TODAY);
+    expect(g.items.map((i) => i.id)).toEqual([`unknown_info:${field}`]);
+    const it0 = g.items[0];
+    expect(it0.title).toMatch(/^Unclear in your profile: /);
+    expect(it0.action).toMatch(/^Correct .+ in your Skill Passport\.$/);
+    expect(g.items.some((i) => /Official requirement could not be read/.test(i.title))).toBe(false);
+    expect(g.eligibility_overall).toBe('unknown');
+    expect(g.reachable).toBeNull();
+    expect(g.summary).toContain('Skill Passport');
+  });
+
+  it('today 是非法字符串：文案为 missing or could not be read，不说 was not provided / did not pass', () => {
+    const g = analyzeGaps(STUDENT, OPP, [], { today: 'not-a-date' });
+    const t = byId(g, 'unknown_info:options.today');
+    expect(t.title).toBe("Today's date was missing or could not be read");
+    for (const s of texts(t)) expect(s).not.toMatch(/was not provided|did not pass/);
+  });
+});
+
+describe('analyzeGaps — 年龄 / 年级「以后可能满足」的共同口径', () => {
+  it('参考日在未来、学生到参考日会超过上限：不说以后可能满足', () => {
+    const o = oneReq({ id: 'req-age', type: 'age', min: 16, max: 16, as_of: '2029-11-17', label: 'Age 16 on Nov 17, 2029', hard: true, source_text: 'Must be 16 on Nov 17, 2029.' });
+    const g = analyzeGaps({ ...OK_STUDENT, age: 15 }, o, [], TODAY);
+    const i = byId(g, 'unchangeable_eligibility:req-age');
+    expect(i.detail).not.toContain('may be met later');
+  });
+
+  it('参考日在未来、到参考日仍低于下限：说以后可能满足', () => {
+    const o = oneReq({ id: 'req-age', type: 'age', min: 18, as_of: '2027-11-17', label: '18+', hard: true, source_text: 'Must be 18.' });
+    const i = byId(analyzeGaps({ ...OK_STUDENT, age: 15 }, o, [], TODAY), 'unchangeable_eligibility:req-age');
+    expect(i.detail).toContain('as you get older');
+  });
+
+  it('grade 区间无效（max < min）：不说以后可能满足', () => {
+    const o = oneReq({ id: 'req-g', type: 'grade', min: 11, max: 9, label: 'Broken range', hard: true, source_text: 'Grades 11-9.' });
+    const i = byId(analyzeGaps({ ...OK_STUDENT, grade: 8 }, o, [], TODAY), 'unchangeable_eligibility:req-g');
+    expect(i.detail).not.toContain('may be met later');
+  });
+});
+
+describe('analyzeGaps — 已过截止日期的追加说明', () => {
+  const PASSED = { today: '2027-03-01' };
+  const passed = (o: Opportunity) => analyzeGaps({ ...STUDENT, grade: 11 }, o, [], PASSED).items.find((i) => i.title === 'Deadline has passed') as GapItem;
+
+  it('每年举办：「下一届」只出现一次（引擎原文），追加的一句只指向替代机会', () => {
+    const i = passed(OPP);
+    expect(i.detail.match(/next round/gi)).toHaveLength(1);
+    expect(i.detail).toContain('See the alternatives for this opportunity.');
+  });
+
+  it('recurring_annually === false：追加的一句不提下一届', () => {
+    const i = passed({ ...OPP, recurring_annually: false });
+    const r = analyzeReachability({ ...STUDENT, grade: 11 }, { ...OPP, recurring_annually: false }, [], PASSED);
+    const engine = r.barriers.find((b) => b.type === 'time' && b.shortfall == null)!.description;
+    expect(i.detail.startsWith(engine)).toBe(true);
+    const extra = i.detail.slice(engine.length);
+    expect(extra).not.toMatch(/next round|next year|next cycle/i);
+    expect(extra).toContain('same field');
+    expect(i.action).toBeNull();
+  });
+});
+
 describe('analyzeGaps — 全文扫描（放在最后，覆盖以上所有用例的结果）', () => {
   it('unchangeable_eligibility 永远没有 action；任何文字都不出现绕过类字样或内部字段名', () => {
   const banned = /work ?around|bypass|get around|loophole|shortcut|sneak|trick/i;
   const internal = /\b(profile|opportunity|options)\.[a-z_]/;
+  /**
+   * 不暗示录取、不出现分数或名次：
+   * - 「会 / 将被录取」类肯定句：(will|would|could|should|can|going to|likely to) be admitted；
+   *   否定句（"does not mean admitted"、"says nothing about admission"）不匹配，是允许的。
+   * - guarantee 的任何形式（guarantee / guaranteed / guarantees）。
+   * - score / rank 作为独立单词及其常见变形（\b 保证不误伤 "frank" 之类）。
+   */
+  const admission = /\b(will|would|could|should|can|going to|likely to) be admitted\b|guarantee|\bscor(e|es|ed|ing)\b|\brank(s|ed|ing)?\b/i;
   for (const g of SEEN) {
     expect(g.summary).not.toMatch(banned);
     expect(g.summary).not.toMatch(internal);
+    expect(g.summary).not.toMatch(admission);
     for (const i of g.items) {
       if (i.category === 'unchangeable_eligibility') {
         expect(i.action).toBeNull();
@@ -577,9 +788,21 @@ describe('analyzeGaps — 全文扫描（放在最后，覆盖以上所有用例
       for (const t of texts(i)) {
         expect(t).not.toMatch(banned);
         expect(t).not.toMatch(internal);
+        expect(t).not.toMatch(admission);
       }
     }
   }
   expect(SEEN.length).toBeGreaterThan(30);
+  });
+
+  it('admission 正则本身：区分肯定句与否定句', () => {
+    const admission = /\b(will|would|could|should|can|going to|likely to) be admitted\b|guarantee|\bscor(e|es|ed|ing)\b|\brank(s|ed|ing)?\b/i;
+    expect('Reachable does not mean admitted.').not.toMatch(admission);
+    expect('this is reachable, which does not mean admitted').not.toMatch(admission);
+    expect('You will be admitted.').toMatch(admission);
+    expect('Admission is guaranteed.').toMatch(admission);
+    expect('Your score is 80.').toMatch(admission);
+    expect('You rank first.').toMatch(admission);
+    expect('Be frank with the organizer.').not.toMatch(admission);
   });
 });

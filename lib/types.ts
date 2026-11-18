@@ -19,7 +19,7 @@
  *   → analyzeGaps（材料类差距）、planAcrossOpportunities（材料复用）、Quest Journal 的 `Material`。
  * - 差距分析：`GapCategory` / `GAP_CATEGORIES`、`GapBasis`、`GapItem`、`GapAnalysis`
  *   → `analyzeGaps(profile, opp, grants, options)` 的返回；队友 A 的 Quest Details。
- * - 替代机会：`AlternativeSuggestion` → `findAlternatives(profile, opp, catalog, options)` 的返回；A、B 显示。
+ * - 替代机会：`AlternativeSuggestion` → `findAlternatives(profile, opp, catalog, options?: MatchOptions)` 的返回；A、B 显示。
  * - 匹配说明：`MatchReasonKind` / `MATCH_REASON_KINDS`、`MatchReason`、`MatchExplanation`、`MatchOptions`
  *   → `explainMatch(profile, opp, options)` 的返回；A（排序说明）、Connect。不含分数或名次。
  * - 联合申请规划：`CrossPlanItem`、`MaterialReuse`、`WeeklyLoad`、`CrossPlan`、`CrossPlanOptions`
@@ -1293,7 +1293,8 @@ export type GapBasis =
 export interface GapItem {
   /**
    * 结果内唯一、稳定（同样的输入总得到同样的 id，便于界面做 key 和前后对比）。
-   * 建议形如 `${category}:${依据 id}`，如 `materials:prep-resume`、`unknown_info:profile.devices`。
+   * 形如 `${category}:${依据 id}`，如 `materials:prep-resume`、`unknown_info:profile.devices`；
+   * 设备障碍为 `time_and_cost:device:<设备>`；重复时依次加 `#2`、`#3`。
    */
   id: string;
   category: GapCategory;
@@ -1349,8 +1350,12 @@ export interface GapAnalysis {
  */
 export interface AlternativeSuggestion {
   /**
-   * next_cycle = 等下一届（只在机会每年举办、且阻断原因会随时间改善时给出，如年级不够）；
-   * same_field = 同领域的其他机会（必须是该学生硬性资格不冲突的机会；给了 options.today 时不含截止日期已过的机会）。
+   * findAlternatives 只在学生在原机会上受阻时返回建议（资格 not_eligible、截止已过、现实障碍未化解、
+   * 或每条路线都来不及）；没有受阻时返回 []。
+   * next_cycle = 等下一届：recurring_annually 不是 false，没有不会随时间改善的阻断（高于上限、地区、国籍、身份等），
+   * 并且截止已过、或有会随时间改善的阻断（年级 / 年龄低于下限）、或（两者都没有时）每条路线都来不及；
+   * 只有学生能自己补上的阻断（技能、作品）时不给。recurring_annually 为 null / 缺省时也给，reason 注明「是否每年举办未确认」。
+   * same_field = 同领域的其他机会（该学生硬性资格不是 not_eligible 的机会；给了 options.today 时不含截止日期已过的机会）。
    */
   kind: 'next_cycle' | 'same_field';
   /**
@@ -1364,12 +1369,12 @@ export interface AlternativeSuggestion {
   reason: string;
   /**
    * 该学生对这个建议机会的资格结论（checkEligibility 的 overall）；无法评估时为 null。
-   * same_field 的建议不得是 'not_eligible'。next_cycle 时是对「下一届」无法预先判断，通常为 null。
+   * same_field 的建议不得是 'not_eligible'。next_cycle 时是对「下一届」无法预先判断，为 null。
    */
   eligibility_overall: OverallEligibility | null;
   /**
    * 与原机会共有的领域标签（Opportunity.fields 的交集，按 lib/tags.ts 的 normalizeTag 比较），
-   * 用建议机会原本的写法；next_cycle 时为原机会的全部 fields。
+   * 用建议机会原本的写法；next_cycle 时为原机会的全部 fields（按 normalizeTag 去重，保留第一个写法）。
    */
   shared_fields: string[];
 }
@@ -1425,8 +1430,10 @@ export interface MatchExplanation {
 }
 
 /**
- * explainMatch 的选项。grants = 主办方已分配给该学生、对这个机会生效的资源（与 analyzeGaps 的 grants 同义）；
- * 缺省 = []。同一页面同时显示 analyzeGaps 时请传同一组 grants，两者的 reachable 才一致。
+ * explainMatch 的第三参数、findAlternatives 的第四参数（options?: MatchOptions）。
+ * grants = 主办方已分配给该学生、对这个机会生效的资源（与 analyzeGaps 的 grants 同义）；缺省 = []。
+ * findAlternatives 用它判断「现实障碍未化解」与候选机会的可达性（只有与该学生、该机会匹配的 approved grant 生效）。
+ * 同一页面上 analyzeGaps、explainMatch、findAlternatives 请传同一组 grants，三者的可达性结论才一致。
  */
 export interface MatchOptions extends EvalOptions {
   grants?: ResourceGrant[];

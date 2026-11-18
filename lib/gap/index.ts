@@ -15,25 +15,37 @@
  *    - 其余 hard 且 not_satisfied（grade / age / region / citizenship / status）→ unchangeable_eligibility：
  *      improvable: false、action: null。grade / age 低于下限时 detail 写明「现在不满足，可能随年级 / 年龄增长而满足，
  *      届时按官网当时的要求重新确认」；高于上限、region、citizenship、status 只给原因与官网原文。
- *      age 的「低于下限」按参考日（as_of ?? deadline）当天可能的年龄判断，与 checkEligibility 的算法一致。
+ *      「低于下限」用 lib/requirement-timing.ts 的 belowMinimumLater（与 findAlternatives 共用）：在参考日确定低于 min，
+ *      且 max 缺省或 max ≥ min；age 按参考日（as_of ?? deadline）当天可能的年龄判断（与 checkEligibility 同一算法）。
  *    - 偏好（hard: false）且 not_satisfied 的 grade / age / region / citizenship / status：刻意不列——
  *      不影响资格，学生也无法通过行动改变，列出来只会制造焦虑。
  *    - status 为 unknown（硬性与偏好都列，含 manual）→ unknown_info，带官网原文，行动为 confirm_with_official。
  * 2. 准备差距 r.readiness_gaps（按 opp.preparation 顺序）：有 material_kind → materials，否则 → knowledge_or_experience。
  *    行动写出这个准备项要做什么、估计小时与费用、完成后记录哪种证据（evidence_kind）并关联到这个准备项；
- *    前置依赖也未覆盖时，点明先做哪几个。estimated_* 取准备项的估计（负数按 0，非有限数为 null）。
+ *    前置依赖也未覆盖时，点明先做哪几个；与本项成环的依赖（对方也直接或间接依赖本项）不提示先后，
+ *    改为一句中性说明（机会数据里互相依赖，顺序请按官网或向主办方确认）。estimated_* 取准备项的估计（负数按 0，非有限数为 null）。
  * 3. 障碍：只列未被 approved grant 化解的（resolved: false），按 BARRIER_TYPES 顺序，同类保持原顺序；
  *    已化解的不列，只在 summary 里说有几条已被生效的支持化解。
  *    - time（有 shortfall）：estimated_hours = 每周缺口小时；cost：estimated_cost_usd = 缺口美元；其他为 null。
- *    - 有 pending grant 时：行动写明「待批准的支持获批后会化解（或只化解一部分）；目前尚未生效」；
- *      cost / time 按 pending 的金额 / 小时与缺口比较决定是「化解」还是「一部分」。
+ *      官方费用未知（fee_usd 为 null）时 cost 的数字 = 缺口 − 已批准且有金额的减免（与引擎 description 的「至少还差」
+ *      同一口径），标题、行动、estimated_cost_usd 都用这个数并写成 at least $X。
+ *    - 有 pending grant 时：把该障碍 pending_grant_ids 里的 pending grant 当作 approved 再调用一次 analyzeReachability，
+ *      按「同类型 + 同设备 + 同类内序号」找到同一条障碍：变为 resolved → 「获批后会化解」；
+ *      仍未化解但剩余缺口（缺口 − 已生效支持可抵的量，算法同引擎）变小 → 「只能化解一部分」并写出剩余数值；
+ *      剩余缺口不变 → 「获批也不会减少这个缺口」并说明原因、给出无 pending 时的建议；
+ *      官方费用未知且获批后那条 cost 障碍不再出现 → 「能抵掉可算出的缺口，但官方费用不清楚，总额可能仍超出」。
+ *      任何情况下都注明 pending 的支持目前尚未生效。
  *    - 没有 pending 时：建议可向主办方询问的支持类型（时间支持 / 费用减免 / 线上参与或交通支持 / 借用设备），
  *      明说不保证主办方提供。
- *    - 已过截止日期（time 且 shortfall 为 null）：improvable: false、action: null，detail 提示看替代机会。
+ *    - 已过截止日期（time 且 shortfall 为 null）：improvable: false、action: null，detail = 引擎描述 + 一句指向替代机会
+ *      （不重复「下一届」；recurring_annually === false 时说明不是每年举办、看同领域机会）。
  * 4. missing_info 每个字段一条 unknown_info（basis.field 保留内部字段名）：profile.* → 「在 Skill Passport 填写 <可读名称>」；
- *    opportunity.* → 「向主办方确认 <可读名称>」并说明影响哪一项判断；options.today → 说明页面没有传日期。
+ *    opportunity.* → 「向主办方确认 <可读名称>」并说明影响哪一项判断；options.today → 没传时说明页面没有传日期，
+ *    传了但读不了时说「缺失或无法读取」。
  *    可读名称与影响项见 FIELD_INFO，未知字段用最后一段字段名兜底；面向学生的文字不出现内部字段名。
- * 5. 引擎因数据不完整抛错时：逐字段诊断（机会的 requirements / cost / location / time_commitment，档案里类型不对的字段，
+ * 5. 档案数据损坏（有值但类型不对，见 profileFieldIssues）时不调用引擎，直接列出这些档案字段（行动：在 Skill Passport 更正），
+ *    同时列出机会结构问题，不逐条重试官方要求（不归咎于机会数据）。
+ *    档案没问题但引擎因数据不完整抛错时：逐字段诊断（机会的 requirements / cost / location / time_commitment，
  *    以及单独读不了的某条官方要求），每个一条 unknown_info；诊断不出来时退回一条笼统的 `opportunity`。
  *    此时 eligibility_overall = 'unknown'、reachable = null。
  * 6. 排序与 id：items 按 GAP_CATEGORIES 分组，组内按上述原顺序；id = `<category>:<依据 id>`
@@ -46,8 +58,8 @@
  */
 import { analyzeReachability } from '../reachability';
 import { checkEligibility, EVIDENCE_KIND_ZH } from '../eligibility';
-import { compareYMD, parseISODate, wholeYearsBetween } from '../eligibility/dates';
 import { fmt, joinAnd, plural, pluralNoun } from '../format';
+import { belowMinimumLater } from '../requirement-timing';
 import {
   BARRIER_TYPES,
   GAP_CATEGORIES,
@@ -90,6 +102,9 @@ const FIELD_INFO: Record<string, FieldInfo> = {
   'profile.statuses': { label: 'your status (for example high school student)', affects: 'the status requirements check' },
   'profile.citizenships': { label: 'your citizenship / legal residency', affects: 'the citizenship requirements check' },
   'profile.region': { label: 'where you live', affects: 'the location requirements check' },
+  'profile.grade': { label: 'your grade', affects: 'the grade requirements check' },
+  'profile.age': { label: 'your age', affects: 'the age requirements check' },
+  'profile.evidence': { label: 'your evidence entries', affects: 'the prep and skill checks' },
   'opportunity.cost.fee_usd': { label: 'the official fee', affects: 'the cost check (whether it fits your budget)' },
   'opportunity.cost.requires_travel_expense': {
     label: 'whether participants must pay for their own travel',
@@ -238,34 +253,6 @@ function hardnessText(i: EligibilityItem): string {
     : 'This is a bonus item; it does not affect eligibility.';
 }
 
-/** age 要求在参考日当天可能的年龄（与 checkEligibility 的 judgeAge 同一算法）。 */
-function ageCandidates(age: number, rule: { as_of?: string }, opp: Opportunity, options?: EvalOptions): number[] {
-  const ref = parseISODate(rule.as_of ?? opp.deadline ?? null);
-  const today = parseISODate(options?.today);
-  if (ref == null || today == null) return [age];
-  const cmp = compareYMD(ref, today);
-  if (cmp === 0) return [age];
-  if (cmp < 0) {
-    const { years, exact } = wholeYearsBetween(ref, today);
-    return exact ? [age - years] : [age - years - 1, age - years];
-  }
-  const { years, exact } = wholeYearsBetween(today, ref);
-  return exact ? [age + years] : [age + years, age + years + 1];
-}
-
-/** grade / age 不满足时，是否「低于下限」（以后可能满足）。 */
-function belowMinimum(req: Requirement, p: StudentProfile, o: Opportunity, options?: EvalOptions): boolean {
-  if (req.type === 'grade') {
-    return typeof req.min === 'number' && typeof p.grade === 'number' && p.grade < req.min;
-  }
-  if (req.type === 'age') {
-    if (typeof req.min !== 'number' || typeof p.age !== 'number') return false;
-    const min = req.min;
-    return ageCandidates(p.age, req, o, options).every((a) => a < min);
-  }
-  return false;
-}
-
 /** 能补上该技能要求的、尚未覆盖的第一个准备项。 */
 function prepForSkill(skill: string, preps: PrepItem[], uncovered: Set<string>): PrepItem | null {
   return preps.find((x) => uncovered.has(x.id) && norm(x.skill) !== '' && norm(x.skill) === norm(skill)) ?? null;
@@ -351,7 +338,7 @@ function requirementItems(
         );
       } else if (ei.hard) {
         let detail = `${ei.explanation} ${official}`;
-        if (req && belowMinimum(req, p, o, options)) {
+        if (req && belowMinimumLater(req, p, o, options)) {
           const grows = req.type === 'grade' ? 'as you move up a grade' : 'as you get older';
           detail = `${ei.explanation} This one is not met right now. It may be met later ${grows}; if so, check the official requirements again at that time, since they can change. ${official}`;
         }
@@ -377,7 +364,29 @@ function requirementItems(
 
 // ───────────────────────────── 准备差距 ─────────────────────────────
 
+/** 准备项依赖图里，从 from 沿 depends_on 能否走到 target（重复 id 取第一项；有环也不会死循环）。 */
+function dependsTransitively(from: string, target: string, deps: Map<string, string[]>): boolean {
+  const seen = new Set<string>();
+  const stack = [from];
+  while (stack.length > 0) {
+    const cur = stack.pop() as string;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    for (const d of deps.get(cur) ?? []) {
+      if (d === target) return true;
+      if (!seen.has(d)) stack.push(d);
+    }
+  }
+  return false;
+}
+
 function prepItems(r: ReachabilityResult, o: Opportunity, uncovered: Set<string>, groups: Record<GapCategory, GapItem[]>): void {
+  const titles = new Map<string, string>();
+  const deps = new Map<string, string[]>();
+  for (const x of o.preparation) {
+    if (!titles.has(x.id)) titles.set(x.id, x.title);
+    if (!deps.has(x.id)) deps.set(x.id, x.depends_on);
+  }
   for (const gap of r.readiness_gaps) {
     const prep = o.preparation.find((x) => x.id === gap.prep_item_id);
     if (!prep) continue;
@@ -385,14 +394,20 @@ function prepItems(r: ReachabilityResult, o: Opportunity, uncovered: Set<string>
     const category: GapCategory = material != null ? 'materials' : 'knowledge_or_experience';
     const need = gap.required_for_application ? 'Required to apply.' : 'Recommended, not required.';
 
-    const titles = new Map(o.preparation.map((x) => [x.id, x.title] as const));
-    const firstDeps = prep.depends_on
-      .filter((d, i, arr) => d !== prep.id && arr.indexOf(d) === i && uncovered.has(d) && titles.has(d))
-      .map((d) => `"${titles.get(d)}"`);
-    const depText =
+    // 未完成的前置依赖：与本项成环的（对方也直接或间接依赖本项）不提示先后，只给一句中性说明。
+    const pending = prep.depends_on.filter(
+      (d, i, arr) => d !== prep.id && arr.indexOf(d) === i && uncovered.has(d) && titles.has(d),
+    );
+    const cyclic = pending.filter((d) => dependsTransitively(d, prep.id, deps));
+    const firstDeps = pending.filter((d) => !cyclic.includes(d)).map((d) => `"${titles.get(d)}"`);
+    const cycleNames = cyclic.map((d) => `"${titles.get(d)}"`);
+    let depText =
       firstDeps.length > 0
         ? `Do ${joinAnd(firstDeps)} first: this item depends on ${pluralNoun(firstDeps.length, 'it', 'them')}, and ${pluralNoun(firstDeps.length, 'it is', 'they are')} not done yet. `
         : '';
+    if (cycleNames.length > 0) {
+      depText += `In the opportunity data, this item and ${joinAnd(cycleNames)} depend on each other, so the order is not clear; follow the official page or ask the organizer which to do first. `;
+    }
     const what = material != null ? ` This produces ${MATERIAL_LABEL[material] ?? 'an application material'}.` : prep.skill ? ` It builds "${prep.skill}".` : '';
     const kind = evidenceKindLabel(prep.evidence_kind ?? null);
     const record = kind
@@ -425,34 +440,143 @@ function finiteShortfall(b: Barrier): number | null {
   return typeof b.shortfall === 'number' && Number.isFinite(b.shortfall) ? b.shortfall : null;
 }
 
-/** pending 的支持是否足以完全化解该障碍（cost / time 按金额 / 小时比较，其余类型一条就够）。 */
-function pendingFullyResolves(b: Barrier, pending: ResourceGrant[], o: Opportunity): boolean {
-  const gap = finiteShortfall(b);
-  if (b.type === 'cost' && gap != null) {
-    const fee = typeof o.cost?.fee_usd === 'number' ? o.cost.fee_usd : 0;
-    const amount =
-      pending.reduce((s, g) => s + (typeof g.amount_usd === 'number' ? g.amount_usd : 0), 0) +
-      (pending.some((g) => g.amount_usd == null) ? fee : 0);
-    return amount >= gap;
-  }
-  if (b.type === 'time' && gap != null) {
-    return pending.reduce((s, g) => s + (typeof g.hours_per_week === 'number' ? g.hours_per_week : 0), 0) >= gap;
-  }
-  return true;
+/** 与 analyzeReachability 第 3 条相同的「对本学生、本机会生效」规则（opportunity_id 必须 === null 或等于机会 id）。 */
+function appliesTo(g: ResourceGrant, p: StudentProfile, o: Opportunity): boolean {
+  return g.student_id === p.id && (g.opportunity_id === null || g.opportunity_id === o.id);
 }
 
-function askText(b: Barrier, device: string | null): string {
+function feeUnknown(o: Opportunity): boolean {
+  return o.cost?.fee_usd == null;
+}
+
+/**
+ * 一组 grants 中已生效（approved 且对本学生本机会生效）的支持，对 cost / time 障碍可抵的量——与 analyzeReachability 同一算法：
+ * cost：有金额的 fee_waiver 之和 + （存在金额为 null 的 waiver ? fee_usd : 0）；官方费用未知时只算有金额的之和。
+ * time：time_support 的 hours_per_week 之和。其他类型返回 null（不按数量计）。
+ */
+function coverage(type: BarrierType, grants: ResourceGrant[], p: StudentProfile, o: Opportunity): number | null {
+  const approved = grants.filter((g) => g.status === 'approved' && appliesTo(g, p, o));
+  if (type === 'cost') {
+    const waivers = approved.filter((g) => g.type === 'fee_waiver');
+    const known = waivers.reduce((s, g) => s + (typeof g.amount_usd === 'number' ? g.amount_usd : 0), 0);
+    const fee = o.cost?.fee_usd;
+    if (typeof fee !== 'number') return known;
+    return known + (waivers.some((g) => g.amount_usd == null) ? fee : 0);
+  }
+  if (type === 'time') {
+    return approved
+      .filter((g) => g.type === 'time_support')
+      .reduce((s, g) => s + (typeof g.hours_per_week === 'number' ? g.hours_per_week : 0), 0);
+  }
+  return null;
+}
+
+/**
+ * 给每条障碍一个稳定的对应键：同类型 + 同设备（device）+ 同类内序号。
+ * 障碍的结构（有哪几条、什么顺序）与 grants 无关——grants 只改变 resolved 等字段；唯一例外是官方费用未知时的 cost 障碍，
+ * 有金额的已批准减免足够时那条障碍不出现（见 pendingOutcome）。
+ */
+function barrierKeys(barriers: Barrier[], devices: (string | null)[]): string[] {
+  const seen = new Map<string, number>();
+  let deviceIdx = 0;
+  return barriers.map((b) => {
+    const device = b.type === 'device' ? (devices[deviceIdx++] ?? null) : null;
+    const base = `${b.type}:${device ?? ''}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return `${base}#${n}`;
+  });
+}
+
+/**
+ * 学生缺的必需设备，与 analyzeReachability 生成设备障碍的方式一致：按 required_devices 顺序，
+ * 档案 devices（调用前已确认是字符串数组）里没有的每一项一条。devices 没填（null）时引擎不生成设备障碍。
+ */
+function missingDevices(p: StudentProfile, o: Opportunity): string[] {
+  if (!Array.isArray(p.devices)) return [];
+  const have = p.devices;
+  return o.required_devices.filter((d) => !have.includes(d)).map((d) => String(d));
+}
+
+type PendingOutcome =
+  | { kind: 'resolves' }
+  /** 官方费用未知：获批后「已能算出的缺口」被抵掉，但总费用仍不清楚。 */
+  | { kind: 'resolves_known_part' }
+  | { kind: 'partial'; remaining: number }
+  | { kind: 'no_change' };
+
+/**
+ * pending 的支持获批后会怎样：把该障碍 pending_grant_ids 里的 pending grant 当作 approved，再调用一次
+ * analyzeReachability（引擎口径），按 barrierKeys 找到同一条障碍：
+ * - 变为 resolved → resolves；
+ * - 找不到（只可能是官方费用未知时的 cost 障碍消失）→ resolves_known_part；
+ * - 仍未化解：cost / time 的剩余缺口（缺口 − 已生效支持可抵的量）变小 → partial（附剩余数值），否则 → no_change。
+ */
+function pendingOutcome(
+  b: Barrier,
+  key: string,
+  p: StudentProfile,
+  o: Opportunity,
+  grants: ResourceGrant[],
+  devices: (string | null)[],
+  options?: EvalOptions,
+): PendingOutcome {
+  const ids = new Set(b.pending_grant_ids ?? []);
+  const flipped = grants.map((g) => (ids.has(g.id) && g.status === 'pending' ? { ...g, status: 'approved' as const } : g));
+  let after: ReachabilityResult;
+  try {
+    after = analyzeReachability(p, o, flipped, options);
+  } catch {
+    return { kind: 'no_change' };
+  }
+  const afterKeys = barrierKeys(after.barriers, devices);
+  const idx = afterKeys.indexOf(key);
+  if (idx < 0) return b.type === 'cost' ? { kind: 'resolves_known_part' } : { kind: 'resolves' };
+  if (after.barriers[idx].resolved) return { kind: 'resolves' };
+
   const gap = finiteShortfall(b);
+  const before = coverage(b.type, grants, p, o);
+  const later = coverage(b.type, flipped, p, o);
+  if (gap == null || before == null || later == null) return { kind: 'no_change' };
+  const remBefore = Math.max(0, gap - before);
+  const remAfter = Math.max(0, gap - later);
+  return remAfter < remBefore - 1e-9 ? { kind: 'partial', remaining: remAfter } : { kind: 'no_change' };
+}
+
+function amountText(type: BarrierType, n: number, atLeast: boolean): string {
+  if (type === 'cost') return `${atLeast ? 'at least ' : ''}$${fmt(n)}`;
+  return `about ${plural(n, 'hour')} per week`;
+}
+
+/**
+ * 没有（有效的）pending 时的建议。approvedCover：已生效支持对 cost 已可抵的量（只在官方费用已知时传入；
+ * 官方费用未知时 gap 已经扣掉了它）——大于 0 时注明，避免把已被抵掉的部分也说成要去争取。
+ */
+function askText(b: Barrier, device: string | null, gap: number | null, costAtLeast: boolean, approvedCover = 0): string {
   switch (b.type) {
     case 'time':
       return `You could free up about ${fmt(gap ?? 0)} more ${pluralNoun(gap ?? 0, 'hour')} per week, or ask the organizer whether any time support exists (for example a lighter schedule or paid prep time). They may not offer it.`;
     case 'cost':
-      return `You could ask the organizer whether a fee waiver or financial aid is available to cover the $${fmt(gap ?? 0)} you are short. They may not offer it.`;
+      return costAtLeast
+        ? `You could ask the organizer whether a fee waiver or financial aid is available to cover the at least $${fmt(gap ?? 0)} you are short (the official fee is not clear, so it may be more). They may not offer it.`
+        : approvedCover > 0 && gap != null && approvedCover < gap
+          ? `You could ask the organizer whether a fee waiver or financial aid is available for the rest of the $${fmt(gap)} you are short (approved support already covers $${fmt(approvedCover)} of it, so about $${fmt(gap - approvedCover)} is still uncovered). They may not offer it.`
+          : `You could ask the organizer whether a fee waiver or financial aid is available to cover the $${fmt(gap ?? 0)} you are short. They may not offer it.`;
     case 'transport':
       return 'You could ask the organizer whether there is an online option, a nearer site or travel support. They may not offer it.';
     case 'device':
       return `You could ask the organizer, your school or a local library whether you can borrow ${device ? (DEVICE_LABEL[device] ?? device) : 'the device'}. They may not have one to lend.`;
   }
+}
+
+/** pending 获批也不改变缺口时的原因说明（尽量具体；说不出具体原因时用通用说法）。 */
+function noChangeReason(b: Barrier, pending: ResourceGrant[], o: Opportunity): string {
+  if (b.type === 'cost' && pending.length > 0 && pending.every((g) => g.type === 'fee_waiver' && g.amount_usd == null)) {
+    return feeUnknown(o)
+      ? 'a fee waiver with no set amount only covers the official fee, and the official fee is not clear here'
+      : 'a fee waiver with no set amount only covers the official fee once, and approved support already counts it';
+  }
+  return 'based on how support is counted for this barrier';
 }
 
 function barrierItems(
@@ -461,51 +585,73 @@ function barrierItems(
   o: Opportunity,
   grants: ResourceGrant[],
   groups: Record<GapCategory, GapItem[]>,
+  options?: EvalOptions,
 ): void {
-  // 设备障碍与「档案里没有的必需设备」一一对应（analyzeReachability 按 required_devices 顺序生成）。
-  const have = Array.isArray(p.devices) ? p.devices : [];
-  const missingDevices = o.required_devices.filter((d) => !have.includes(d));
-  const deviceBarriers = r.barriers.filter((b) => b.type === 'device');
+  // 设备障碍与「档案里没有的必需设备」按引擎同样的方式对应；数量对不上时（不应发生）不写设备名。
+  const missing = missingDevices(p, o);
+  const deviceCount = r.barriers.filter((b) => b.type === 'device').length;
+  const devices: (string | null)[] = missing.length === deviceCount ? missing : missing.map(() => null);
+  const keys = barrierKeys(r.barriers, devices);
+  const deviceOf = new Map<Barrier, string | null>();
+  let di = 0;
+  for (const b of r.barriers) if (b.type === 'device') deviceOf.set(b, devices[di++] ?? null);
 
   for (const type of BARRIER_TYPES) {
-    r.barriers.forEach((b) => {
+    r.barriers.forEach((b, index) => {
       if (b.type !== type || b.resolved) return;
-      const device = type === 'device' ? (missingDevices[deviceBarriers.indexOf(b)] ?? null) : null;
+      const device = type === 'device' ? (deviceOf.get(b) ?? null) : null;
       const idPart = device ? `device:${device}` : type;
       const basis: GapBasis = { kind: 'barrier', barrier_type: type };
 
       if (isDeadlinePassed(b)) {
-        groups.time_and_cost.push(
-          item(
-            'time_and_cost',
-            idPart,
-            'Deadline has passed',
-            `${b.description} You can look at the alternatives for this opportunity: its next round (if it repeats) or similar opportunities in the same field.`,
-            basis,
-            null,
-          ),
-        );
+        // 引擎的 description 已提到下一届与同领域机会；这里只补一句指向替代机会，不重复。
+        const extra =
+          o.recurring_annually === false
+            ? 'The organizer does not run it every year; see the alternatives for this opportunity for similar opportunities in the same field.'
+            : 'See the alternatives for this opportunity.';
+        groups.time_and_cost.push(item('time_and_cost', idPart, 'Deadline has passed', `${b.description} ${extra}`, basis, null));
         return;
       }
 
-      const gap = finiteShortfall(b);
+      const shortfall = finiteShortfall(b);
+      // 官方费用未知时 cost 障碍的数字 = 缺口 − 已批准且有金额的减免（与引擎 description 的「至少还差」一致）。
+      const costAtLeast = type === 'cost' && feeUnknown(o);
+      const approvedCover = type === 'cost' ? (coverage('cost', grants, p, o) ?? 0) : 0;
+      let gap = shortfall;
+      if (costAtLeast && shortfall != null) gap = Math.max(0, shortfall - approvedCover);
+      const ask = askText(b, device, gap, costAtLeast, costAtLeast ? 0 : approvedCover);
+
       let title = `${BARRIER_TITLE[type]} barrier`;
       if (type === 'time' && gap != null) title = `Time: short ${plural(gap, 'hour')} per week`;
-      if (type === 'cost' && gap != null) title = `Cost: short $${fmt(gap)}`;
+      if (type === 'cost' && gap != null) title = `Cost: short ${costAtLeast ? 'at least ' : ''}$${fmt(gap)}`;
       if (type === 'device' && device) title = `Device: needs ${DEVICE_LABEL[device] ?? device}`;
 
       const pendingIds = b.pending_grant_ids ?? [];
-      const pending = grants.filter((g) => pendingIds.includes(g.id));
       let action: string;
       if (pendingIds.length > 0) {
         const n = pendingIds.length;
-        const what = n === 1 ? 'There is a pending support request' : `There are ${n} pending support requests`;
-        const effect = pendingFullyResolves(b, pending, o)
-          ? `once approved, this barrier would be resolved`
-          : `once approved, ${pluralNoun(n, 'it', 'they')} would cover only part of the gap`;
-        action = `${what}; ${effect}. ${pluralNoun(n, 'It is', 'They are')} not in effect yet (pending is not approved). You can check its status with the organizer.`;
+        const pending = grants.filter((g) => pendingIds.includes(g.id) && g.status === 'pending');
+        const lead = n === 1 ? 'There is a pending support request' : `There are ${n} pending support requests`;
+        const it = pluralNoun(n, 'it', 'they');
+        const outcome = pendingOutcome(b, keys[index], p, o, grants, devices, options);
+        let effect: string;
+        switch (outcome.kind) {
+          case 'resolves':
+            effect = `${lead}; once approved, this barrier would be resolved.`;
+            break;
+          case 'resolves_known_part':
+            effect = `${lead}; once approved, ${it} would cover the shortfall we can count, but the official fee is not clear, so the total may still be more than you can pay.`;
+            break;
+          case 'partial':
+            effect = `${lead}; once approved, ${it} would cover only part of the gap: you would still be short ${amountText(type, outcome.remaining, costAtLeast)}.`;
+            break;
+          case 'no_change':
+            effect = `${lead}, but even if approved ${it} would not reduce this gap (${noChangeReason(b, pending, o)}). ${ask}`;
+            break;
+        }
+        action = `${effect} ${pluralNoun(n, 'It is', 'They are')} not in effect yet (pending is not approved). You can check ${pluralNoun(n, 'its', 'their')} status with the organizer.`;
       } else {
-        action = askText(b, device);
+        action = ask;
       }
 
       groups.time_and_cost.push(
@@ -526,15 +672,18 @@ function barrierItems(
 
 // ───────────────────────────── 缺失字段 ─────────────────────────────
 
-function missingFieldItem(field: string): GapItem {
+/** todayGiven：options.today 有值（但读不了）时为 true，文案不说「页面没有传」。 */
+function missingFieldItem(field: string, todayGiven = false): GapItem {
   const basis: GapBasis = { kind: 'missing_field', field };
   const { label, affects } = fieldInfo(field);
   if (field === 'options.today') {
     return item(
       'unknown_info',
       field,
-      "Today's date was not provided",
-      "The page did not pass today's date, so we could not check whether the deadline has passed or how much prep time is left. We did not guess.",
+      todayGiven ? "Today's date was missing or could not be read" : "Today's date was not provided",
+      todayGiven
+        ? "Today's date was missing or could not be read, so we could not check whether the deadline has passed or how much prep time is left. We did not guess."
+        : "The page did not pass today's date, so we could not check whether the deadline has passed or how much prep time is left. We did not guess.",
       basis,
       'Reload the page so it can pass today\'s date. If this stays, check the deadline on the official page yourself.',
     );
@@ -559,12 +708,93 @@ function missingFieldItem(field: string): GapItem {
   );
 }
 
+/** 档案里某字段有值但类型不对（数据损坏）：一条 unknown_info，行动是在 Skill Passport 更正。 */
+function corruptProfileItem(field: string): GapItem {
+  const { label, affects } = fieldInfo(field);
+  return item(
+    'unknown_info',
+    field,
+    `Unclear in your profile: ${label}`,
+    `Your profile has ${label} in a form we can't read, so we could not finish ${affects}. We did not guess.`,
+    { kind: 'missing_field', field },
+    `Correct ${label} in your Skill Passport.`,
+  );
+}
+
+// ───────────────────────────── 档案数据类型检查 ─────────────────────────────
+
+const SKILL_LEVELS: readonly string[] = ['beginner', 'intermediate', 'advanced'];
+const TRANSPORT_LEVELS: readonly string[] = ['reliable', 'limited', 'none'];
+
+function isStringArray(v: unknown): boolean {
+  return Array.isArray(v) && v.every((x) => typeof x === 'string');
+}
+
+function optionalString(v: unknown): boolean {
+  return v == null || typeof v === 'string';
+}
+
+function optionalStringArray(v: unknown): boolean {
+  return v == null || isStringArray(v);
+}
+
+function validEvidence(e: unknown): boolean {
+  return (
+    isObject(e) &&
+    typeof e.id === 'string' &&
+    typeof e.title === 'string' &&
+    typeof e.kind === 'string' &&
+    typeof e.status === 'string' &&
+    optionalStringArray(e.skills) &&
+    optionalStringArray(e.prep_item_ids)
+  );
+}
+
+/**
+ * 档案里「有值但类型不对」的字段（没填 = null / 缺省不算）。按固定顺序返回字段名（`profile.<字段>`）。
+ * 检查引擎会读到的字段：数字字段为有限数；skills 为对象数组且 name 为字符串、level 合法；
+ * citizenships / statuses / devices 为字符串数组；region 为对象且 country / state 为字符串（或没填）；
+ * transport 为对象且 level 合法；evidence 为数组且每条的 id / title / kind / status 为字符串、
+ * skills / prep_item_ids 为字符串数组（或没填）。
+ */
+function profileFieldIssues(raw: unknown): string[] {
+  if (!isObject(raw)) return [];
+  const out: string[] = [];
+  const bad = (key: string) => out.push(`profile.${key}`);
+  for (const key of ['grade', 'age']) {
+    const v = raw[key];
+    if (v != null && !(typeof v === 'number' && Number.isFinite(v))) bad(key);
+  }
+  const skills = raw.skills;
+  if (
+    skills != null &&
+    !(Array.isArray(skills) && skills.every((s) => isObject(s) && typeof s.name === 'string' && SKILL_LEVELS.includes(s.level as string)))
+  ) {
+    bad('skills');
+  }
+  for (const key of ['statuses', 'citizenships']) {
+    if (!optionalStringArray(raw[key])) bad(key);
+  }
+  const region = raw.region;
+  if (region != null && !(isObject(region) && optionalString(region.country) && optionalString(region.state))) bad('region');
+  if (!optionalStringArray(raw.devices)) bad('devices');
+  for (const key of ['budget_usd', 'hours_per_week_available']) {
+    const v = raw[key];
+    if (v != null && !(typeof v === 'number' && Number.isFinite(v))) bad(key);
+  }
+  const transport = raw.transport;
+  if (transport != null && !(isObject(transport) && TRANSPORT_LEVELS.includes(transport.level as string))) bad('transport');
+  const evidence = raw.evidence;
+  if (evidence != null && !(Array.isArray(evidence) && evidence.every(validEvidence))) bad('evidence');
+  return out;
+}
+
 // ───────────────────────────── 数据不完整时的逐字段诊断 ─────────────────────────────
 
-function diagnose(p: StudentProfile, o: Opportunity, options?: EvalOptions): GapItem[] {
+/** profileIssues：profileFieldIssues 的结果；非空时不再逐条重试官方要求（问题在档案，不归咎于机会数据）。 */
+function diagnose(p: StudentProfile, o: Opportunity, profileIssues: string[], options?: EvalOptions): GapItem[] {
   const out: GapItem[] = [];
   const raw = o as unknown as Record<string, unknown>;
-  const rawP = p as unknown as Record<string, unknown>;
 
   for (const key of ['requirements'] as const) {
     if (!Array.isArray(raw[key])) out.push(missingFieldItem(`opportunity.${key}`));
@@ -572,18 +802,7 @@ function diagnose(p: StudentProfile, o: Opportunity, options?: EvalOptions): Gap
   for (const key of ['cost', 'location', 'time_commitment'] as const) {
     if (!isObject(raw[key])) out.push(missingFieldItem(`opportunity.${key}`));
   }
-
-  const profileIssues: string[] = [];
-  for (const key of ['skills', 'devices', 'statuses', 'citizenships']) {
-    if (rawP[key] != null && !Array.isArray(rawP[key])) profileIssues.push(`profile.${key}`);
-  }
-  for (const key of ['region', 'transport']) {
-    if (rawP[key] != null && !isObject(rawP[key])) profileIssues.push(`profile.${key}`);
-  }
-  for (const f of profileIssues) {
-    const it = missingFieldItem(f);
-    out.push({ ...it, title: `Unclear in your profile: ${fieldInfo(f).label}`, detail: `Your profile has ${fieldInfo(f).label} in a form we can't read, so we could not finish ${fieldInfo(f).affects}. We did not guess.`, action: `Check and fill in ${fieldInfo(f).label} again in your Skill Passport.` });
-  }
+  for (const f of profileIssues) out.push(corruptProfileItem(f));
 
   // 单独读不了的官方要求（只在档案本身没问题时逐条试，否则无法区分是谁的问题）。
   if (Array.isArray(raw.requirements) && profileIssues.length === 0) {
@@ -682,6 +901,13 @@ function summarize(
   return `${first} ${second.charAt(0).toUpperCase()}${second.slice(1)}.`;
 }
 
+/** 信息不足时的 summary：问题只在档案里时请学生更正档案，否则请查看官网。 */
+function incompleteSummary(items: GapItem[]): string {
+  const profileOnly = items.every((i) => i.basis.kind === 'missing_field' && i.basis.field.startsWith('profile.'));
+  const lead = `We couldn't fully analyze this opportunity because some information is incomplete (${plural(items.length, 'item')} listed).`;
+  return profileOnly ? `${lead} Correct the listed details in your Skill Passport.` : `${lead} Check the official page.`;
+}
+
 export function analyzeGaps(
   profile: StudentProfile,
   opp: Opportunity,
@@ -693,14 +919,28 @@ export function analyzeGaps(
   const g = asArray<unknown>(grants).filter(isObject) as unknown as ResourceGrant[];
   const opts: EvalOptions | undefined = isObject(options) ? (options as EvalOptions) : undefined;
 
-  let r: ReachabilityResult;
+  // 档案里有值但类型不对的字段：先查出来，有就直接走「信息不足」分支（不让引擎带着坏数据算出看似正常的结论，
+  // 也不把引擎因此抛的错归咎于机会数据）。
+  let profileIssues: string[];
   try {
-    r = analyzeReachability(p, o, g, opts);
+    profileIssues = profileFieldIssues(profile);
   } catch {
+    profileIssues = [];
+  }
+
+  let r: ReachabilityResult | null = null;
+  if (profileIssues.length === 0) {
+    try {
+      r = analyzeReachability(p, o, g, opts);
+    } catch {
+      r = null;
+    }
+  }
+  if (r == null) {
     // 机会 / 档案数据不完整：不猜，逐字段列出缺什么。
     let items: GapItem[];
     try {
-      items = uniqueIds(diagnose(p, o, opts));
+      items = uniqueIds(diagnose(p, o, profileIssues, opts));
     } catch {
       items = [];
     }
@@ -723,7 +963,7 @@ export function analyzeGaps(
       counts: countOf(items),
       eligibility_overall: 'unknown',
       reachable: null,
-      summary: `We couldn't fully analyze this opportunity because some information is incomplete (${plural(items.length, 'item')} listed). Check the official page.`,
+      summary: incompleteSummary(items),
     };
   }
 
@@ -731,8 +971,9 @@ export function analyzeGaps(
   const groups = emptyGroups();
   requirementItems(r, p, o, uncovered, groups, opts);
   prepItems(r, o, uncovered, groups);
-  barrierItems(r, p, o, g, groups);
-  for (const field of r.missing_info) groups.unknown_info.push(missingFieldItem(field));
+  barrierItems(r, p, o, g, groups, opts);
+  const todayGiven = opts?.today != null;
+  for (const field of r.missing_info) groups.unknown_info.push(missingFieldItem(field, todayGiven));
 
   const items = uniqueIds(GAP_CATEGORIES.flatMap((c) => groups[c]));
   const counts = countOf(items);

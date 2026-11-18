@@ -22,7 +22,8 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 
 ### Phase 2 (in progress)
 - **Available in `lib/` now:** new shared types (source tier, application materials, gap analysis, alternatives, match explanation, cross-opportunity plan, Quest Journal, plan snapshots, Connect sample types) and new `lib/store.ts` functions (profile and evidence editing, a per-profile Quest Journal, application materials stored once and shared between entries, plan snapshots for replay, and local Connect sample data that refers to students only by an opaque share handle), with Vitest tests. The Quest Journal records four separate things — the student's application, official eligibility confirmation, the admission decision and participation — because submitting is not the same as being confirmed eligible or being admitted. Field and interest tags are compared with `normalizeTag` (`lib/tags.ts`), so `data-science`, `data_science` and `Data Science` count as the same tag.
-- **Sample versions only:** `analyzeGaps`, `findAlternatives`, `explainMatch` and `planAcrossOpportunities` are **sample versions**: their signatures are final and their output is simplified but does not invent anything. The full implementations and the pages that use them are **not done yet**. `explainMatch` gives reasons only, never a score or a ranking.
+- **Implemented in `lib/` (not yet used by any page):** `analyzeGaps` sorts a student's gaps for one opportunity into five groups (knowledge or experience, materials, time and cost, current eligibility limits, unknown info), each with its source and a concrete action; current eligibility limits get no action and no workaround. `findAlternatives` suggests the next round or up to three same-field opportunities from the given catalog, only when the student is actually blocked (not eligible, deadline passed, an unresolved practical barrier, or no route finishes in time); it returns nothing otherwise and never presents an alternative as a prerequisite. Both have Vitest tests.
+- **Sample versions only:** `explainMatch` and `planAcrossOpportunities` are **sample versions**: their signatures are final and their output is simplified but does not invent anything. Their full implementations, and the pages that use any of the four phase 2 functions, are **not done yet**. `explainMatch` gives reasons only, never a score or a ranking.
 - **Connect (Quest Creator / Talent Board / invitations)** will be a **local sample demo** only: sample publishers, data kept in the browser, no accounts, no backend and no real connection between people. It is not built yet.
 
 All capabilities described below are product goals unless stated otherwise above.
@@ -99,7 +100,7 @@ Not built in the four-day competition scope and **not implemented**:
 - Baseline D (a fully coordinated separate planner) in the baseline comparison
 - Data loading with runtime validation (a `lib/data.ts` layer that checks `data/*.json` against the shared types at load time).
 - Exact age calculation from date of birth (age on the reference date is currently inferred as a range from the student's current age, so age checks near a birthday can come out `unknown`).
-- Same-field alternative opportunities shown in the pages (a sample version of `findAlternatives` exists in `lib/`; the pages currently show only a text hint).
+- Same-field alternative opportunities shown in the pages (`findAlternatives` is implemented in `lib/`; the pages currently show only a text hint).
 - Integration with real organizer data (all organizer scenarios are currently sample / simulated).
 
 ## Boundaries
