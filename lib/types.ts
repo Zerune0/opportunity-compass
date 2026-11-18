@@ -11,6 +11,25 @@
  *   判断函数遇到没填的信息必须返回 unknown，不能猜。
  * - 技能名（skill）用小写 slug，例如 `python`、`public_speaking`、`data_analysis`。
  * - 本文件只放类型和少量只读常量，不放逻辑。
+ *
+ * 第二阶段新增（全部是向后兼容的新增：新类型、新的可选字段、只读常量；现有字段不改名、不删除、不改类型）：
+ * - 来源等级：`SourceTier` / `SOURCE_TIERS`，`Opportunity.source_tier`、`Opportunity.posted_by`
+ *   → 队友 A 填数据与在 Quest Board 显示；Connect 的用户发布机会（本地示例）。
+ * - 材料：`MaterialKind` / `MATERIAL_KINDS`，`PrepItem.material_kind`、`PrepItem.reusable_across_opportunities`
+ *   → analyzeGaps（材料类差距）、planAcrossOpportunities（材料复用）、Quest Journal 的 `Material`。
+ * - 差距分析：`GapCategory` / `GAP_CATEGORIES`、`GapBasis`、`GapItem`、`GapAnalysis`
+ *   → `analyzeGaps(profile, opp, grants, options)` 的返回；队友 A 的 Quest Details。
+ * - 替代机会：`AlternativeSuggestion` → `findAlternatives(profile, opp, catalog, options)` 的返回；A、B 显示。
+ * - 匹配说明：`MatchReasonKind` / `MATCH_REASON_KINDS`、`MatchReason`、`MatchExplanation`
+ *   → `explainMatch(profile, opp, options)` 的返回；A（排序说明）、Connect。不含分数或名次。
+ * - 联合申请规划：`CrossPlanItem`、`MaterialReuse`、`WeeklyLoad`、`CrossPlan`、`CrossPlanOptions`
+ *   → `planAcrossOpportunities(profile, opps, options)` 的返回；队友 B 的 Journal 排期页。
+ * - Quest Journal：`JournalStatus` / `JOURNAL_STATUSES`、`JournalTask`、`Material`、`OutcomeFeedback`、`JournalEntry`
+ *   → lib/store.ts 的 Journal 存储函数；队友 B 的 app/journal/。
+ * - 规划快照：`PlanTrigger` / `PLAN_TRIGGERS`、`PlanSnapshotInputs`、`PlanSnapshot`
+ *   → lib/store.ts 的快照存储；队友 B 的「之前 → 变化 → 之后 → 原因」回放（配合 diffRoutes）。
+ * - Connect 本地示例：`SamplePublisher`、`ShareSettings`、`SharedProfileView`、`Invitation`
+ *   → 主办方端与 Connect 负责人的 lib/connect/、app/connect/。全部是示例 / 本地数据，没有真实连接。
  */
 
 // ───────────────────────────── 基础别名 ─────────────────────────────
@@ -190,6 +209,31 @@ export type Requirement = RequirementRule & {
 };
 
 /**
+ * 申请材料种类（第二阶段）。
+ * resume = 简历；transcript = 成绩单；personal_statement = 个人陈述；
+ * recommendation_letter = 推荐信；portfolio = 作品集；essay = 其他文书 / 短文；other = 其他材料。
+ * 用于 PrepItem.material_kind（这个准备项产出哪类材料）和 Quest Journal 的 Material.kind。
+ */
+export type MaterialKind =
+  | 'resume'
+  | 'transcript'
+  | 'personal_statement'
+  | 'recommendation_letter'
+  | 'portfolio'
+  | 'essay'
+  | 'other';
+
+export const MATERIAL_KINDS: readonly MaterialKind[] = [
+  'resume',
+  'transcript',
+  'personal_statement',
+  'recommendation_letter',
+  'portfolio',
+  'essay',
+  'other',
+] as const;
+
+/**
  * 准备项：参加 / 申请该机会前建议或需要完成的准备（供路线规划用）。
  * 例如「学会 Python 基础」「完成一个数据分析小项目」「写个人陈述」。
  */
@@ -211,12 +255,39 @@ export interface PrepItem {
   required_for_application: boolean;
   /** 依据（官网原文或「团队建议」），说明为什么有这一项。 */
   source_text?: string | null;
+  /**
+   * （第二阶段）这个准备项产出哪类申请材料。null / 缺省 = 不是材料（如「学会 Python 基础」）。
+   * analyzeGaps 用它把未覆盖的准备项归入「材料」类（否则归入「知识或经验」类）；
+   * planAcrossOpportunities 用它识别跨机会可复用的材料。
+   */
+  material_kind?: MaterialKind | null;
+  /**
+   * （第二阶段）材料是否可在多个机会间复用，只在 material_kind 非空时有意义：
+   * - true = 通用材料（如简历、成绩单），多个机会共用一份，联合规划时小时数只算一次；
+   * - false = 针对该机会单独准备（如针对性的个人陈述），即使同类也每个机会各算一次；
+   * - null / 缺省 = 按 false 处理（不确定能否复用时不假设省时间）。
+   */
+  reusable_across_opportunities?: boolean | null;
 }
+
+/**
+ * 机会信息的来源等级（第二阶段）：
+ * - official = 由人打开主办方官网核实过（data/opportunities.json 的真实机会都是这一级）；
+ * - trusted_aggregator = 来自可信的机会汇总站，仍需以主办方官网为准；
+ * - user_posted = 用户（发布者）自己发布的机会。本阶段只来自 Connect 的本地示例（发布者是标「示例」的虚构账户），
+ *   没有真实发布者。
+ * 用户发布的机会必须与官网核实的机会用不同标记显示，不能混为一谈。
+ */
+export type SourceTier = 'official' | 'trusted_aggregator' | 'user_posted';
+
+export const SOURCE_TIERS: readonly SourceTier[] = ['official', 'trusted_aggregator', 'user_posted'] as const;
 
 /**
  * 一个真实机会。
  * 底线：`data/opportunities.json` 中的每条机会必须有官方链接、核实日期和核实人，
  * 由人打开官网确认；AI 给出的机会信息不直接采用。
+ * 例外（第二阶段）：source_tier = 'user_posted' 的机会是 Connect 的本地示例，不是官网核实的机会，
+ * 必须同时 is_sample = true；它的 verified_on / verified_by 只记录发布日期与示例发布者，界面不得显示为「已核实」。
  */
 export interface Opportunity {
   /** 全局唯一，kebab-case，如 `nasa-sees-2027`。 */
@@ -255,6 +326,16 @@ export interface Opportunity {
    * 真实核实过的机会填 false 或省略。
    */
   is_sample?: boolean;
+  /**
+   * （第二阶段）来源等级，缺省按 'official' 处理（第一阶段的数据都是官网核实）。
+   * 读取时请写 `opp.source_tier ?? 'official'`。用户发布的机会必须与官网核实的机会用不同标记。
+   */
+  source_tier?: SourceTier;
+  /**
+   * （第二阶段）发布者 id：source_tier = 'user_posted' 时为示例发布者 SamplePublisher.id；
+   * 其他等级为 null 或缺省。本阶段没有真实发布者。
+   */
+  posted_by?: string | null;
 }
 
 // ───────────────────────────── 学生档案 StudentProfile ─────────────────────────────
@@ -1161,4 +1242,515 @@ export interface BaselineRow {
 export interface BaselineComparison {
   rows: BaselineRow[];
   notes: string[];
+}
+
+// ═════════════════════════════ 第二阶段新增 ═════════════════════════════
+
+// ───────────────────────────── 差距分析 GapAnalysis（analyzeGaps）─────────────────────────────
+
+/**
+ * 差距五类（analyzeGaps 只整理已有判断结果，不重新发明规则）：
+ * - knowledge_or_experience = 知识或经验：未被证据覆盖、且不是材料（material_kind 为空）的准备项；
+ * - materials = 材料：未被证据覆盖的材料类准备项（material_kind 非空），以及未满足的 portfolio 类要求；
+ * - time_and_cost = 时间和成本：analyzeReachability 的时间 / 费用 / 交通 / 设备四类障碍中
+ *   尚未被 approved grant 化解的（resolved 为 false）；已化解的不列；
+ * - unchangeable_eligibility = 当前不可改变的资格限制：not_satisfied 的硬性要求里，学生在本届无法通过努力改变的
+ *   （如年级、年龄、地区、公民身份、身份标签）。不给任何行动建议（action 必须为 null），只给原因；
+ * - unknown_info = 未知信息：status 为 unknown 的资格项，以及 missing_info 中每一个缺失的字段，逐条列出，
+ *   不合并成一句笼统的话。
+ */
+export type GapCategory =
+  | 'knowledge_or_experience'
+  | 'materials'
+  | 'time_and_cost'
+  | 'unchangeable_eligibility'
+  | 'unknown_info';
+
+/** 五类的固定顺序（也是 GapAnalysis.items 的分组顺序与界面展示顺序）。 */
+export const GAP_CATEGORIES: readonly GapCategory[] = [
+  'knowledge_or_experience',
+  'materials',
+  'time_and_cost',
+  'unchangeable_eligibility',
+  'unknown_info',
+] as const;
+
+/**
+ * 一条差距的依据（判别联合，`kind` 是判别字段）：
+ * - requirement：来自某条官方要求（Requirement.id），附官网原文；
+ * - prep_item：来自某个准备项（PrepItem.id），附依据原文（准备项没有依据时为 null）；
+ * - barrier：来自 analyzeReachability 的某类现实障碍；
+ * - missing_field：来自缺失的档案 / 机会字段（与 ReachabilityResult.missing_info 的写法一致，如 `profile.devices`）。
+ */
+export type GapBasis =
+  | { kind: 'requirement'; requirement_id: string; source_text: string }
+  | { kind: 'prep_item'; prep_item_id: string; source_text: string | null }
+  | { kind: 'barrier'; barrier_type: BarrierType }
+  | { kind: 'missing_field'; field: string };
+
+/** 一条差距。 */
+export interface GapItem {
+  /**
+   * 结果内唯一、稳定（同样的输入总得到同样的 id，便于界面做 key 和前后对比）。
+   * 建议形如 `${category}:${依据 id}`，如 `materials:prep-resume`、`unknown_info:profile.devices`。
+   */
+  id: string;
+  category: GapCategory;
+  /** 简短标题（面向学生），如「Resume not ready yet」。 */
+  title: string;
+  /** 面向学生的说明：缺什么、为什么算差距。 */
+  detail: string;
+  /** 依据：来自哪条资格、哪个准备项、哪类障碍或哪个缺失字段。 */
+  basis: GapBasis;
+  /**
+   * 学生能否通过自己的行动改善。unchangeable_eligibility 一律为 false；
+   * unknown_info 通常为 true（补填档案或向官方确认）。
+   */
+  improvable: boolean;
+  /**
+   * 可改善时的一条真实行动（如「完成准备项《写简历》」「向主办方确认是否接受十年级学生」）。
+   * improvable 为 false 时为 null；unchangeable_eligibility 必须为 null——不给任何绕过办法。
+   */
+  action: string | null;
+  /** 补上这条差距预计要的小时数（来自准备项）；不适用或不知道为 null / 缺省。 */
+  estimated_hours?: number | null;
+  /** 补上这条差距预计要的费用（美元）；不适用或不知道为 null / 缺省。 */
+  estimated_cost_usd?: number | null;
+}
+
+/** analyzeGaps(profile, opp, grants, options) 的返回。 */
+export interface GapAnalysis {
+  profile_id: string;
+  opportunity_id: string;
+  /**
+   * 全部差距，稳定顺序：先按 GAP_CATEGORIES 的类别顺序分组，组内按机会里的原顺序
+   * （requirements / preparation 顺序、BARRIER_TYPES 顺序、missing_info 顺序）。
+   */
+  items: GapItem[];
+  /** 每类的条数（五个键都必须有，没有的为 0），等于 items 中该类的条数。 */
+  counts: Record<GapCategory, number>;
+  /**
+   * 资格总结论（抄自内部调用的 checkEligibility / analyzeReachability），供界面一并显示。
+   * 补充字段：便于界面不再单独调用一次。
+   */
+  eligibility_overall: OverallEligibility;
+  /** 现实可达性（抄自 analyzeReachability 的 reachable，语义相同；可达 ≠ 录取）。 */
+  reachable: boolean | null;
+  /** 面向学生的一句话总结。 */
+  summary: string;
+}
+
+// ───────────────────────────── 替代机会 AlternativeSuggestion（findAlternatives）─────────────────────────────
+
+/**
+ * findAlternatives(profile, opp, catalog, options) 返回 `AlternativeSuggestion[]` 中的一条。
+ * 只从传入的机会目录（catalog）里找，不编造机会；不把无关的小活动说成目标机会的官方前置。
+ */
+export interface AlternativeSuggestion {
+  /**
+   * next_cycle = 等下一届（只在机会每年举办、且阻断原因会随时间改善时给出，如年级不够）；
+   * same_field = 同领域的其他机会（必须是该学生硬性资格不冲突的机会）。
+   */
+  kind: 'next_cycle' | 'same_field';
+  /**
+   * 建议的机会 id：same_field 为目录中的那个机会；next_cycle 指原机会自身（可为原机会的 id），
+   * 目录里没有可指的机会时为 null。
+   */
+  opportunity_id: string | null;
+  /** 机会标题（next_cycle 时为原机会标题）。 */
+  title: string;
+  /** 为什么建议它（面向学生），如「同属 climate 领域，你的年级符合要求」。 */
+  reason: string;
+  /**
+   * 该学生对这个建议机会的资格结论（checkEligibility 的 overall）；无法评估时为 null。
+   * same_field 的建议不得是 'not_eligible'。next_cycle 时是对「下一届」无法预先判断，通常为 null。
+   */
+  eligibility_overall: OverallEligibility | null;
+  /** 与原机会共有的领域标签（Opportunity.fields 的交集）；next_cycle 时为原机会的全部 fields。 */
+  shared_fields: string[];
+}
+
+// ───────────────────────────── 匹配说明 MatchExplanation（explainMatch）─────────────────────────────
+
+/**
+ * 匹配理由的类别：interest = 兴趣与领域重合；eligibility = 资格结论；reachability = 现实可达性；
+ * format = 参与形式（线上 / 线下）与交通；time = 时间投入与可用时间；cost = 费用与预算。
+ */
+export type MatchReasonKind = 'interest' | 'eligibility' | 'reachability' | 'format' | 'time' | 'cost';
+
+export const MATCH_REASON_KINDS: readonly MatchReasonKind[] = [
+  'interest',
+  'eligibility',
+  'reachability',
+  'format',
+  'time',
+  'cost',
+] as const;
+
+/** 一条匹配理由。 */
+export interface MatchReason {
+  kind: MatchReasonKind;
+  /** true = 有利；false = 不利；null = 信息不足，判断不出来（不猜）。 */
+  positive: boolean | null;
+  /** 面向学生的一句话。 */
+  text: string;
+}
+
+/**
+ * explainMatch(profile, opp, options) 的返回：这个机会为什么适合 / 不适合这名学生。
+ * 约定：
+ * - 不输出任何分数、百分比或名次，不用于给学生排名；
+ * - 不读取学校名（school_name）与显示名（display_name）——只改这两项，结果必须完全不变（有对照测试）；
+ * - 只看兴趣与领域的重合、资格结论、现实条件。
+ */
+export interface MatchExplanation {
+  profile_id: string;
+  opportunity_id: string;
+  /** 理由列表，稳定顺序（按 MATCH_REASON_KINDS 顺序）。 */
+  reasons: MatchReason[];
+  eligibility_overall: OverallEligibility;
+  /** 现实可达性（语义同 ReachabilityResult.reachable；可达 ≠ 录取）。 */
+  reachable: boolean | null;
+  /** 学生兴趣与机会领域的交集（profile.interests ∩ opp.fields）；兴趣没填时为 []。 */
+  shared_interests: string[];
+  /** 面向学生的一句话总结（不含分数）。 */
+  summary: string;
+}
+
+// ───────────────────────────── 联合申请规划 CrossPlan（planAcrossOpportunities）─────────────────────────────
+
+/** 联合规划中的一个机会。 */
+export interface CrossPlanItem {
+  opportunity_id: string;
+  title: string;
+  deadline: ISODate | null;
+  /**
+   * planned = 已排入计划；blocked = 硬性资格不满足（planRoutes 返回 blocked），不计入负荷；
+   * past_deadline = 按 options.today 截止日期已过，不计入负荷。
+   */
+  status: 'planned' | 'blocked' | 'past_deadline';
+  /**
+   * 取必需步骤时用的路线类型（补充字段，便于界面说明「按哪条路线算的」）；blocked / past_deadline 时为 null。
+   */
+  route_type: RouteType | null;
+  /**
+   * 去掉材料复用之后还需要的小时数：可复用的通用材料只算在 order 最靠前、用到它的那个机会上
+   * （按 MaterialReuse.hours_each 计），其他机会不再计。
+   */
+  required_hours: number;
+  /** 不考虑复用时这个机会自己需要的小时数。 */
+  hours_before_reuse: number;
+  /** 距截止日期还有几周（按 options.today）；today 或 deadline 缺失时为 null。 */
+  weeks_left: number | null;
+  /** 只做这一个机会时，按学生每周可用小时能否在截止前完成；信息不足为 null。 */
+  feasible_alone: boolean | null;
+  /** 按截止日期的建议先后（1 起）；截止日期为 null 的排在最后。只是建议，不替学生做取舍。 */
+  order: number;
+  /** 面向学生的说明（为什么排在这里、为什么 blocked 等）。 */
+  note: string;
+}
+
+/** 一类材料在多个机会之间的复用情况。 */
+export interface MaterialReuse {
+  material_kind: MaterialKind;
+  /** true = 通用材料，只准备一次；false = 需针对每个机会单独准备。 */
+  reusable: boolean;
+  /** 需要这类材料的机会 id。 */
+  opportunity_ids: string[];
+  /** 每份所需小时数：各机会对应准备项 estimated_hours 的最大值（保守，不低估）。 */
+  hours_each: number;
+  /**
+   * 复用省下的小时数：reusable 时 = 各机会该材料小时数之和 − hours_each
+   * （各机会数值相同时即 hours_each × (机会数 − 1)）；不可复用时为 0。
+   */
+  hours_saved: number;
+  /** 面向学生的说明，如「简历可复用，只算一次」/「个人陈述需针对每个机会单独写」。 */
+  note: string;
+}
+
+/** 某一周的负荷。 */
+export interface WeeklyLoad {
+  /** 该周的周一（从 options.today 所在周的周一起，每 7 天一周）。 */
+  week_start: ISODate;
+  /** 本周需要投入的小时数。 */
+  hours_needed: number;
+  /** 学生每周可用小时（profile.hours_per_week_available）；没填为 null。 */
+  hours_available: number | null;
+  /** 是否超出可用小时；hours_available 为 null 时为 null（不猜）。 */
+  over: boolean | null;
+  /** 本周有投入的机会 id。 */
+  opportunity_ids: string[];
+}
+
+/**
+ * planAcrossOpportunities(profile, opps, options) 的返回：多个机会一起排期。
+ * 只把数字摆出来（截止日期、每周负荷、冲突、可复用材料与省下的小时、建议先后），
+ * 不替学生决定放弃哪个机会；冲突说明里可以写「如果只保留优先级高的几个会怎样」，但不做取舍。
+ */
+export interface CrossPlan {
+  profile_id: string;
+  /** 评估基准日（options.today）；没传为 null，此时与日期相关的字段一律为 null。 */
+  evaluated_on: ISODate | null;
+  /** 每个机会一项，按 order 升序。 */
+  items: CrossPlanItem[];
+  /** 按周的负荷，按 week_start 升序；没有 today 时为 []。 */
+  weekly_load: WeeklyLoad[];
+  /** 材料复用情况（含不可复用的同类材料，说明为什么不省时间）。 */
+  reuse: MaterialReuse[];
+  /** 计入复用后的总小时数（只算 planned 的机会）。 */
+  total_hours: number;
+  /** 不考虑复用的总小时数（只算 planned 的机会）；与 total_hours 之差 = 复用省下的小时。 */
+  total_hours_without_reuse: number;
+  /** 面向学生的冲突说明（如「12 月第 2 周需要 14 小时，你每周可用 6 小时」）。 */
+  conflicts: string[];
+  /** 其他提醒（如资格待确认、截止已过）。 */
+  warnings: string[];
+  /** 判断所缺的信息（如 `profile.hours_per_week_available`、`opportunity.<id>.deadline`）。 */
+  missing_info: string[];
+}
+
+/** planAcrossOpportunities 的选项。 */
+export interface CrossPlanOptions extends EvalOptions {
+  /**
+   * 学生自己给的优先顺序（机会 id，靠前优先）。只用于冲突说明「若只保留前几个会怎样」，
+   * 不改变 order（order 只按截止日期），也不代表系统建议放弃其他机会。缺省 = 学生没给。
+   */
+  priorities?: string[];
+}
+
+// ───────────────────────────── Quest Journal ─────────────────────────────
+
+/**
+ * Journal 状态：
+ * preparing = 准备中；submitted = 学生已提交申请；eligibility_confirmed = 官方确认资格；
+ * admitted = 被录取；not_admitted = 未录取；participated = 已参与；withdrawn = 学生主动退出。
+ * 重要：提交申请 ≠ 官方确认资格 ≠ 被录取，三者必须在界面上分开显示，不能互相推断。
+ * 这些状态都由学生自己记录，不是系统判断。
+ */
+export type JournalStatus =
+  | 'preparing'
+  | 'submitted'
+  | 'eligibility_confirmed'
+  | 'admitted'
+  | 'not_admitted'
+  | 'participated'
+  | 'withdrawn';
+
+export const JOURNAL_STATUSES: readonly JournalStatus[] = [
+  'preparing',
+  'submitted',
+  'eligibility_confirmed',
+  'admitted',
+  'not_admitted',
+  'participated',
+  'withdrawn',
+] as const;
+
+/** Journal 里的一条任务。 */
+export interface JournalTask {
+  /** 条目内唯一。 */
+  id: string;
+  title: string;
+  /** 来自哪个准备项（PrepItem.id），若有；学生自己加的任务为 null / 缺省。 */
+  prep_item_id?: string | null;
+  done: boolean;
+  /** 完成日期；未完成或没记为 null / 缺省。 */
+  done_on?: ISODate | null;
+}
+
+/** 材料准备状态：未开始 / 进行中 / 已就绪。 */
+export type MaterialStatus = 'not_started' | 'in_progress' | 'ready';
+
+/** Journal 里的一份申请材料。 */
+export interface Material {
+  /** 条目内唯一。 */
+  id: string;
+  kind: MaterialKind;
+  title: string;
+  /** true = 通用材料，可在多个机会间复用；false = 针对某个机会单独准备。 */
+  reusable: boolean;
+  /** 针对的机会 id；通用材料为 null。 */
+  opportunity_id: string | null;
+  /** 来自哪个准备项（PrepItem.id），若有（补充字段，便于和联合规划对应）。 */
+  prep_item_id?: string | null;
+  /** 预计小时数；不知道为 null。 */
+  estimated_hours: number | null;
+  status: MaterialStatus;
+}
+
+/**
+ * 学生自愿记录的结果反馈，全部可缺（缺省 / null = 没记）。
+ * 这是学生自己的记录，不是系统判断，也不是真实影响的证据，界面与报告不得据此声称产品带来了什么结果。
+ */
+export interface OutcomeFeedback {
+  /** 是否通过本工具发现了之前不知道的机会。 */
+  discovered_new_opportunity?: boolean | null;
+  /** 是否看懂了资格要求。 */
+  understood_eligibility?: boolean | null;
+  /** 是否完成了申请材料。 */
+  completed_materials?: boolean | null;
+  /** 是否提交了申请。 */
+  applied?: boolean | null;
+  /** 是否参与了该机会。 */
+  participated?: boolean | null;
+  /** 学生自己写的一句话（哪些地方有帮助 / 没帮助）。 */
+  helpful_note?: string | null;
+  recorded_on?: ISODate | null;
+}
+
+/** Quest Journal 的一个条目（一个机会）。存在学生自己的浏览器 localStorage。 */
+export interface JournalEntry {
+  /** 全局唯一。 */
+  id: string;
+  opportunity_id: string;
+  added_on: ISODate;
+  /** 当前状态（= status_history 的最后一项）。 */
+  status: JournalStatus;
+  /** 状态变化记录，按时间先后；至少包含加入时的状态。 */
+  status_history: { status: JournalStatus; on: ISODate }[];
+  /** 学生选的路线类型；没选为 null / 缺省。 */
+  route_type?: RouteType | null;
+  tasks: JournalTask[];
+  materials: Material[];
+  /** 官方链接（抄自 Opportunity.official_url），不完成任何任务也能直接去官方申请。 */
+  official_url: string;
+  /** 学生自己的备注。 */
+  notes?: string | null;
+  outcome?: OutcomeFeedback | null;
+}
+
+// ───────────────────────────── 规划快照 PlanSnapshot（回放）─────────────────────────────
+
+/**
+ * 触发一次重新规划的原因：
+ * initial = 第一次规划；evidence_added / evidence_removed / evidence_edited = 证据新增 / 删除 / 修改（状态、关联准备项）；
+ * profile_edited = 档案其他字段被修改（年级、可用时间、预算等）；manual = 学生手动重新规划。
+ */
+export type PlanTrigger =
+  | 'initial'
+  | 'evidence_added'
+  | 'evidence_removed'
+  | 'evidence_edited'
+  | 'profile_edited'
+  | 'manual';
+
+export const PLAN_TRIGGERS: readonly PlanTrigger[] = [
+  'initial',
+  'evidence_added',
+  'evidence_removed',
+  'evidence_edited',
+  'profile_edited',
+  'manual',
+] as const;
+
+/** 生成快照时用到的条件（供回放解释「当时是按什么条件算的」）。 */
+export interface PlanSnapshotInputs {
+  /** 当时档案里的证据 id。 */
+  evidence_ids: string[];
+  hours_per_week_available: number | null;
+  budget_usd: number | null;
+  grade: GradeLevel | null;
+  /** 当时传给 planRoutes 的 options.today；没传为 null。 */
+  today: ISODate | null;
+}
+
+/**
+ * 一次规划的快照，供回放「之前 → 变化 → 之后 → 原因」：
+ * 取同一机会相邻的两个快照，用 diffRoutes(before.plan, after.plan) 得到变化与原因。
+ */
+export interface PlanSnapshot {
+  /** 全局唯一。 */
+  id: string;
+  /** 档案 id（补充字段：同一浏览器里可能切换示例档案，回放只比较同一档案的快照）。 */
+  profile_id: string;
+  opportunity_id: string;
+  taken_on: ISODate;
+  /** 当时 planRoutes 的完整结果。 */
+  plan: PlanResult;
+  inputs: PlanSnapshotInputs;
+  trigger: PlanTrigger;
+  /** 触发原因的补充说明（如新增证据的标题）；没有为 null / 缺省。 */
+  trigger_detail?: string | null;
+}
+
+// ───────────────────────────── Connect 本地示例 ─────────────────────────────
+//
+// Quest Creator / Talent Board / 邀请的本地示例（主办方端与 Connect 负责人实现功能，这里只定类型）。
+// 全部是示例 / 本地数据：没有真实发布者，也没有真实的联系发生。界面必须写明这是本地演示。
+
+/** 示例发布者的种类：研究组 / 学生社团 / 非营利组织 / 项目团队 / 个人。 */
+export type PublisherKind = 'research_group' | 'student_club' | 'nonprofit' | 'project_team' | 'individual';
+
+/** 示例发布者（虚构账户）。Opportunity.posted_by 指向它的 id。 */
+export interface SamplePublisher {
+  id: string;
+  /** 名称（明显的示例名，界面标 Sample）。 */
+  name: string;
+  kind: PublisherKind;
+  /** 一律是示例。 */
+  is_sample: true;
+  description?: string | null;
+}
+
+/**
+ * Talent Board 的按字段授权（学生自己设置，存在浏览器本地）。
+ * 默认全部不分享：数组为空、开关为 false、collaboration_note 为 null。学生可以随时撤回（改回默认）。
+ * 永不包含、也永不分享：联系方式、精确位置、学校名、身份标签（StudentStatus）、私人材料（Journal 的材料与备注）。
+ */
+export interface ShareSettings {
+  profile_id: string;
+  /** 学生选择展示的证据 id（只能是自己档案里的证据）；[] = 不展示任何证据。 */
+  evidence_ids: string[];
+  /** 学生选择展示的技能名（skill slug）；[] = 不展示。 */
+  skills: string[];
+  /** 是否展示兴趣领域。 */
+  share_interests: boolean;
+  /** 学生写给发布者的合作说明（如「周末有空，想做气候数据项目」）；null = 不写。 */
+  collaboration_note: string | null;
+  updated_on: ISODate;
+}
+
+/**
+ * 发布者能看到的内容：只含学生已授权的字段，由 ShareSettings 过滤档案得到。
+ * 不含显示名、学校名、联系方式、精确位置、身份标签。
+ */
+export interface SharedProfileView {
+  /**
+   * 档案 id（补充字段：邀请需要指向某个学生；本地 id，不是个人信息）。
+   * 实现方若认为不应暴露，可在页面上不显示，但邀请仍按它关联。
+   */
+  profile_id: string;
+  /** 化名，如 "Sample student"——不是真实姓名，也不是 display_name。 */
+  alias: string;
+  evidence: Pick<EvidenceItem, 'id' | 'title' | 'kind' | 'skills' | 'status'>[];
+  skills: StudentSkill[];
+  /** share_interests 为 false 时为 []。 */
+  interests: string[];
+  collaboration_note: string | null;
+  /** 档案是否示例（示例档案界面标 Sample）。 */
+  is_sample: boolean;
+}
+
+/**
+ * 邀请状态：pending = 待回应；declined = 学生拒绝；accepted = 学生接受（本地示例，不发生真实联系）；
+ * blocked = 学生屏蔽了该发布者，之后不再显示其邀请。
+ */
+export type InvitationStatus = 'pending' | 'declined' | 'accepted' | 'blocked';
+
+/** 示例发布者发给学生的邀请（本地示例）。 */
+export interface Invitation {
+  id: string;
+  publisher_id: string;
+  /** 被邀请的学生档案 id（补充字段：邀请必须指向某个学生）。 */
+  profile_id: string;
+  /** 邀请参加的机会 id（通常是该发布者的 user_posted 机会）；只是交流邀请时为 null。 */
+  opportunity_id: string | null;
+  /** 可解释的理由（如「你展示的证据《天气数据分析》用到了 python」），不含分数或名次。 */
+  reasons: string[];
+  status: InvitationStatus;
+  /** 一律是示例。 */
+  is_sample: true;
+  sent_on: ISODate;
+  /** 学生回应（拒绝 / 接受 / 屏蔽）的日期；未回应为 null / 缺省。 */
+  responded_on?: ISODate | null;
 }
