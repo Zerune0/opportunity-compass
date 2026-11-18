@@ -35,6 +35,11 @@ export function ProfileEditor({ profile, onSave }: {
     const current = loadProfile();
     const selectedDevices = devices.filter((item) => data.has(item));
     const selectedStatuses = statuses.filter((item) => data.has(item));
+    if ((data.has("devicesKnown") && selectedDevices.length > 0) ||
+        (data.has("statusesKnown") && selectedStatuses.length > 0)) {
+      setMessage("Choose individual options or None, then save again.");
+      return;
+    }
     const editedSkills: StudentSkill[] = skills.map((skill) => ({
       ...skill, name: skill.name.trim().toLowerCase().replace(/[\s-]+/g, "_"),
     })).filter((skill) => skill.name);

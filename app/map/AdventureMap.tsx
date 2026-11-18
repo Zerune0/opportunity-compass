@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
-import { diffRoutes, planRoutes } from "@/lib/path";
-import { loadProfile } from "@/lib/store";
-import { RecommendationReplay } from "./RecommendationReplay";
-import type { Opportunity, StudentProfile } from "@/lib/types";
+import { planRoutes } from "@/lib/path";
+import { loadProfile, loadGrants } from "@/lib/store";
+import { ReplayHistory } from "./ReplayHistory";
+import catalogJson from "@/data/opportunities.json";
+import { findAlternatives } from "@/lib/match";
+import type { Opportunity, ResourceGrant, StudentProfile } from "@/lib/types";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
-  const [context, setContext] = useState<{ profile: StudentProfile | null; today: string }>();
+  const [context, setContext] = useState<{ profile: StudentProfile | null; today: string; grants: ResourceGrant[] }>();
   const [selected, setSelected] = useState<string>();
   const [classic, setClassic] = useState(false);
 
@@ -20,7 +22,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       const date = new Date();
       const today = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
         .toISOString().slice(0, 10);
-      setContext({ profile: loadProfile(), today });
+      setContext({ profile: loadProfile(), today, grants: loadGrants() });
     }
     const initialRead = window.requestAnimationFrame(refresh);
     window.addEventListener("pageshow", refresh);
@@ -43,12 +45,9 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const profile = context?.profile;
   const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today }) : null;
   const route = plan?.routes.find((item) => item.id === selected) ?? plan?.routes[0];
-  const latest = profile?.evidence.at(-1);
-  const before = latest && plan && profile && context
-    ? planRoutes({ ...profile, evidence: profile.evidence.slice(0, -1) }, opportunity, { today: context.today })
-    : null;
-  const replay = before && plan ? diffRoutes(before, plan) : null;
-
+  const alternatives = profile && context
+    ? findAlternatives(profile, opportunity, catalogJson as Opportunity[], { today: context.today, grants: context.grants })
+    : [];
   return (
     <div className="rpg-stack rpg-stack--loose">
       <header className="rpg-head crt">
@@ -61,6 +60,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         <div className="rpg-row">
           {!opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>Go directly to the official application</a>}
           <a className="rpg-button rpg-button--secondary" href={passport}>Open Skill Passport</a>
+          <Link className="rpg-button rpg-button--secondary" href={`/journal?opp=${encodeURIComponent(opportunity.id)}`}>Add to Quest Journal</Link>
         </div>
       </header>
       {!context && <p role="status">Loading profile…</p>}
@@ -172,15 +172,16 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
           )}
         </section>
       )}
-      {replay && latest && before && plan && (
-        <RecommendationReplay
-          before={before}
-          updated={plan}
-          change={`Added evidence: ${latest.title}`}
-          reasons={replay.reasons}
-          note="This comparison uses the current profile with and without the most recently added evidence."
-        />
-      )}
+      {alternatives.length > 0 && <QuestCard>
+        <h2>Other opportunities and future rounds</h2>
+        <ul>{alternatives.map((alternative, index) => <li key={index}>
+          {alternative.kind === "same_field" && alternative.opportunity_id
+            ? <Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link>
+            : <strong>{alternative.title} · Future round</strong>}
+          <p>{alternative.reason}</p>
+        </li>)}</ul>
+      </QuestCard>}
+      {profile && context && <ReplayHistory profile={profile} opportunity={opportunity} today={context.today} />}
     </div>
   );
 }

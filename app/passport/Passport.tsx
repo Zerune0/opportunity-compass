@@ -5,6 +5,7 @@ import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import opportunities from "@/data/opportunities.json";
 import { addEvidence, loadProfile, removeEvidence, saveProfile } from "@/lib/store";
 import type { EvidenceItem, EvidenceKind, StudentProfile } from "@/lib/types";
+import { recordProfileChange } from "./recordProfileChange";
 import { ProfileEditor } from "./ProfileEditor";
 import { SampleProfiles } from "./SampleProfiles";
 
@@ -30,7 +31,10 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
   function deleteEvidence(item: EvidenceItem) {
     if (!window.confirm(`Delete evidence "${item.title}"?`)) return;
     const updated = removeEvidence(item.id);
-    if (updated) setProfile(updated);
+    if (updated) {
+      recordProfileChange(profile, updated);
+      setProfile(updated);
+    }
     setMessage(updated ? "Evidence deleted." : "Could not delete the evidence.");
   }
   useEffect(() => {
@@ -77,6 +81,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
       setMessage("Could not save evidence in this browser.");
       return;
     }
+    recordProfileChange(current, next);
     setProfile(next);
     setMessage("Evidence saved.");
     form.reset();
@@ -101,7 +106,10 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
         <p>Skills: {profile.skills?.map((skill) => skill.name + " (" + skill.level + ")").join(", ") ?? "Unknown"}</p>
         <p>Interests: {profile.interests?.join(", ") ?? "Unknown"}</p>
       </QuestCard>}
-      {profile !== undefined && <ProfileEditor key={profile?.id ?? "new-profile"} profile={profile} onSave={setProfile} />}
+      {profile !== undefined && <ProfileEditor key={profile?.id ?? "new-profile"} profile={profile} onSave={(next) => {
+        recordProfileChange(profile, next);
+        setProfile(next);
+      }} />}
       <QuestCard>
         <h2>Add evidence</h2>
         <form className="rpg-stack rpg-evidence-form" onSubmit={submit}>
