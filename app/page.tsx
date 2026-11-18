@@ -1,36 +1,40 @@
 import Link from "next/link";
 
-const pages = [
-  { href: "/quests", label: "Quests", note: "Find real opportunities and understand eligibility" },
-  { href: "/map", label: "Map", note: "Pick a growth route that works" },
-  { href: "/passport", label: "Passport", note: "Record evidence of your skills" },
-  { href: "/organizer", label: "Organizer", note: "Resource allocation and simulation (support module)" },
+const actions = [
+  { href: "/quests", label: "Discover", note: "Find real opportunities with official sources and application deadlines." },
+  { href: "/quests", label: "Understand", note: "Check official eligibility, preparation gaps and practical barriers separately." },
+  { href: "/map", label: "Grow", note: "Compare preparation routes and record supporting evidence in your Skill Passport." },
+  { href: "/journal", label: "Take Action", note: "Organize applications, track materials and compare your weekly workload." },
 ];
 
 export default function Home() {
   return (
-    <div className="home crt">
-      <div className="rpg-stack">
+    <div className="rpg-stack rpg-stack--loose">
+      <header className="rpg-head crt">
         <h1>Opportunity Compass</h1>
         <p className="home__lead">
-          For students without resources or connections: find real opportunities,
-          understand eligibility and real-world barriers, pick a route that works,
-          then apply.
+          Find opportunities, understand what you need, and take the next step with the time and resources you have.
         </p>
-      </div>
-      <ul className="rpg-menu">
-        {pages.map((p, index) => (
-          <li key={p.href}>
-            <Link
-              href={p.href}
-              className={index === 0 ? "rpg-menu__row rpg-menu__row--cursor" : "rpg-menu__row"}
-            >
-              <span className="rpg-menu__title">{p.label}</span>
-              <span className="rpg-menu__note">{p.note}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      </header>
+      <section aria-label="Your next steps">
+        <ul className="rpg-menu">
+          {actions.map((action) => (
+            <li key={action.label}>
+              <Link href={action.href} className="rpg-menu__row">
+                <span className="rpg-menu__title">{action.label}</span>
+                <span className="rpg-menu__note">{action.note}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <p><Link href="/passport">Create your Skill Passport or load a sample profile</Link> to assess opportunities for your situation.</p>
+      <p>Preparation quests help you prepare. You can always go directly to the official application.</p>
+      <aside className="rpg-stack">
+        <h2>Organizer support</h2>
+        <p>Organizers can explore how resources affect practical access in sample simulations.</p>
+        <Link href="/organizer">Open the supporting organizer module</Link>
+      </aside>
     </div>
   );
 }

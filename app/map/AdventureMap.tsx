@@ -23,6 +23,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       const today = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
         .toISOString().slice(0, 10);
       setContext({ profile: loadProfile(), today, grants: loadGrants() });
+      setClassic(new URLSearchParams(window.location.search).get("view") === "classic");
     }
     const initialRead = window.requestAnimationFrame(refresh);
     window.addEventListener("pageshow", refresh);
@@ -75,7 +76,14 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       {plan?.status === "routes" && (
         <section className="rpg-stack rpg-stack--loose" aria-label="Preparation routes">
           {plan.warnings.map((warning, index) => <p key={index} className="rpg-muted">{warning}</p>)}
-          <RpgButton variant="secondary" aria-pressed={classic} onClick={() => setClassic(!classic)}>Classic View</RpgButton>
+          <RpgButton variant="secondary" aria-pressed={classic} onClick={() => {
+            const nextClassic = !classic;
+            const url = new URL(window.location.href);
+            if (nextClassic) url.searchParams.set("view", "classic");
+            else url.searchParams.delete("view");
+            window.history.replaceState(null, "", url);
+            setClassic(nextClassic);
+          }}>Classic View</RpgButton>
           {classic ? (
             <table className="rpg-classic-table">
               <caption>Route comparison</caption>
