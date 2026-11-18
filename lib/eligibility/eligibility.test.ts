@@ -98,7 +98,7 @@ describe('checkEligibility — age', () => {
     expect(one(NO_REF, { ...BASE, age: 12 }, {}, today).status).toBe('not_satisfied'); // 12 或 13
     const edge = one(NO_REF, { ...BASE, age: 18 }, {}, today); // 18 或 19
     expectUnknownWithHint(edge, NO_REF);
-    expect(edge.explanation).toContain('生日');
+    expect(edge.explanation).toContain('birthday');
     const edgeMin = one(NO_REF, { ...BASE, age: 13 }, {}, today); // 13 或 14
     expect(edgeMin.status).toBe('unknown');
   });
@@ -109,7 +109,7 @@ describe('checkEligibility — age', () => {
     const minReq: Requirement = { id: 'req-age', type: 'age', min: 14, as_of: '2026-09-01', label: '至少 14 岁', hard: true, source_text: 'Must be 14 by September 1, 2026.' };
     const a = one(minReq, { ...BASE, age: 14 }, {}, today);
     expectUnknownWithHint(a, minReq);
-    expect(a.explanation).toContain('13 岁或14 岁');
+    expect(a.explanation).toContain('13 or 14 years old');
     // 那天可能是 18 或 19
     const maxReq: Requirement = { id: 'req-age', type: 'age', max: 18, as_of: '2026-09-01', label: '不超过 18 岁', hard: true, source_text: 'Must be 18 or younger on September 1, 2026.' };
     expectUnknownWithHint(one(maxReq, { ...BASE, age: 19 }, {}, today), maxReq);
@@ -191,7 +191,7 @@ describe('checkEligibility — status', () => {
     expect(one(ST, { ...BASE, statuses: ['low_income', 'high_school_student'] }).status).toBe('satisfied');
     const no = one(ST, { ...BASE, statuses: ['undergraduate'] });
     expect(no.status).toBe('not_satisfied');
-    expect(no.explanation).toContain('请在档案里补上');
+    expect(no.explanation).toContain('add it to your profile');
     expectUnknownWithHint(one(ST, BASE), ST);
   });
 });
@@ -205,7 +205,7 @@ describe('checkEligibility — prerequisite_skill', () => {
     expect(one(PY_INT, { ...BASE, skills: [{ name: 'python', level: 'beginner' }] }).status).toBe('not_satisfied');
     const none = one(PY, { ...BASE, skills: [] });
     expect(none.status).toBe('not_satisfied');
-    expect(none.explanation).toContain('如果你其实会');
+    expect(none.explanation).toContain('If you do have this skill');
     expectUnknownWithHint(one(PY, BASE), PY);
   });
 
@@ -233,7 +233,7 @@ describe('checkEligibility — portfolio', () => {
     const ok = one(PF, p);
     expect(ok.status).toBe('satisfied');
     expect(ok.explanation).toContain('天气数据小项目');
-    expect(ok.explanation).toContain('已附链接');
+    expect(ok.explanation).toContain('link / file attached');
     expect(one(PF, { ...BASE, evidence: [p.evidence[0]] }).status).toBe('not_satisfied');
     expect(one(PF, BASE).status).toBe('not_satisfied');
   });

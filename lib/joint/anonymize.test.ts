@@ -30,13 +30,13 @@ const RICH: Scenario = {
           evidence: [
             {
               id: `ev-${s.id}-1`,
-              title: `${s.display_name} 的作品集`,
+              title: `${s.display_name}'s portfolio`,
               kind: 'project',
               skills: ['python'],
               prep_item_ids: ['p1'],
               status: 'evidence_attached',
               url: 'https://example.com/private-portfolio',
-              description: `${s.school_name} 课堂作业`,
+              description: `${s.school_name} class assignment`,
               added_on: '2026-10-01',
             },
           ],
@@ -52,8 +52,8 @@ const RICH: Scenario = {
       type: 'device',
       device: 'laptop',
       status: 'approved',
-      provider: '示例主办方',
-      note: `${S.students[1].display_name} 已借出`,
+      provider: 'Sample organizer',
+      note: `${S.students[1].display_name} has borrowed one`,
       is_sample: true,
     },
   ],
@@ -61,9 +61,9 @@ const RICH: Scenario = {
 
 function assertNoOriginalInfo(json: string, src: Scenario) {
   for (const s of src.students) {
-    expect(json.includes(s.id), `含学生 id ${s.id}`).toBe(false);
-    expect(json.includes(s.display_name), `含姓名 ${s.display_name}`).toBe(false);
-    if (s.school_name) expect(json.includes(s.school_name), `含学校 ${s.school_name}`).toBe(false);
+    expect(json.includes(s.id), `contains student id ${s.id}`).toBe(false);
+    expect(json.includes(s.display_name), `contains name ${s.display_name}`).toBe(false);
+    if (s.school_name) expect(json.includes(s.school_name), `contains school ${s.school_name}`).toBe(false);
   }
 }
 
@@ -85,7 +85,7 @@ describe('anonymizeScenarioForClient', () => {
       const json = JSON.stringify(a);
       assertNoOriginalInfo(json, src);
       expect(a.students.map((s) => s.id)).toEqual(['s01', 's02', 's03', 's04', 's05', 's06', 's07', 's08', 's09', 's10']);
-      expect(a.students[0].display_name).toBe('示例学生 1');
+      expect(a.students[0].display_name).toBe('Sample student 1');
       expect(a.students.every((s) => !('school_name' in s))).toBe(true);
       expect(a.students.every((s) => s.transport?.note == null)).toBe(true);
     }
@@ -96,7 +96,7 @@ describe('anonymizeScenarioForClient', () => {
     const ev = a.students[0].evidence[0];
     expect(ev).toEqual({
       id: 's01-ev1',
-      title: '示例证据',
+      title: 'Sample evidence',
       kind: 'project',
       skills: ['python'],
       prep_item_ids: ['p1'],
@@ -127,11 +127,11 @@ describe('anonymizeScenarioForClient', () => {
   });
 
   const variants: [string, Scenario, SolveOptions][] = [
-    ['默认场景', S, {}],
-    ['只开设备借用、预算 150', withBudget(withEnabledInterventions(S, [IDS.laptopLoan]), 150), {}],
-    ['全部措施、必须启用线上入口', S, { required_intervention_ids: [IDS.onlineEntry] }],
-    ['最低新增 6（做不到）', S, { min_gain: 6 }],
-    ['带证据和已有 grant 的变体', RICH, {}],
+    ['default scenario', S, {}],
+    ['device loan only, budget 150', withBudget(withEnabledInterventions(S, [IDS.laptopLoan]), 150), {}],
+    ['all measures, online entry required', S, { required_intervention_ids: [IDS.onlineEntry] }],
+    ['min gain 6 (not achievable)', S, { min_gain: 6 }],
+    ['variant with evidence and existing grants', RICH, {}],
   ];
   for (const [name, src, opts] of variants) {
     it(`求解结果一致：${name}`, () => {
@@ -178,11 +178,11 @@ describe('anonymizeScenarioForClient：权衡场景（第 3 层）', () => {
   });
   const variants: [string, SolveOptions][] = [
     ['protect', {}],
-    ['protect + 底线', { fairness_floors: floors }],
+    ['protect + floor', { fairness_floors: floors }],
     ['tradeoff 2', { mode: 'tradeoff', loss_cap: 2 }],
     ['tradeoff 3', { mode: 'tradeoff', loss_cap: 3 }],
-    ['tradeoff 3 + 底线', { mode: 'tradeoff', loss_cap: 3, fairness_floors: floors }],
-    ['tradeoff 3 + 底线 100%', { mode: 'tradeoff', loss_cap: 3, fairness_floors: floors.map((f) => ({ ...f, min_ratio: 1 })) }],
+    ['tradeoff 3 + floor', { mode: 'tradeoff', loss_cap: 3, fairness_floors: floors }],
+    ['tradeoff 3 + floor 100%', { mode: 'tradeoff', loss_cap: 3, fairness_floors: floors.map((f) => ({ ...f, min_ratio: 1 })) }],
   ];
   for (const [name, opts] of variants) {
     it(`求解结果（含 L、收回数、公平报告）与基线数字一致：${name}`, () => {

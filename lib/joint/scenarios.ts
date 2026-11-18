@@ -32,23 +32,23 @@ import { findStudentInfoInInterventions } from './scenario-utils';
 export function assertScenarioShape(value: unknown, label = 'scenario'): Scenario {
   const v = value as Partial<Scenario> | null;
   const problems: string[] = [];
-  if (v == null || typeof v !== 'object') problems.push('不是对象');
+  if (v == null || typeof v !== 'object') problems.push('not an object');
   else {
-    if (typeof v.id !== 'string') problems.push('id 不是字符串');
-    if (typeof v.title !== 'string') problems.push('title 不是字符串');
-    if (v.is_sample !== true) problems.push('is_sample 必须为 true');
-    if (typeof v.evaluation_date !== 'string') problems.push('evaluation_date 不是字符串');
-    if (typeof v.budget_usd !== 'number') problems.push('budget_usd 不是数字');
+    if (typeof v.id !== 'string') problems.push('id is not a string');
+    if (typeof v.title !== 'string') problems.push('title is not a string');
+    if (v.is_sample !== true) problems.push('is_sample must be true');
+    if (typeof v.evaluation_date !== 'string') problems.push('evaluation_date is not a string');
+    if (typeof v.budget_usd !== 'number') problems.push('budget_usd is not a number');
     for (const key of ['students', 'opportunities', 'interventions'] as const) {
-      if (!Array.isArray(v[key])) problems.push(`${key} 不是数组`);
+      if (!Array.isArray(v[key])) problems.push(`${key} is not an array`);
     }
-    if (v.existing_grants !== undefined && !Array.isArray(v.existing_grants)) problems.push('existing_grants 不是数组');
+    if (v.existing_grants !== undefined && !Array.isArray(v.existing_grants)) problems.push('existing_grants is not an array');
     // 措施 id / 标题里不得写进学生的 id、显示名、学校名（否则页面脱敏挡不住，示例数据写错时尽早暴露）。
     if (Array.isArray(v.students) && Array.isArray(v.interventions)) {
       problems.push(...findStudentInfoInInterventions(v as Scenario));
     }
   }
-  if (problems.length > 0) throw new Error(`${label} 形状不对：${problems.join('；')}`);
+  if (problems.length > 0) throw new Error(`${label} has the wrong shape: ${problems.join('; ')}`);
   return value as Scenario;
 }
 
@@ -94,8 +94,8 @@ export interface ScenarioEntry {
 /** 低收入学生覆盖 ≥ 50% 的示例底线（两个场景共用同一写法，依据为虚构的示例章程）。 */
 const lowIncomeFloor = (): FairnessFloor => ({
   id: 'floor-low-income',
-  label: '低收入学生',
-  basis: '示例：主办方的资助章程优先支持低收入学生（虚构依据，仅用于演示；群体按学生自己声明的身份划分）',
+  label: 'Low-income students',
+  basis: 'Sample: the organizer\'s funding charter prioritizes low-income students (fictional basis, for demo only; groups follow each student\'s self-reported status).',
   statuses_any_of: ['low_income'],
   min_ratio: 0.5,
 });
@@ -104,14 +104,14 @@ export const SCENARIOS: readonly ScenarioEntry[] = [
   {
     id: deviceLoanScenario.id,
     title: deviceLoanScenario.title,
-    description: '示例：10 名缺笔记本的学生共用 5 台借用设备，看名额、预算、互斥与待审批措施如何影响覆盖。',
+    description: 'Sample: 10 students without laptops share 5 loaner devices. See how capacity, budget, mutual exclusions and pending-approval measures affect coverage.',
     scenario: deviceLoanScenario,
     suggestedFairnessFloors: [lowIncomeFloor()],
   },
   {
     id: venueTradeoffScenario.id,
     title: venueTradeoffScenario.title,
-    description: '示例：启用周末卫星会场必须停掉已在运行的工作日接驳车，看权衡分析模式下的增益、损失与撤回。',
+    description: 'Sample: opening a weekend satellite venue means stopping the weekday shuttle that is already running. See gains, losses and revocations in trade-off mode.',
     scenario: venueTradeoffScenario,
     suggestedFairnessFloors: [lowIncomeFloor()],
   },

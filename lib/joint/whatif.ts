@@ -32,6 +32,7 @@
  * 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
  */
 import { analyzeReachability } from '../reachability';
+import { plural, pluralNoun } from '../format';
 import { compareBaselines } from './baselines';
 import { fairnessCoverageBounds, solveJoint } from './solve';
 import type { FloorCoverageBound } from './solve';
@@ -426,77 +427,77 @@ export interface WhatIfView {
 // ───────────────────────────── 常量 ─────────────────────────────
 
 export const WHATIF_LABELS: WhatIfLabels = {
-  simulation: '模拟结果，不代表真实影响',
-  sample: '示例学生 / 示例场景',
-  placeholder_opportunity: '占位机会，待替换为已核实的真实机会',
-  reachable_not_admission: '可达 ≠ 录取：可达只表示资格不冲突、现实条件走得通',
+  simulation: 'Simulated results. They do not represent real-world impact.',
+  sample: 'Sample students / sample scenario',
+  placeholder_opportunity: 'Placeholder opportunity, to be replaced with a verified real one',
+  reachable_not_admission: 'Reachable does not mean admitted: reachable only means no eligibility conflict and workable real-world conditions',
 };
 
 export const STATUS_LABELS: Record<JointStatus, string> = {
-  OPTIMAL: '已找到最优方案',
-  INFEASIBLE: '做不到',
-  SEARCH_LIMIT_REACHED: '达到搜索上限',
-  UNSUPPORTED_INPUT: '输入不支持',
+  OPTIMAL: 'Optimal plan found',
+  INFEASIBLE: 'Not achievable',
+  SEARCH_LIMIT_REACHED: 'Search limit reached',
+  UNSUPPORTED_INPUT: 'Unsupported input',
 };
 
 const STATUS_EXPLANATIONS: Record<JointStatus, string> = {
   OPTIMAL:
-    '已完成全部搜索：在当前勾选、预算与要求下，没有比这更好的方案（先比净变化，再比失去的数量，再比成本）。',
+    'Full search completed: under the current selection, budget and requirements, no plan is better than this one (compared by net change, then number lost, then cost).',
   INFEASIBLE:
-    '做不到：在不突破容量、预算、互斥、前置依赖、损失上限等硬约束的前提下，无法同时满足你提的要求（必须启用的措施 / 最低新增目标 / 公平底线）。当前结果是「不启用任何措施」；放松要求后的替代方案见下方，求解器没有悄悄降低要求。',
+    'Not achievable: without breaking hard constraints (capacity, budget, mutual exclusion, prerequisites, loss cap), your requirements (required support measures / minimum new coverage / fairness floors) cannot all be met. The current result enables no support measures. A relaxed alternative is shown below; the solver did not silently lower your requirements.',
   SEARCH_LIMIT_REACHED:
-    '达到搜索上限后停止：显示的是上限内找到的、经独立复核通过的最好方案，不保证最优，也不代表没有更好的方案。',
+    'Stopped at the search limit: this is the best plan found within the limit that passed independent verification. It is not guaranteed optimal, and a better plan may exist.',
   UNSUPPORTED_INPUT:
-    '输入不合法或超出求解器支持范围（或求解器的内部复核未通过，按不支持的输入处理），没有给出方案。原因见求解器说明。',
+    'Invalid input or outside what the solver supports (or the solver\'s internal verification failed and it was treated as unsupported input), so no plan is given. See the solver notes for the reason.',
 };
 
 export const CHECK_LABELS: Record<string, string> = {
-  input_validity: '输入合法',
-  approval: '措施均已批准',
-  mutual_exclusion: '没有同时启用互斥措施',
-  prerequisite: '前置依赖已启用',
-  allocation_validity: '分配合法',
-  capacity: '未超出名额',
-  cost_accounting: '成本记账正确',
-  budget: '未超出预算',
-  eligibility: '资格交叉检查（措施不改变官方资格）',
-  deadline: '截止日期交叉检查',
-  barrier_resolution: '障碍确实被化解',
-  coverage_loss: '失去的可达对数在允许范围内',
-  revocation: '收回已有资源的规则',
-  organizer_requirements: '主办方要求',
-  fairness: '公平底线',
-  metrics: '指标重算一致',
+  input_validity: 'Input is valid',
+  approval: 'All support measures approved',
+  mutual_exclusion: 'No mutually exclusive measures enabled together',
+  prerequisite: 'Prerequisites enabled',
+  allocation_validity: 'Allocations are valid',
+  capacity: 'Within capacity',
+  cost_accounting: 'Cost accounting is correct',
+  budget: 'Within budget',
+  eligibility: 'Eligibility cross-check (support measures do not change official eligibility)',
+  deadline: 'Deadline cross-check',
+  barrier_resolution: 'Barriers actually removed',
+  coverage_loss: 'Lost reachable pairs within the allowed limit',
+  revocation: 'Rules for revoking existing resources',
+  organizer_requirements: 'Organizer requirements',
+  fairness: 'Fairness floors',
+  metrics: 'Metrics match recomputation',
 };
 
 const BARRIER_ZH: Record<BarrierType, string> = {
-  device: '设备',
-  transport: '交通条件',
-  cost: '费用',
-  time: '时间',
+  device: 'a device',
+  transport: 'transport',
+  cost: 'funding for costs',
+  time: 'time',
 };
 
 const RELAXED_ZH: Record<SoftRequirementKey, string> = {
-  required_intervention_ids: '不再要求「必须启用」的措施',
-  min_gain: '不再要求最低新增目标',
-  fairness_floors: '不再要求公平底线',
+  required_intervention_ids: 'Required support measures no longer required',
+  min_gain: 'Minimum new coverage target no longer required',
+  fairness_floors: 'Fairness floors no longer required',
 };
 
 export const MODE_LABELS: Record<'protect' | 'tradeoff', string> = {
-  protect: '保护模式',
-  tradeoff: '权衡模式',
+  protect: 'Protected mode',
+  tradeoff: 'Trade-off mode',
 };
 
 export const MODE_EXPLANATIONS: Record<'protect' | 'tradeoff', string> = {
-  protect: '保护模式：不动任何已有承诺——不收回任何已经发出的资源，原本可达的（学生, 机会）对不会减少。',
+  protect: 'Protected mode: existing commitments are never touched. No resource already given out is revoked, so previously reachable (student, opportunity) pairs never drop.',
   tradeoff:
-    '权衡模式：主办方设了损失上限才允许收回已有资源（包括与新措施互斥、必须停掉的资源）；失去的可达对数不超过上限，并写明失去多少、因为什么。',
+    'Trade-off mode: existing resources (including ones that must stop because they conflict with a new measure) may be revoked only when the organizer sets a loss cap. Lost reachable pairs stay within the cap, and the plan states how many were lost and why.',
 };
 
-export const PROTECT_LOSS_NOTE = '保护模式不会收回任何已有资源，原本可达的（学生, 机会）对不会减少。';
+export const PROTECT_LOSS_NOTE = 'Protected mode never revokes existing resources, so previously reachable (student, opportunity) pairs never drop.';
 
 /** INFEASIBLE 时「仍未覆盖」的障碍原因。 */
-export const INFEASIBLE_UNCOVERED_CAUSE = '当前要求无法满足，主结果为不启用任何措施；可参考上方的替代方案';
+export const INFEASIBLE_UNCOVERED_CAUSE = 'The current requirements cannot be met, so the main result enables no support measures; see the alternative above';
 
 const EPS = 1e-6;
 const cmpStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -519,12 +520,12 @@ export function scrubStudentInfo(text: string, scenario: Scenario): string {
   type Tok = { token: string; sid: string; repl: string; isId: boolean };
   const toks: Tok[] = [];
   for (const s of scenario.students) {
-    if (typeof s.id === 'string' && s.id) toks.push({ token: s.id, sid: s.id, repl: '某学生', isId: true });
+    if (typeof s.id === 'string' && s.id) toks.push({ token: s.id, sid: s.id, repl: 'a student', isId: true });
     if (typeof s.display_name === 'string' && s.display_name.length >= MIN_NAME_TOKEN_LENGTH) {
-      toks.push({ token: s.display_name, sid: s.id, repl: '某学生', isId: false });
+      toks.push({ token: s.display_name, sid: s.id, repl: 'a student', isId: false });
     }
     if (typeof s.school_name === 'string' && s.school_name.length >= MIN_NAME_TOKEN_LENGTH) {
-      toks.push({ token: s.school_name, sid: s.id, repl: '某学校', isId: false });
+      toks.push({ token: s.school_name, sid: s.id, repl: 'a school', isId: false });
     }
   }
   toks.sort((a, b) => b.token.length - a.token.length || cmpStr(a.token, b.token));
@@ -543,7 +544,7 @@ export function scrubStudentInfo(text: string, scenario: Scenario): string {
       out = out.split(t.token).join(t.repl);
     }
   }
-  if (hit.size > 0) out += `（涉及 ${hit.size} 名学生，已隐去身份）`;
+  if (hit.size > 0) out += ` (involves ${plural(hit.size, 'student')}; identities hidden)`;
   return out;
 }
 
@@ -551,7 +552,7 @@ export function scrubStudentInfo(text: string, scenario: Scenario): string {
 function humanizeInterventionIds(text: string, scenario: Scenario): string {
   let out = text;
   const ivs = [...scenario.interventions].sort((a, b) => b.id.length - a.id.length || cmpStr(a.id, b.id));
-  for (const iv of ivs) out = out.split(`「${iv.id}」`).join(`「${iv.title}」`);
+  for (const iv of ivs) out = out.split(`"${iv.id}"`).join(`"${iv.title}"`);
   return out;
 }
 
@@ -560,7 +561,7 @@ function cleanText(text: string, scenario: Scenario): string {
   return scrubStudentInfo(humanizeInterventionIds(text, scenario), scenario);
 }
 
-const INVALID_NUMBER_TEXT = '未填写或无效';
+const INVALID_NUMBER_TEXT = 'missing or invalid';
 
 /** 防线：把视图里所有文字中的 NaN / Infinity 换成「未填写或无效」，非有限数字换成 null。 */
 function scrubNonFinite<T>(value: T): T {
@@ -590,12 +591,12 @@ function resolvePrerequisites(
   const running: WhatIfRunning[] = runningIds.map((id) => {
     const n = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === id).length;
     const f = frozenById.get(id);
-    const base = `「${title(id)}」已有 ${n} 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配。`;
+    const base = `"${title(id)}" already has ${plural(n, 'resource')} in use and cannot be removed from the plan; unchecking it only stops new allocations. `;
     const extra = !f
-      ? '本次接受新分配。'
+      ? 'It accepts new allocations this time.'
       : f.reason === 'unchecked'
-        ? '本次未勾选：已有资源照常生效、占用名额，与它互斥的措施仍受限制，但不会再新增分配。'
-        : `本次缺少前置依赖${f.missing_requires.map((r) => `「${title(r)}」`).join('、')}：已有资源照常生效、占用名额，但不会再新增分配。`;
+        ? 'Unchecked this time: existing resources stay in effect and keep their capacity, measures that conflict with it are still restricted, but no new allocations are made.'
+        : `Missing prerequisite ${f.missing_requires.map((r) => `"${title(r)}"`).join(', ')} this time: existing resources stay in effect and keep their capacity, but no new allocations are made.`;
     return { id, title: title(id), existing_grants: n, accepts_new: !f, note: base + extra };
   });
   const excluded: WhatIfExcluded[] = removed.map((r) => {
@@ -604,7 +605,7 @@ function resolvePrerequisites(
       id: r.id,
       title: title(r.id),
       missing_requires: names,
-      reason: `「${title(r.id)}」需要同时纳入${names.map((n) => `「${n}」`).join('、')}，后者未纳入，所以本措施没有参与求解。`,
+      reason: `"${title(r.id)}" requires ${names.map((n) => `"${n}"`).join(', ')}, which is not included, so this support measure was left out of the solve.`,
     };
   });
   return { enabled, excluded, running, frozen: frozen.map((f) => f.id) };
@@ -662,8 +663,8 @@ function revocationCounts(scenario: Scenario, revs: readonly GrantRevocation[] |
 function lossText(L: number, counts: WhatIfRevocationCounts): string | null {
   if (L <= 0) return null;
   return (
-    `失去 ${L} 个原本可达的（学生, 机会）对：收回了 ${counts.total} 条已有资源（其中因互斥必须收回 ${counts.forced} 条、自愿收回 ${counts.voluntary} 条）` +
-    (counts.pending > 0 ? `；其中 ${counts.pending} 条是待审批承诺，不计入损失。` : '。')
+    `Lost ${L} previously reachable (student, opportunity) ${pluralNoun(L, 'pair')}: revoked ${plural(counts.total, 'existing resource')} (${counts.forced} forced by mutual exclusion, ${counts.voluntary} voluntary)` +
+    (counts.pending > 0 ? `; ${counts.pending} of them ${pluralNoun(counts.pending, 'is a pending-approval commitment and does', 'are pending-approval commitments and do')} not count as losses.` : '.')
   );
 }
 
@@ -685,8 +686,8 @@ function fairnessRows(
     const min = pct(r.min_ratio);
     const text =
       r.ratio === null
-        ? `${label}：场景里没有符合资格的该群体学生（分母为 0），这条底线不适用（视为满足）。`
-        : `${label}：符合资格的 ${r.eligible_members} 人中有 ${r.covered_members} 人方案后至少有一个可达的机会（${ratio}%），要求至少 ${min}%，${r.satisfied ? '满足' : '不满足'}。`;
+        ? `${label}: no eligible students from this group in the scenario (denominator is 0), so this floor does not apply (treated as met).`
+        : `${label}: ${r.covered_members} of ${plural(r.eligible_members, 'eligible student')} ${pluralNoun(r.covered_members, 'has', 'have')} at least one reachable opportunity after the plan (${ratio}%), required at least ${min}%, ${r.satisfied ? 'met' : 'not met'}.`;
     return {
       floor_id: r.floor_id,
       label,
@@ -701,10 +702,10 @@ function fairnessRows(
       bound_text:
         maxCov === null
           ? null
-          : `当前启用的措施下最多可覆盖 ${maxCov} / ${r.eligible_members}` +
+          : `With the enabled support measures, at most ${maxCov} / ${r.eligible_members} can be covered` +
             (maxCov < r.eligible_members
-              ? `：其余 ${r.eligible_members - maxCov} 人在当前启用的措施与模式下，不论名额和预算多少，都没有措施组合能让他们至少有一个可达的机会（例如缺少的条件没有措施能化解），但仍计入分母。`
-              : '（这是不考虑名额与预算的上界，不一定能同时达到）。'),
+              ? `. For the other ${r.eligible_members - maxCov}, no combination of the enabled measures in this mode gives them a reachable opportunity, whatever the capacity and budget (for example, no measure removes what they lack), but they still count in the denominator.`
+              : ' (an upper bound ignoring capacity and budget; it may not be reachable all at once).'),
       text,
     };
   });
@@ -761,18 +762,18 @@ function capacityUsage(
       const isSelected = selected.has(iv.id);
       const deactivated = isRunning && allExisting.length > 0 && revokedN === allExisting.length && allocs.length === 0;
       const status_note = deactivated
-        ? '（本方案中已停用，已有资源全部收回）'
+        ? '(stopped in this plan; all existing resources revoked)'
         : isRunning && revokedN > 0
-          ? `（运行中，本方案收回 ${revokedN} / ${allExisting.length} 份已有资源${isFrozen ? '，不再新增分配' : allocs.length > 0 ? '' : '，没有新增分配'}；以下为剩余占用）`
+          ? `(running; this plan revokes ${revokedN} / ${allExisting.length} existing resources${isFrozen ? ', no new allocations' : allocs.length > 0 ? '' : ', no new allocations made'}; remaining usage below)`
           : isFrozen
-            ? '（运行中，不再新增分配）'
+            ? '(running, no new allocations)'
             : isRunning
               ? isSelected
-                ? '（运行中）'
-                : '（运行中，本方案没有新增分配）'
+                ? '(running)'
+                : '(running, no new allocations in this plan)'
               : isSelected
                 ? ''
-                : '（未启用）';
+                : '(not enabled)';
       const flags = {
         running: isRunning,
         frozen: isFrozen,
@@ -794,7 +795,7 @@ function capacityUsage(
             for (const g of existing) if (g.opportunity_id === null || slotOf(g.opportunity_id) === t) set.add(String(g.student_id));
             for (const a of allocs) if (slotOf(a.opportunity_id) === t) set.add(a.student_id);
             return {
-              scope_label: t === DEFAULT_SLOT ? '默认时段' : `时段 ${t}`,
+              scope_label: t === DEFAULT_SLOT ? 'Default time slot' : `Time slot ${t}`,
               used: set.size,
               capacity: cap,
               full: set.size >= cap - EPS,
@@ -804,7 +805,7 @@ function capacityUsage(
         const set = new Set<string>();
         for (const g of existing) set.add(String(g.student_id));
         for (const a of allocs) set.add(a.student_id);
-        slots = [{ scope_label: '全场景', used: set.size, capacity: cap, full: set.size >= cap - EPS }];
+        slots = [{ scope_label: 'Whole scenario', used: set.size, capacity: cap, full: set.size >= cap - EPS }];
       }
       return { id: iv.id, title: iv.title, selected: selected.has(iv.id), ...flags, slots, unlimited: false };
     });
@@ -872,21 +873,21 @@ function uncoveredSummary(
     const enabled = scenario.interventions.filter((iv) => iv.resolves.includes(t) && !frozen.has(iv.id));
     const enabledApproved = enabled.filter(isApproved);
     if (enabledApproved.length === 0) {
-      if (enabled.length > 0) return '能化解它的措施待审批，未计入当前结果';
-      if (fullScenario.interventions.some((iv) => iv.resolves.includes(t))) return '能化解它的措施没有纳入方案';
-      return '场景中没有能化解它的措施';
+      if (enabled.length > 0) return 'the measure that removes it is pending approval and not counted in the current result';
+      if (fullScenario.interventions.some((iv) => iv.resolves.includes(t))) return 'the measure that removes it is not included in the plan';
+      return 'no support measure in the scenario removes it';
     }
     const full = enabledApproved.some(
       (iv) => selected.has(iv.id) && capacity.find((c) => c.id === iv.id)?.slots.some((sl) => sl.full),
     );
-    if (full) return '名额已满';
+    if (full) return 'capacity is full';
     const minExtra = Math.min(
       ...enabledApproved.map((iv) => iv.unit_cost_usd + (selected.has(iv.id) ? 0 : iv.fixed_cost_usd ?? 0)),
     );
-    if (minExtra > remainingBudget + EPS) return '预算不足';
+    if (minExtra > remainingBudget + EPS) return 'not enough budget';
     const allBlockedElsewhere = [...who].every((sid) => (kindsOf.get(sid)?.size ?? 0) > 1);
-    if (allBlockedElsewhere) return '这些学生同时还缺其他条件，只化解这一项不会让他们变为可达，所以方案没有为此分配';
-    return '受互斥、前置依赖等其他约束限制，方案没有覆盖';
+    if (allBlockedElsewhere) return 'these students also lack other conditions, so removing only this barrier would not make them reachable; the plan does not allocate for it';
+    return 'other constraints such as mutual exclusion or prerequisites keep the plan from covering them';
   };
 
   const order: WhatIfUncoveredReason['kind'][] = ['revoked', 'eligibility', 'device', 'transport', 'cost', 'time', 'unknown'];
@@ -896,20 +897,21 @@ function uncoveredSummary(
     if (!set || set.size === 0) continue;
     const n = set.size;
     const pc = pairsByKind.get(k) ?? 0;
-    const who = `${pc} 个（学生, 机会）对`;
-    const tail = `（涉及 ${n} 名学生）`;
+    const one = pc === 1;
+    const who = `${pc} (student, opportunity) ${pluralNoun(pc, 'pair')}`;
+    const tail = ` (${plural(n, 'student')})`;
     if (k === 'revoked') {
-      const cause = '原本可达，因收回已有资源而在此方案下不再可达（见「失去」说明）';
-      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}${tail}${cause}` });
+      const cause = `${one ? 'was' : 'were'} reachable before, but not under this plan because existing resources were revoked (see "Lost")`;
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}${tail} ${cause}` });
     } else if (k === 'eligibility') {
-      const cause = '措施不能改变官方资格';
-      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}不符合官方资格${tail}：${cause}` });
+      const cause = 'support measures cannot change official eligibility';
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who} ${one ? 'does' : 'do'} not meet official eligibility${tail}: ${cause}` });
     } else if (k === 'unknown') {
-      const cause = '信息不足，需向官方或学生确认';
-      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}无法判定是否可达${tail}：${cause}` });
+      const cause = 'not enough information; confirm with the organizer or the student';
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who} cannot be judged reachable or not${tail}: ${cause}` });
     } else {
       const cause = causeFor(k, set);
-      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}仍缺${BARRIER_ZH[k]}${tail}：${cause}` });
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who} still ${one ? 'lacks' : 'lack'} ${BARRIER_ZH[k]}${tail}: ${cause}` });
     }
   }
   // 按学生去重：方案后至少有一个可达机会的学生（只用于汇总人数，不进视图）。
@@ -918,8 +920,8 @@ function uncoveredSummary(
   const none = scenario.students.filter((s) => !reachableStudents.has(s.id)).length;
   const summary =
     pairs === 0
-      ? '方案后所有（学生, 机会）对都可达。'
-      : `${pairs} 个（学生, 机会）对在方案后仍不可达，涉及 ${students.size} 名示例学生；其中 ${some} 名学生在方案后仍至少有一个可达的机会，${none} 名学生在方案后没有任何可达的机会。`;
+      ? 'All (student, opportunity) pairs are reachable after the plan.'
+      : `${pairs} (student, opportunity) ${pluralNoun(pairs, 'pair is', 'pairs are')} still not reachable after the plan, involving ${plural(students.size, 'sample student')}; ${some} of them still ${pluralNoun(some, 'has', 'have')} at least one reachable opportunity after the plan, and ${plural(none, 'student')} ${pluralNoun(none, 'has', 'have')} no reachable opportunity after the plan.`;
   return {
     pairs,
     students: students.size,
@@ -938,11 +940,11 @@ function checkLossCap(mode: 'protect' | 'tradeoff', raw: unknown): { value: numb
   if (raw === null || raw === undefined) {
     return {
       value: null,
-      error: '权衡模式需要填写损失上限（0 或以上的整数）：最多允许多少个原本可达的（学生, 机会）对在新方案下不再可达。未填写时不计算。',
+      error: 'Trade-off mode needs a loss cap (a whole number, 0 or more): the most previously reachable (student, opportunity) pairs allowed to become unreachable under the new plan. Nothing is computed until it is filled in.',
     };
   }
   if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || !Number.isInteger(raw)) {
-    return { value: null, error: '损失上限需要是 0 或以上的整数。' };
+    return { value: null, error: 'The loss cap must be a whole number, 0 or more.' };
   }
   return { value: raw, error: null };
 }
@@ -956,7 +958,7 @@ function selectFloors(
   const want = new Set(ids ?? []);
   const errors: string[] = [];
   const knownIds = new Set(available.map((f) => f.id));
-  for (const id of want) if (!knownIds.has(id)) errors.push(`没有找到所选的公平底线（${id}），请重新选择。`);
+  for (const id of want) if (!knownIds.has(id)) errors.push(`The selected fairness floor (${id}) was not found. Please choose again.`);
   const floors: FairnessFloor[] = [];
   for (const f of available) {
     if (!want.has(f.id)) continue;
@@ -964,7 +966,7 @@ function selectFloors(
     if (overrides && Object.prototype.hasOwnProperty.call(overrides, f.id)) {
       const x = overrides[f.id];
       if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1) {
-        errors.push(`「${f.label}」的最低比例需要是 0% 到 100% 之间的数字。`);
+        errors.push(`The minimum ratio for "${f.label}" must be a number from 0% to 100%.`);
         continue;
       }
       min = x;
@@ -1007,12 +1009,12 @@ function lossAndRevocations(
     const revTitle = ivTitle(g.iv);
     const head =
       g.by !== null
-        ? `因启用「${ivTitle(g.by)}」（与「${revTitle}」互斥，不能同时运行）必须收回「${revTitle}」的 ${g.revs.length} 条已有资源`
-        : `自愿收回「${revTitle}」的 ${g.revs.length} 条已有资源（为腾出名额）`;
+        ? `Enabling "${ivTitle(g.by)}" (mutually exclusive with "${revTitle}"; they cannot run together) requires revoking ${plural(g.revs.length, 'existing resource')} of "${revTitle}"`
+        : `Voluntarily revoked ${plural(g.revs.length, 'existing resource')} of "${revTitle}" (to free capacity)`;
     const tail =
       hit.length > 0
-        ? `：失去 ${hit.length} 个（学生, 机会）对，涉及 ${students} 名学生，其中 ${stillReachable} 名在方案后仍有其他可达的机会。`
-        : '：没有因此失去可达的对（例如收回的是待审批的资源，或已由其他措施补上）。';
+        ? `: lost ${hit.length} (student, opportunity) ${pluralNoun(hit.length, 'pair')}, involving ${plural(students, 'student')}; ${stillReachable} of them still ${pluralNoun(stillReachable, 'has', 'have')} another reachable opportunity after the plan.`
+        : ': no reachable pairs lost because of this (for example, the revoked resources were pending approval, or another measure filled the gap).';
     return {
       revoked_title: revTitle,
       forced_by_title: g.by !== null ? ivTitle(g.by) : null,
@@ -1032,12 +1034,12 @@ function lossAndRevocations(
     affected_students_still_reachable: affectedStill,
     summary:
       outcome.L > 0
-        ? `失去 ${outcome.L} 个（学生, 机会）对，涉及 ${affected.size} 名学生，其中 ${affectedStill} 名在方案后仍有其他可达的机会。`
+        ? `Lost ${outcome.L} (student, opportunity) ${pluralNoun(outcome.L, 'pair')}, involving ${plural(affected.size, 'student')}; ${affectedStill} of them still ${pluralNoun(affectedStill, 'has', 'have')} another reachable opportunity after the plan.`
         : null,
     groups: lossGroups,
     headline:
       mode === 'tradeoff' && outcome.L > 0
-        ? `为了新增 ${outcome.G} 个，有 ${outcome.L} 个原本可达的（学生, 机会）对在此方案下不再可达。`
+        ? `To add ${plural(outcome.G, 'newly reachable pair')}, ${outcome.L} previously reachable (student, opportunity) ${pluralNoun(outcome.L, 'pair is', 'pairs are')} no longer reachable under this plan.`
         : null,
     protect_note: mode === 'protect' ? PROTECT_LOSS_NOTE : null,
   };
@@ -1048,8 +1050,8 @@ function lossAndRevocations(
       count: g.revs.length,
       reason:
         g.by !== null
-          ? `与新启用的「${ivTitle(g.by)}」互斥，两者不能同时运行，必须停掉`
-          : '自愿收回（权衡模式下为腾出名额给其他学生）',
+          ? `Mutually exclusive with the newly enabled "${ivTitle(g.by)}"; the two cannot run together, so this must stop`
+          : 'Voluntarily revoked (in trade-off mode, to free capacity for other students)',
     })),
   };
   return { loss, revocations };
@@ -1081,12 +1083,12 @@ function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBasel
         soft_requirements_met: r.soft_requirements_met,
         soft_label:
           r.soft_requirements_met === null
-            ? '未设要求'
+            ? 'No requirement set'
             : !executable
-              ? '方案不可执行，不评估'
+              ? 'Plan not executable; not evaluated'
               : r.soft_requirements_met
-                ? '满足'
-                : '不满足',
+                ? 'Met'
+                : 'Not met',
       };
     }),
     notes: cmp.notes.map((n) => cleanText(n, scenario)),
@@ -1121,8 +1123,8 @@ export function runWhatIf(
         id,
         title: title(id),
         reason: wasExcluded
-          ? `「${title(id)}」因前置依赖未纳入而被排除，「必须启用」这一要求被忽略。`
-          : `「${title(id)}」没有纳入方案，「必须启用」这一要求被忽略。`,
+          ? `"${title(id)}" was excluded because its prerequisite is not included, so the "required" setting is ignored.`
+          : `"${title(id)}" is not included in the plan, so the "required" setting is ignored.`,
       });
     }
   }
@@ -1139,33 +1141,33 @@ export function runWhatIf(
   const input_errors = [...(lossCapCheck.error ? [lossCapCheck.error] : []), ...floorSel.errors];
 
   const eff = withBudget(withEnabledInterventions(scenario, enabled), input.budget);
-  const enabledPending = eff.interventions.filter((iv) => !isApproved(iv)).map((iv) => `「${iv.title}」`);
+  const enabledPending = eff.interventions.filter((iv) => !isApproved(iv)).map((iv) => `"${iv.title}"`);
 
   // 假设与不确定性（与是否求解无关的部分）
   const assumptions: string[] = [
-    '所有学生和场景数据都是示例 / 模拟，不是真实学生，结果不代表真实影响。',
-    '机会目前是占位，之后替换为人工核实过的真实机会（官方链接 + 核实日期）。',
-    '「可达」只表示资格不冲突、现实条件（时间 / 费用 / 交通 / 设备）走得通，不等于录取，也不代表录取概率。',
-    '模型假设学生会接受分配到的资源；实际是否接受、能否到场未纳入计算。',
-    '各项成本、名额、预算都是示例数字。',
-    `评估日期为 ${scenario.evaluation_date}：资格、年龄与截止日期都按这一天计算。`,
+    'All students and scenario data are sample / simulated, not real students. Results do not represent real-world impact.',
+    'Opportunities are placeholders for now, to be replaced with real opportunities verified by a person (official link + verification date).',
+    '"Reachable" only means no eligibility conflict and workable real-world conditions (time / cost / transport / device). Reachable does not mean admitted, and it is not an admission probability.',
+    'The model assumes students accept the resources they are given; whether they actually accept or can attend is not modeled.',
+    'All costs, capacities and budgets are sample numbers.',
+    `Evaluation date is ${scenario.evaluation_date}: eligibility, age and deadlines are all computed for this day.`,
     enabledPending.length > 0
-      ? `待审批的措施（${enabledPending.join('、')}）未计入当前结果，只出现在「如果获批」的条件性结果里。`
-      : '待审批的措施不计入当前结果；本次没有纳入待审批的措施。',
-    '每项措施的作用只通过它提供的资源（设备 / 补助 / 替代参与方式 / 时间）是否化解学生的现实障碍来判断，措施不能改变官方资格。',
-    '若勾选的措施有前置依赖而依赖项没有纳入，该措施会被排除、不参与求解（不会出现「依赖没开、措施照样生效」）。',
-    '名额或预算不够、多名学生条件相同时，按学生编号顺序决定分给谁（模拟中的确定性规则），不代表谁更需要。',
+      ? `Support measures pending approval (${enabledPending.join(', ')}) are not counted in the current result; they only appear in the "if approved" conditional result.`
+      : 'Support measures pending approval are not counted in the current result; none are included this time.',
+    'Each support measure is judged only by whether the resource it provides (device / funding / alternative way to take part / time) removes a student\'s real-world barrier. Support measures cannot change official eligibility.',
+    'If a checked support measure has a prerequisite that is not included, the measure is excluded from the solve (a measure never takes effect without its prerequisite).',
+    'When capacity or budget runs short and several students are in the same situation, student id order decides who gets it (a deterministic rule in the simulation). This does not represent who needs help more.',
     MODE_EXPLANATIONS[mode],
     mode === 'tradeoff'
-      ? `权衡模式的含义：允许为新增覆盖而收回已有资源（与新措施互斥的资源必须收回），由此失去的可达对计入「失去可达 L」，且不超过损失上限${lossCap !== null ? ` ${lossCap}` : ''}（按（学生, 机会）组合计）；收回不退款，不会增加预算。损失上限为 0 也不等同保护模式：仍允许收回待审批承诺（不计入损失）和不造成损失的收回。`
-      : '保护模式下不会收回任何已有资源；与已有资源互斥的新措施因此不能启用。',
-    '发给场景外学生的已有资源不能收回（无法评估他们的损失，不猜）：与这类资源所属措施互斥的新措施在两种模式下都不能启用。',
-    '公平底线只依据学生自己声明的身份标签（如低收入、第一代大学生），不读学校名或姓名；分母只算至少对一个机会符合官方资格的该群体学生，按学生计（至少有一个可达机会即算覆盖）；一个学生属于多个群体时，在每个群体里各算一次。',
-    '基线对比中的 A / B / C 是确定性的简化做法（按编号升序、先到先得），不代表任何真实系统，也不代表谁更需要；说明书中的基线 D（充分协调的分离式规划器）未实现。',
+      ? `What trade-off mode means: existing resources may be revoked to add new coverage (resources that conflict with a new measure must be revoked). Pairs lost this way count toward "Lost L" and stay within the loss cap${lossCap !== null ? ` of ${lossCap}` : ''} (counted in (student, opportunity) pairs). Revoking gives no refund and does not add budget. A loss cap of 0 is still not the same as protected mode: it still allows revoking pending-approval commitments (not counted as losses) and revocations that cause no loss.`
+      : 'Protected mode never revokes existing resources, so new measures that conflict with existing resources cannot be enabled.',
+    'Existing resources given to students outside the scenario cannot be revoked (their loss cannot be evaluated, and we do not guess). New measures that conflict with those resources\' measures cannot be enabled in either mode.',
+    'Fairness floors use only status labels that students report themselves (such as low-income or first-generation), never school names or personal names. The denominator counts only group members who are officially eligible for at least one opportunity, counted per student (covered = at least one reachable opportunity). A student in several groups counts once in each group.',
+    'Baselines A / B / C are deterministic simplifications (ascending id, first come first served). They do not represent any real system or who needs help more. Baseline D from the spec (a fully coordinated separate planner) is not implemented.',
   ];
-  if (floors.length > 0) assumptions.push('本次设置的公平底线及其依据都是示例（虚构依据），仅用于演示。');
+  if (floors.length > 0) assumptions.push('The fairness floors set here and their basis are samples (fictional basis), for demo only.');
   if (running.length > 0) {
-    assumptions.push('已在运行的措施（已有资源在使用）不能从方案中移除：取消勾选只表示不再新增分配，已有资源照常生效、占用名额，互斥关系照常生效。');
+    assumptions.push('Support measures already running (with resources in use) cannot be removed from the plan: unchecking only stops new allocations. Existing resources stay in effect and keep their capacity, and mutual exclusions still apply.');
   }
   for (const r of running) if (!r.accepts_new) assumptions.push(r.note);
   for (const e of excluded) assumptions.push(e.reason);
@@ -1178,7 +1180,7 @@ export function runWhatIf(
     student_count: scenario.students.length,
     opportunities: scenario.opportunities.map((o) => ({
       title: o.title,
-      is_placeholder: o.is_sample === true || o.title.includes('占位'),
+      is_placeholder: o.is_sample === true || o.title.includes('Placeholder'),
     })),
     effective: {
       enabled_ids: enabled,
@@ -1207,7 +1209,7 @@ export function runWhatIf(
       ...base,
       status: 'UNSUPPORTED_INPUT',
       status_label: STATUS_LABELS.UNSUPPORTED_INPUT,
-      status_explanation: `设置不完整或不合法，没有计算：${input_errors.join(' ')}`,
+      status_explanation: `Settings are incomplete or invalid, so nothing was computed: ${input_errors.join(' ')}`,
       R0_count: null,
       R1_count: null,
       G: null,
@@ -1216,7 +1218,7 @@ export function runWhatIf(
       cost: { fixed_usd: null, per_student_usd: null, total_usd: null, budget_usd: budgetUsd, remaining_usd: null },
       selected: [],
       capacity_usage: capacityUsage(eff, { selected_intervention_ids: [], allocations: [] }, frozen),
-      verification: { passed: false, checks: [], note: '设置不完整或不合法，没有调用求解器，也没有复核。' },
+      verification: { passed: false, checks: [], note: 'Settings are incomplete or invalid; the solver and verification were not run.' },
       alternative: null,
       conditional: null,
       uncovered: null,
@@ -1265,11 +1267,11 @@ export function runWhatIf(
     })),
     note:
       result.status === 'INFEASIBLE'
-        ? '主结果是「不启用任何措施」的空方案，它本来就不满足你提的要求，所以「主办方要求」或「公平底线」一项不通过是预期的；其余硬约束检查用来确认空方案本身合法。'
+        ? 'The main result is an empty plan with no support measures enabled. It does not meet your requirements by design, so a failed "Organizer requirements" or "Fairness floors" check is expected; the other hard-constraint checks confirm the empty plan itself is valid.'
         : internalFailure
-          ? '求解器找到的方案没有通过独立复核，已舍弃、未给出（当前结果为空方案）；下面是被舍弃方案的复核结果。请检查场景数据。'
+          ? 'The plan found by the solver failed independent verification, so it was discarded and not shown (the current result is an empty plan). Below is the verification of the discarded plan. Please check the scenario data.'
           : result.status === 'UNSUPPORTED_INPUT'
-            ? '输入不合法，未做评估；复核里「输入合法」一项会说明原因。'
+            ? 'Invalid input; not evaluated. The "Input is valid" check explains why.'
             : null,
   };
 
@@ -1323,10 +1325,10 @@ export function runWhatIf(
   const baselines = baselinesView(compareBaselines(eff, opts), scenario);
 
   if (result.status === 'SEARCH_LIMIT_REACHED') {
-    assumptions.push('本次求解达到搜索上限：结果不保证最优，也不代表没有更好的方案。');
+    assumptions.push('This solve hit the search limit: the result is not guaranteed optimal, and a better plan may exist.');
   }
   if (result.conditional?.status === 'SEARCH_LIMIT_REACHED') {
-    assumptions.push('条件性结果的求解达到搜索上限：不保证最优。');
+    assumptions.push('The conditional solve hit the search limit: not guaranteed optimal.');
   }
 
   const view: WhatIfView = {

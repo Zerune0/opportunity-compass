@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 const pages = [
-  { href: "/quests", label: "机会 Quests", note: "发现真实机会，看懂资格" },
-  { href: "/map", label: "成长地图 Map", note: "选择走得通的成长路线" },
-  { href: "/passport", label: "技能护照 Passport", note: "记录技能证据" },
-  { href: "/organizer", label: "主办方 Organizer", note: "资源分配与模拟（支持模块）" },
+  { href: "/quests", label: "Quests", note: "Find real opportunities and understand eligibility" },
+  { href: "/map", label: "Map", note: "Pick a growth route that works" },
+  { href: "/passport", label: "Passport", note: "Record evidence of your skills" },
+  { href: "/organizer", label: "Organizer", note: "Resource allocation and simulation (support module)" },
 ];
 
 export default function Home() {
@@ -13,8 +13,9 @@ export default function Home() {
       <div className="rpg-stack">
         <h1>Opportunity Compass</h1>
         <p className="home__lead">
-          帮助缺少资源和人脉的学生：发现真实机会 → 看懂资格和现实障碍 →
-          选一条走得通的成长路线 → 申请。
+          For students without resources or connections: find real opportunities,
+          understand eligibility and real-world barriers, pick a route that works,
+          then apply.
         </p>
       </div>
       <ul className="rpg-menu">

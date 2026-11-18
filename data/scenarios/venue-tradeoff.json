@@ -1,44 +1,44 @@
 {
   "id": "venue-tradeoff",
-  "title": "示例 / 模拟场景：工作日接驳车与周末卫星会场的取舍",
+  "title": "Sample / simulated scenario: weekday shuttle vs. weekend satellite venue",
   "is_sample": true,
   "evaluation_date": "2026-11-17",
   "budget_usd": 300,
   "opportunities": [
     {
       "id": "placeholder-weekday-session",
-      "title": "【示例 / 占位】工作日场：线下科学工作坊（周三下午）",
-      "organizer": "示例主办方（占位）",
+      "title": "[Sample / Placeholder] Weekday session: in-person science workshop (Wednesday afternoon)",
+      "organizer": "Sample organizer (placeholder)",
       "category": "project",
       "fields": [
         "science"
       ],
-      "summary": "占位机会：同一主办方的工作日场次，仅用于演示权衡分析，不是真实机会。",
+      "summary": "Placeholder opportunity: the weekday session from the same organizer. For the trade-off demo only; not a real opportunity.",
       "official_url": "https://example.com/placeholder-weekday-session",
       "verified_on": "2026-11-17",
-      "verified_by": "占位数据（未核实，不是真实机会）",
+      "verified_by": "Placeholder data (not verified, not a real opportunity)",
       "deadline": "2026-12-15",
-      "deadline_note": "占位日期",
+      "deadline_note": "Placeholder date",
       "recurring_annually": null,
       "location": {
         "format": "in_person",
         "country": "US",
         "state": "CA",
         "city": "Example City",
-        "note": "占位地点：主会场"
+        "note": "Placeholder location: main venue"
       },
       "cost": {
         "fee_usd": 0,
         "requires_travel_expense": false,
         "financial_aid_available": null,
-        "note": "占位：免费"
+        "note": "Placeholder: free"
       },
       "time_commitment": {
         "hours_per_week": 3,
         "total_weeks": 1,
         "start_date": "2027-01-13",
         "end_date": "2027-01-13",
-        "note": "占位：周三下午"
+        "note": "Placeholder: Wednesday afternoon"
       },
       "required_devices": [],
       "requirements": [
@@ -48,8 +48,8 @@
           "min": 9,
           "max": 12,
           "hard": true,
-          "label": "高中在读（9–12 年级）",
-          "source_text": "（占位原文）Open to high school students in grades 9–12."
+          "label": "Current high school student (grades 9–12)",
+          "source_text": "(Placeholder source text) Open to high school students in grades 9–12."
         },
         {
           "id": "req-region",
@@ -61,8 +61,8 @@
             "CA"
           ],
           "hard": true,
-          "label": "加州居民",
-          "source_text": "（占位原文）Participants must live in California."
+          "label": "California resident",
+          "source_text": "(Placeholder source text) Participants must live in California."
         }
       ],
       "preparation": [],
@@ -70,38 +70,38 @@
     },
     {
       "id": "placeholder-weekend-session",
-      "title": "【示例 / 占位】周末场：线下科学工作坊（周六）",
-      "organizer": "示例主办方（占位）",
+      "title": "[Sample / Placeholder] Weekend session: in-person science workshop (Saturday)",
+      "organizer": "Sample organizer (placeholder)",
       "category": "project",
       "fields": [
         "science"
       ],
-      "summary": "占位机会：同一主办方的周末场次，仅用于演示权衡分析，不是真实机会。",
+      "summary": "Placeholder opportunity: the weekend session from the same organizer. For the trade-off demo only; not a real opportunity.",
       "official_url": "https://example.com/placeholder-weekend-session",
       "verified_on": "2026-11-17",
-      "verified_by": "占位数据（未核实，不是真实机会）",
+      "verified_by": "Placeholder data (not verified, not a real opportunity)",
       "deadline": "2026-12-15",
-      "deadline_note": "占位日期",
+      "deadline_note": "Placeholder date",
       "recurring_annually": null,
       "location": {
         "format": "in_person",
         "country": "US",
         "state": "CA",
         "city": "Example City",
-        "note": "占位地点：主会场"
+        "note": "Placeholder location: main venue"
       },
       "cost": {
         "fee_usd": 0,
         "requires_travel_expense": false,
         "financial_aid_available": null,
-        "note": "占位：免费"
+        "note": "Placeholder: free"
       },
       "time_commitment": {
         "hours_per_week": 3,
         "total_weeks": 1,
         "start_date": "2027-01-16",
         "end_date": "2027-01-16",
-        "note": "占位：周六一整天"
+        "note": "Placeholder: all day Saturday"
       },
       "required_devices": [],
       "requirements": [
@@ -111,8 +111,8 @@
           "min": 9,
           "max": 12,
           "hard": true,
-          "label": "高中在读（9–12 年级）",
-          "source_text": "（占位原文）Open to high school students in grades 9–12."
+          "label": "Current high school student (grades 9–12)",
+          "source_text": "(Placeholder source text) Open to high school students in grades 9–12."
         },
         {
           "id": "req-region",
@@ -124,8 +124,8 @@
             "CA"
           ],
           "hard": true,
-          "label": "加州居民",
-          "source_text": "（占位原文）Participants must live in California."
+          "label": "California resident",
+          "source_text": "(Placeholder source text) Participants must live in California."
         }
       ],
       "preparation": [],
@@ -139,7 +139,7 @@
   "interventions": [
     {
       "id": "iv-weekday-shuttle",
-      "title": "工作日接驳车（示例，已在运行）",
+      "title": "Weekday shuttle (sample, already running)",
       "type": "transport_subsidy",
       "resolves": [
         "transport"
@@ -157,7 +157,7 @@
     },
     {
       "id": "iv-weekday-carpool",
-      "title": "工作日拼车补助（示例）",
+      "title": "Weekday carpool stipend (sample)",
       "type": "transport_subsidy",
       "resolves": [
         "transport"
@@ -176,7 +176,7 @@
     },
     {
       "id": "iv-weekend-satellite",
-      "title": "周末卫星会场（示例）",
+      "title": "Weekend satellite venue (sample)",
       "type": "alternative_access",
       "resolves": [
         "transport"
@@ -194,7 +194,7 @@
     {
       "id": "vt-s01",
       "is_sample": true,
-      "display_name": "示例学生 A（场次权衡场景）",
+      "display_name": "Sample student A (session trade-off scenario)",
       "grade": 11,
       "age": 16,
       "region": {
@@ -209,13 +209,13 @@
       "statuses": [
         "high_school_student"
       ],
-      "school_name": "Example North High School（虚构）",
+      "school_name": "Example North High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -235,7 +235,7 @@
     {
       "id": "vt-s02",
       "is_sample": true,
-      "display_name": "示例学生 B（场次权衡场景）",
+      "display_name": "Sample student B (session trade-off scenario)",
       "grade": 12,
       "age": 17,
       "region": {
@@ -251,13 +251,13 @@
         "high_school_student",
         "first_generation"
       ],
-      "school_name": "Example South High School（虚构）",
+      "school_name": "Example South High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -277,7 +277,7 @@
     {
       "id": "vt-s03",
       "is_sample": true,
-      "display_name": "示例学生 C（场次权衡场景）",
+      "display_name": "Sample student C (session trade-off scenario)",
       "grade": 11,
       "age": 16,
       "region": {
@@ -292,13 +292,13 @@
       "statuses": [
         "high_school_student"
       ],
-      "school_name": "Example East High School（虚构）",
+      "school_name": "Example East High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -318,7 +318,7 @@
     {
       "id": "vt-s04",
       "is_sample": true,
-      "display_name": "示例学生 D（场次权衡场景）",
+      "display_name": "Sample student D (session trade-off scenario)",
       "grade": 9,
       "age": 14,
       "region": {
@@ -333,13 +333,13 @@
       "statuses": [
         "high_school_student"
       ],
-      "school_name": "Example West High School（虚构）",
+      "school_name": "Example West High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -359,7 +359,7 @@
     {
       "id": "vt-s05",
       "is_sample": true,
-      "display_name": "示例学生 E（场次权衡场景）",
+      "display_name": "Sample student E (session trade-off scenario)",
       "grade": 10,
       "age": 15,
       "region": {
@@ -375,13 +375,13 @@
         "high_school_student",
         "first_generation"
       ],
-      "school_name": "Example Lake High School（虚构）",
+      "school_name": "Example Lake High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -401,7 +401,7 @@
     {
       "id": "vt-s06",
       "is_sample": true,
-      "display_name": "示例学生 F（场次权衡场景）",
+      "display_name": "Sample student F (session trade-off scenario)",
       "grade": 9,
       "age": 14,
       "region": {
@@ -417,13 +417,13 @@
         "high_school_student",
         "low_income"
       ],
-      "school_name": "Example Ridge High School（虚构）",
+      "school_name": "Example Ridge High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -443,7 +443,7 @@
     {
       "id": "vt-s07",
       "is_sample": true,
-      "display_name": "示例学生 G（场次权衡场景）",
+      "display_name": "Sample student G (session trade-off scenario)",
       "grade": 10,
       "age": 15,
       "region": {
@@ -459,13 +459,13 @@
         "high_school_student",
         "low_income"
       ],
-      "school_name": "Example Mesa High School（虚构）",
+      "school_name": "Example Mesa High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -485,7 +485,7 @@
     {
       "id": "vt-s08",
       "is_sample": true,
-      "display_name": "示例学生 H（场次权衡场景）",
+      "display_name": "Sample student H (session trade-off scenario)",
       "grade": 11,
       "age": 16,
       "region": {
@@ -502,13 +502,13 @@
         "first_generation",
         "low_income"
       ],
-      "school_name": "Example Grove High School（虚构）",
+      "school_name": "Example Grove High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -528,7 +528,7 @@
     {
       "id": "vt-s09",
       "is_sample": true,
-      "display_name": "示例学生 I（场次权衡场景）",
+      "display_name": "Sample student I (session trade-off scenario)",
       "grade": 12,
       "age": 17,
       "region": {
@@ -544,13 +544,13 @@
         "high_school_student",
         "low_income"
       ],
-      "school_name": "Example Bay High School（虚构）",
+      "school_name": "Example Bay High School (fictional)",
       "hours_per_week_available": 6,
       "budget_usd": 0,
       "transport": {
         "level": "none",
         "max_one_way_minutes": null,
-        "note": "示例：附近没有公共交通，自己去不了主会场"
+        "note": "Sample: no public transit nearby, cannot get to the main venue alone"
       },
       "devices": [
         "smartphone",
@@ -579,8 +579,8 @@
       "device": null,
       "hours_per_week": null,
       "status": "approved",
-      "provider": "示例主办方（占位）工作日接驳车",
-      "note": "示例：已在运行的接驳车座位",
+      "provider": "Sample organizer (placeholder) weekday shuttle",
+      "note": "Sample: seat on the shuttle that is already running",
       "is_sample": true
     },
     {
@@ -593,8 +593,8 @@
       "device": null,
       "hours_per_week": null,
       "status": "approved",
-      "provider": "示例主办方（占位）工作日接驳车",
-      "note": "示例：已在运行的接驳车座位",
+      "provider": "Sample organizer (placeholder) weekday shuttle",
+      "note": "Sample: seat on the shuttle that is already running",
       "is_sample": true
     },
     {
@@ -607,8 +607,8 @@
       "device": null,
       "hours_per_week": null,
       "status": "approved",
-      "provider": "示例主办方（占位）工作日接驳车",
-      "note": "示例：已在运行的接驳车座位",
+      "provider": "Sample organizer (placeholder) weekday shuttle",
+      "note": "Sample: seat on the shuttle that is already running",
       "is_sample": true
     }
   ]

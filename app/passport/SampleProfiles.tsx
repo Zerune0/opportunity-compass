@@ -13,7 +13,7 @@ const sampleProfiles = (profilesJson as unknown as StudentProfile[]).map((profil
   problems: validateProfile(profile),
 }));
 
-const notProvided = "not provided / 未填写";
+const notProvided = "not provided";
 
 function location(profile: StudentProfile) {
   const region = profile.region;
@@ -77,7 +77,7 @@ export function SampleProfiles({ profile, onChange }: {
       return;
     }
     onChange(copy);
-    setMessage(`Loaded sample profile / 示例档案: ${copy.display_name}.`);
+    setMessage(`Loaded sample profile: ${copy.display_name}.`);
   }
 
   function clear() {
@@ -112,7 +112,7 @@ export function SampleProfiles({ profile, onChange }: {
 
   const current = profile
     ? profile.is_sample
-      ? `a sample profile / 示例档案 “${profile.display_name}”`
+      ? `a sample profile “${profile.display_name}”`
       : "your own profile"
     : "";
   const originalSample = profile?.is_sample ? sampleProfiles.find(({ profile: sample }) => sample.id === profile.id)?.profile : undefined;
@@ -125,7 +125,7 @@ export function SampleProfiles({ profile, onChange }: {
 
   return (
     <section className="rpg-stack" aria-labelledby="sample-profiles-heading">
-      <h2 id="sample-profiles-heading">Sample profiles / 示例档案</h2>
+      <h2 id="sample-profiles-heading">Sample profiles</h2>
       <p>These are fictional sample students for the demo. Loading one replaces the profile saved in this browser.</p>
       {pending && (
         <QuestCard
@@ -163,7 +163,7 @@ export function SampleProfiles({ profile, onChange }: {
         {sampleProfiles.map(({ profile: sample, problems }) => (
           <QuestCard key={sample.id} className="rpg-stack">
             <h3>{sample.display_name}</h3>
-            <p><StatusTag tone="warning">Sample / 示例</StatusTag></p>
+            <p><StatusTag tone="warning">Sample</StatusTag></p>
             <dl>
               <dt>Grade</dt><dd>{sample.grade ?? notProvided}</dd>
               <dt>Location</dt><dd>{location(sample)}</dd>

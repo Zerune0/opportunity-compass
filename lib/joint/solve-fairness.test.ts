@@ -35,10 +35,10 @@ const laptopOnly = (s: Scenario = deviceLoanScenario) => withEnabledIntervention
 const studentsOf = (r: { allocations: { student_id: string }[] }) => [...new Set(r.allocations.map((a) => a.student_id))].sort();
 const LOW = ['dl-s07', 'dl-s08', 'dl-s09', 'dl-s10'];
 
-function floor(id: string, statuses: FairnessFloor['statuses_any_of'], min: number, label = `示例群体 ${id}`): FairnessFloor {
-  return { id, label, basis: '示例：虚构的资助章程（仅用于测试）', statuses_any_of: statuses, min_ratio: min };
+function floor(id: string, statuses: FairnessFloor['statuses_any_of'], min: number, label = `Sample group ${id}`): FairnessFloor {
+  return { id, label, basis: 'Sample: fictional funding charter (for tests only)', statuses_any_of: statuses, min_ratio: min };
 }
-const lowIncome = (min: number) => floor('low', ['low_income'], min, '低收入学生');
+const lowIncome = (min: number) => floor('low', ['low_income'], min, 'Low-income students');
 
 function verifyWith(s: Scenario, r: JointResult, opts: SolveOptions = {}) {
   const { mode, loss_cap, required_intervention_ids, min_gain, fairness_floors } = opts;
@@ -53,9 +53,9 @@ describe('示例场景的预设公平底线', () => {
     expect(SCENARIOS.map((s) => s.id)).toEqual(['device-loan', 'venue-tradeoff']);
     for (const entry of SCENARIOS) {
       expect(entry.scenario.is_sample).toBe(true);
-      expect(entry.description).toContain('示例');
+      expect(entry.description).toContain('Sample');
       expect(entry.suggestedFairnessFloors.length).toBeGreaterThan(0);
-      for (const f of entry.suggestedFairnessFloors) expect(f.basis).toContain('示例');
+      for (const f of entry.suggestedFairnessFloors) expect(f.basis).toContain('Sample');
       const r = solveJoint(entry.scenario, { fairness_floors: entry.suggestedFairnessFloors });
       expect(r.status).not.toBe('UNSUPPORTED_INPUT');
       expect(r.fairness).toHaveLength(entry.suggestedFairnessFloors.length);
@@ -125,7 +125,7 @@ describe('公平底线：设备借用场景', () => {
     expect(alt.relaxed).toEqual(['fairness_floors']);
     expect(alt.G).toBe(5);
     expect(alt.fairness?.[0]).toMatchObject({ covered_members: 1, eligible_members: 4, satisfied: false });
-    expect(alt.note).toContain('公平底线');
+    expect(alt.note).toContain('fairness floors');
     expect(alt.note).toContain('1/4');
     // 复核：去掉已放松的底线后通过；带上底线复核则 fairness 不通过。
     const plan = { ...alt, fairness: undefined } as unknown as JointPlan;
@@ -154,7 +154,7 @@ describe('公平底线：设备借用场景', () => {
   it('学生属于多个群体时各算各的；多条底线并存', () => {
     // 低收入 ≥ 50%（分母 4）+ 第一代 ≥ 1/3（分母 3：s03、s06、s08；只有 s08 交通可靠）。
     // s08 同时在两个群体里，各计一次：{s01, s02, s04, s07, s08} 同时满足两条。
-    const opts: SolveOptions = { fairness_floors: [lowIncome(0.5), floor('fg', ['first_generation'], 1 / 3, '第一代学生')] };
+    const opts: SolveOptions = { fairness_floors: [lowIncome(0.5), floor('fg', ['first_generation'], 1 / 3, 'First-generation students')] };
     const r = solveJoint(laptopOnly(), opts);
     expect(r.status).toBe('OPTIMAL');
     expect(studentsOf(r)).toEqual(['dl-s01', 'dl-s02', 'dl-s04', 'dl-s07', 'dl-s08']);
@@ -197,7 +197,7 @@ describe('公平底线：设备借用场景', () => {
   it('不读学校名、显示名：只改它们，带底线的结果不变', () => {
     const renamed: Scenario = {
       ...laptopOnly(),
-      students: laptopOnly().students.map((s, k) => ({ ...s, school_name: `Other ${k}（虚构）`, display_name: `X${9 - k}` })),
+      students: laptopOnly().students.map((s, k) => ({ ...s, school_name: `Other ${k} (fictional)`, display_name: `X${9 - k}` })),
     };
     const opts: SolveOptions = { fairness_floors: [lowIncome(0.5)] };
     expect(solveJoint(renamed, opts).allocations).toEqual(solveJoint(laptopOnly(), opts).allocations);
@@ -282,22 +282,22 @@ describe('三项软要求的统一放松规则', () => {
 describe('新的 UNSUPPORTED_INPUT 条件', () => {
   const S = deviceLoanScenario;
   const g = (id: unknown): ResourceGrant =>
-    ({ id, student_id: 'dl-s01', opportunity_id: IDS.opportunity, intervention_id: null, type: 'device', device: 'laptop', status: 'approved', provider: '示例', is_sample: true }) as ResourceGrant;
+    ({ id, student_id: 'dl-s01', opportunity_id: IDS.opportunity, intervention_id: null, type: 'device', device: 'laptop', status: 'approved', provider: 'Sample', is_sample: true }) as ResourceGrant;
   const ok = lowIncome(0.5);
   const cases: [string, Scenario, SolveOptions][] = [
-    ['已有 grant 的 id 不是字符串', { ...S, existing_grants: [g(3)] }, {}],
-    ['已有 grant 的 id 重复', { ...S, existing_grants: [g('dup'), { ...g('dup'), student_id: 'dl-s02' }] }, {}],
-    ['fairness_floors 不是数组', S, { fairness_floors: 'low' as unknown as FairnessFloor[] }],
-    ['底线条目不是对象', S, { fairness_floors: [null as unknown as FairnessFloor] }],
-    ['底线 id 为空', S, { fairness_floors: [{ ...ok, id: '' }] }],
-    ['底线 id 重复', S, { fairness_floors: [ok, { ...ok }] }],
-    ['底线 label 只有空格', S, { fairness_floors: [{ ...ok, label: '   ' }] }],
-    ['底线 basis 缺失', S, { fairness_floors: [{ ...ok, basis: undefined as unknown as string }] }],
-    ['statuses_any_of 为空数组', S, { fairness_floors: [{ ...ok, statuses_any_of: [] }] }],
-    ['statuses_any_of 含不支持的值', S, { fairness_floors: [{ ...ok, statuses_any_of: ['rich' as never] }] }],
+    ['existing grant id is not a string', { ...S, existing_grants: [g(3)] }, {}],
+    ['duplicate existing grant id', { ...S, existing_grants: [g('dup'), { ...g('dup'), student_id: 'dl-s02' }] }, {}],
+    ['fairness_floors is not an array', S, { fairness_floors: 'low' as unknown as FairnessFloor[] }],
+    ['floor entry is not an object', S, { fairness_floors: [null as unknown as FairnessFloor] }],
+    ['floor id is empty', S, { fairness_floors: [{ ...ok, id: '' }] }],
+    ['duplicate floor id', S, { fairness_floors: [ok, { ...ok }] }],
+    ['floor label is only spaces', S, { fairness_floors: [{ ...ok, label: '   ' }] }],
+    ['floor basis missing', S, { fairness_floors: [{ ...ok, basis: undefined as unknown as string }] }],
+    ['statuses_any_of is an empty array', S, { fairness_floors: [{ ...ok, statuses_any_of: [] }] }],
+    ['statuses_any_of has an unsupported value', S, { fairness_floors: [{ ...ok, statuses_any_of: ['rich' as never] }] }],
     ['min_ratio > 1', S, { fairness_floors: [{ ...ok, min_ratio: 1.5 }] }],
-    ['min_ratio 为负', S, { fairness_floors: [{ ...ok, min_ratio: -0.1 }] }],
-    ['min_ratio 非有限数', S, { fairness_floors: [{ ...ok, min_ratio: Number.NaN }] }],
+    ['min_ratio is negative', S, { fairness_floors: [{ ...ok, min_ratio: -0.1 }] }],
+    ['min_ratio is not finite', S, { fairness_floors: [{ ...ok, min_ratio: Number.NaN }] }],
   ];
   for (const [name, scenario, options] of cases) {
     it(name, () => {
@@ -324,8 +324,8 @@ describe('新的 UNSUPPORTED_INPUT 条件', () => {
 
 describe('确定性、不修改输入、耗时', () => {
   const runs: [string, Scenario, SolveOptions][] = [
-    ['device-loan 默认', deviceLoanScenario, {}],
-    ['device-loan 底线', deviceLoanScenario, { fairness_floors: [lowIncome(0.5)] }],
+    ['device-loan default', deviceLoanScenario, {}],
+    ['device-loan floor', deviceLoanScenario, { fairness_floors: [lowIncome(0.5)] }],
     ['venue protect', venueTradeoffScenario, {}],
     ['venue tradeoff', venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 3, fairness_floors: [lowIncome(0.5)] }],
   ];
@@ -347,7 +347,7 @@ describe('确定性、不修改输入、耗时', () => {
       const r = solveJoint(clone(s), o);
       const ms = performance.now() - t0;
       expect(r.status, name).toBe('OPTIMAL');
-      expect(ms, `${name} 耗时 ${ms.toFixed(1)}ms`).toBeLessThan(1000);
+      expect(ms, `${name} took ${ms.toFixed(1)}ms`).toBeLessThan(1000);
     }
   });
 
@@ -380,17 +380,17 @@ describe('公平底线的覆盖上界（S1 / R5：分母不变，说明里给出
   it('底线不可行：主 notes 与 alternative.note 都写明上界，替代方案的覆盖人数另列', () => {
     const r = solveJoint(laptopOnly(), { fairness_floors: [lowIncome(1)] });
     expect(r.status).toBe('INFEASIBLE');
-    expect(r.notes.some((n) => n.includes('「低收入学生」最多可覆盖 3 / 4 名'))).toBe(true);
+    expect(r.notes.some((n) => n.includes('"Low-income students": at most 3 / 4 can be covered'))).toBe(true);
     expect(r.alternative?.relaxed).toEqual(['fairness_floors']);
-    expect(r.alternative?.note).toContain('替代方案中：「低收入学生」覆盖 1/4 名');
-    expect(r.alternative?.note).toContain('「低收入学生」最多可覆盖 3 / 4 名');
+    expect(r.alternative?.note).toContain('in the alternative: "Low-income students" covers 1/4');
+    expect(r.alternative?.note).toContain('"Low-income students": at most 3 / 4 can be covered');
     expect(r.alternative?.fairness?.[0]).toMatchObject({ eligible_members: 4, covered_members: 1, satisfied: false });
   });
 
   it('上界不考虑名额与预算：预算只够 1 人时上界仍是 3 / 4', () => {
     const r = solveJoint(withBudget(laptopOnly(), 120), { fairness_floors: [lowIncome(1)] });
     expect(r.status).toBe('INFEASIBLE');
-    expect(r.notes.some((n) => n.includes('最多可覆盖 3 / 4 名'))).toBe(true);
+    expect(r.notes.some((n) => n.includes('at most 3 / 4 can be covered'))).toBe(true);
   });
 
   it('权衡场景、保护模式：卫星会场与接驳车互斥不能启用 → 低收入上界只算工作日拼车可覆盖的 4 人', () => {

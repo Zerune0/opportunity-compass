@@ -24,6 +24,7 @@
  * 纯函数：日期只来自 options.today 与机会数据，不读系统时钟、无随机、无 IO、不调 AI。
  */
 import { checkEligibility } from '../eligibility';
+import { plural } from '../format';
 import { daysBetween, parseISODate } from '../eligibility/dates';
 import { findCoveringEvidence, requiredPrepClosure } from '../reachability/coverage';
 import type {
@@ -45,7 +46,6 @@ import {
   RESERVED_STEP_IDS,
   ROUTE_TITLES,
   SUBMIT_STEP_ID,
-  fmt,
   round2,
   safeNonNeg,
   usd,
@@ -96,9 +96,9 @@ function blockedPlan(
   blocking: EligibilityItem[],
 ): PlanResult {
   const reasons = blocking.map((b) => {
-    const base = `不满足硬性要求「${b.label}」：${b.explanation}官网原文：「${b.source_text}」。`;
+    const base = `You don't meet the hard requirement "${b.label}": ${b.explanation} Official text: "${b.source_text}".`;
     if (b.requirement_type === 'prerequisite_skill' || b.requirement_type === 'portfolio') {
-      return `${base}补上这一项并更新档案后，可以重新规划。`;
+      return `${base} Once you have this and update your profile, you can plan again.`;
     }
     return base;
   });
@@ -110,17 +110,17 @@ function blockedPlan(
   if (opp.recurring_annually !== false && hasImprovable && !hasPermanent) {
     const labels = blocking
       .filter((_, i) => natures[i] === 'improvable')
-      .map((b) => `「${b.label}」`)
-      .join('、');
-    let text = `${labels}可能随年级 / 年龄增长而满足，可以关注之后的届次，到时请按官网最新要求重新确认。`;
-    if (opp.recurring_annually == null) text += '是否每年举办请向官方确认。';
+      .map((b) => `"${b.label}"`)
+      .join(', ');
+    let text = `You may meet ${labels} as you move up a grade / get older. Watch for a future round, and check the latest official rules then.`;
+    if (opp.recurring_annually == null) text += ' Confirm with the organizer whether it runs every year.';
     alternatives.push({ kind: 'next_cycle', text });
   }
   const fields = (opp.fields ?? []).filter((f) => typeof f === 'string' && f !== '');
   if (fields.length > 0) {
     alternatives.push({
       kind: 'same_field',
-      text: `可以看看同领域（${fields.join('、')}）的其他已核实机会。`,
+      text: `Look at other verified opportunities in the same field (${fields.join(', ')}).`,
     });
   }
 
@@ -140,8 +140,8 @@ function blockedPlan(
 function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem, deps: string[]): RouteStep {
   const covering = findCoveringEvidence(profile, opp, prep);
   const skipped = covering.length > 0;
-  const descParts = [prep.required_for_application ? '申请必需。' : '建议准备，可提高竞争力。'];
-  if (prep.source_text) descParts.push(`依据：${prep.source_text}`);
+  const descParts = [prep.required_for_application ? 'Required to apply.' : 'Recommended; can make your application stronger.'];
+  if (prep.source_text) descParts.push(` Source: ${prep.source_text}`);
   return {
     id: prep.id,
     title: prep.title,
@@ -151,7 +151,7 @@ function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem,
     hours: safeNonNeg(prep.estimated_hours),
     cost_usd: safeNonNeg(prep.estimated_cost_usd),
     skipped,
-    skip_reason: skipped ? `已有${covering.map((e) => `《${e.title}》`).join('、')}覆盖这一项` : null,
+    skip_reason: skipped ? `Already covered by ${covering.map((e) => `"${e.title}"`).join(', ')}` : null,
     satisfied_by_evidence_ids: covering.map((e) => e.id),
   };
 }
@@ -163,11 +163,11 @@ function buildBaseSteps(profile: StudentProfile, opp: Opportunity): BaseSteps {
   const accepted: PrepItem[] = [];
   for (const prep of preps) {
     if (RESERVED_STEP_IDS.includes(prep.id)) {
-      dataWarnings.push(`准备项「${prep.title}」的 id 与固定步骤冲突，已忽略，请检查机会数据。`);
+      dataWarnings.push(`Prep item "${prep.title}" has an id that clashes with a fixed step, so it was ignored. Please check the opportunity data.`);
       continue;
     }
     if (seen.has(prep.id)) {
-      dataWarnings.push(`准备项 id「${prep.id}」重复，只保留第一项，请检查机会数据。`);
+      dataWarnings.push(`Prep item id "${prep.id}" is repeated; only the first one was kept. Please check the opportunity data.`);
       continue;
     }
     seen.add(prep.id);
@@ -178,11 +178,11 @@ function buildBaseSteps(profile: StudentProfile, opp: Opportunity): BaseSteps {
     const deps: string[] = [];
     for (const d of Array.isArray(prep.depends_on) ? prep.depends_on : []) {
       if (d === prep.id) {
-        dataWarnings.push(`准备项「${prep.title}」把自己列为依赖，已忽略这条依赖，请检查机会数据。`);
+        dataWarnings.push(`Prep item "${prep.title}" lists itself as a dependency; that dependency was ignored. Please check the opportunity data.`);
         continue;
       }
       if (!seen.has(d)) {
-        dataWarnings.push(`准备项「${prep.title}」依赖的「${d}」在该机会中不存在，已忽略这条依赖。`);
+        dataWarnings.push(`Prep item "${prep.title}" depends on "${d}", which does not exist in this opportunity; that dependency was ignored.`);
         continue;
       }
       if (!deps.includes(d)) deps.push(d);
@@ -304,11 +304,11 @@ function hoursState(raw: unknown): HoursState {
 function judgeFeasibility(totalHours: number, hours: HoursState, opp: Opportunity, today?: string): Feasibility {
   const missing: string[] = [];
   const deadline = opp.deadline == null ? null : parseISODate(opp.deadline);
-  if (opp.deadline == null) missing.push('官网没有写明截止日期（可能是滚动录取）');
-  else if (deadline == null) missing.push('截止日期格式无法识别');
+  if (opp.deadline == null) missing.push('the official site gives no deadline (it may be rolling admission)');
+  else if (deadline == null) missing.push("the deadline date format can't be read");
   const now = today == null ? null : parseISODate(today);
-  if (today == null) missing.push('没有提供今天的日期');
-  else if (now == null) missing.push('今天的日期格式无法识别');
+  if (today == null) missing.push("today's date was not provided");
+  else if (now == null) missing.push("today's date format can't be read");
 
   // 截止日已过与每周可用小时无关：日期都能解析时先判断。
   if (deadline != null && now != null) {
@@ -316,8 +316,8 @@ function judgeFeasibility(totalHours: number, hours: HoursState, opp: Opportunit
     if (daysLeft < 0) return { value: false, missing: [], deadlinePassed: true, capacityHours: 0, daysLeft };
   }
 
-  if (hours.kind === 'missing') missing.push('档案里还没有填每周可用小时数');
-  else if (hours.kind === 'invalid') missing.push('档案里填写的每周可用小时数无效（需大于 0）');
+  if (hours.kind === 'missing') missing.push('your profile has no weekly available hours yet');
+  else if (hours.kind === 'invalid') missing.push('the weekly available hours in your profile are invalid (must be more than 0)');
 
   const none: Feasibility = { value: null, missing, deadlinePassed: false, capacityHours: null, daysLeft: null };
   if (missing.length > 0 || deadline == null || now == null || hours.kind !== 'ok') return none;
@@ -331,9 +331,9 @@ function judgeFeasibility(totalHours: number, hours: HoursState, opp: Opportunit
 // ───────────────────────────── 路线 ─────────────────────────────
 
 const RATIONALE: Record<RouteType, string> = {
-  learning_first: '先补齐知识和申请材料，再动手做作品；适合刚入门、想先把基础打牢的情况。',
-  practice_first: '尽早动手做项目 / 作品，需要的知识边做边补，作品本身也能成为申请材料；适合已经有一点基础、想尽快拿出成果的情况。',
-  community: '先找到同伴或导师，再一起推进，优先完成申请必需项；适合一个人推进有困难、希望有人一起或有人指点的情况。',
+  learning_first: 'Learn the basics and prepare application materials first, then build your project. Good if you are just starting and want a solid base.',
+  practice_first: 'Start building a project / portfolio early and learn what you need along the way; the work itself can become part of your application. Good if you already know a little and want results soon.',
+  community: 'Find a peer or mentor first, then work together, doing the required items first. Good if working alone is hard and you want company or guidance.',
 };
 
 interface RouteContext {
@@ -353,9 +353,9 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
   if (type === 'community') {
     steps.push({
       id: PARTNER_STEP_ID,
-      title: '找到同伴或导师',
+      title: 'Find a peer or mentor',
       description:
-        '可以找学校老师、社区组织或线上学习社群，约好一起准备或定期请教。2 小时是估算，用来联系和约第一次见面。',
+        'Try a teacher at school, a community group or an online learning group, and agree to prepare together or check in regularly. The 2 hours is an estimate for reaching out and setting up a first meeting.',
       prep_item_id: null,
       depends_on: [],
       hours: 2,
@@ -370,8 +370,8 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
   const fee = opp.cost?.fee_usd;
   steps.push({
     id: SUBMIT_STEP_ID,
-    title: '提交申请',
-    description: `按官网要求提交申请材料${opp.deadline ? `（截止日期 ${opp.deadline}，具体时间以官网为准）` : ''}。提交申请不等于会被录取。`,
+    title: 'Submit application',
+    description: `Submit your application materials as the official site asks${opp.deadline ? ` (deadline ${opp.deadline}; check the official site for the exact time)` : ''}. Submitting an application does not mean you will be admitted.`,
     prep_item_id: null,
     depends_on: steps.map((s) => s.id),
     hours: 0,
@@ -392,23 +392,26 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
   if (cyclic && ctx.cyclicWarning) warnings.push(ctx.cyclicWarning);
   if (fee == null) warnings.push(FEE_UNKNOWN_WARNING);
   if (ctx.budget != null && total_cost_usd > ctx.budget) {
-    warnings.push(`超出预算 ${usd(round2(total_cost_usd - ctx.budget))}（这条路线约需 ${usd(total_cost_usd)}，档案预算 ${usd(ctx.budget)}）。`);
+    warnings.push(`Over budget by ${usd(round2(total_cost_usd - ctx.budget))} (this route needs about ${usd(total_cost_usd)}; your profile budget is ${usd(ctx.budget)}).`);
   }
   if (feas.value === false) {
     if (feas.deadlinePassed) {
-      warnings.push(`截止日期 ${opp.deadline} 已过，这一届来不及申请了。`);
+      warnings.push(`The deadline ${opp.deadline} has passed, so it is too late to apply this round.`);
     } else {
       warnings.push(
-        `按每周 ${fmt(hpw as number)} 小时，到截止日期 ${opp.deadline}（还剩 ${feas.daysLeft} 天）大约能投入 ${fmt(round2(feas.capacityHours as number))} 小时，这条路线需要 ${fmt(total_hours)} 小时，可能来不及。只做申请必需项（含它们的前置步骤）需要 ${fmt(ctx.requiredOnlyHours)} 小时，可供参考；删减哪些步骤由你决定。`,
+        `At ${plural(hpw as number, 'hour')} per week, you can put in about ${plural(round2(feas.capacityHours as number), 'hour')} before the deadline ${opp.deadline} (${plural(feas.daysLeft as number, 'day')} left). This route needs ${plural(total_hours, 'hour')}, so you may not make it. Doing only the required items (and the steps they depend on) needs ${plural(ctx.requiredOnlyHours, 'hour')}, for reference; you decide which steps to cut.`,
       );
     }
   } else if (feas.value === null) {
-    warnings.push(`暂时无法判断能否在截止日期前完成：${feas.missing.join('；')}。`);
+    warnings.push(`We can't tell yet if you can finish before the deadline: ${feas.missing.join('; ')}.`);
   }
 
   let rationale = RATIONALE[type];
   if (hpw != null && estimated_weeks != null) {
-    rationale += `按档案中每周可用 ${fmt(hpw)} 小时，这条路线约需 ${estimated_weeks} 周。`;
+    rationale +=
+      estimated_weeks === 0
+        ? ` At the ${plural(hpw, 'hour')} per week in your profile, this route needs no extra weeks of prep.`
+        : ` At the ${plural(hpw, 'hour')} per week in your profile, this route takes about ${plural(estimated_weeks, 'week')}.`;
   }
 
   return {
@@ -438,30 +441,30 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
   if (eligibility.overall === 'unknown') {
     const labels = eligibility.items
       .filter((i) => i.hard && i.status === 'unknown')
-      .map((i) => `「${i.label}」`)
-      .join('、');
-    warnings.push(`资格还没确认：${labels}。请先对照官网原文向官方确认，再投入准备。`);
+      .map((i) => `"${i.label}"`)
+      .join(', ');
+    warnings.push(`Eligibility not confirmed yet: ${labels}. Confirm with the organizer using the official text before you put time into preparing.`);
   }
   for (const i of eligibility.items) {
     if (!i.hard && i.status === 'not_satisfied') {
-      warnings.push(`加分项「${i.label}」目前不满足（不影响申请资格）。`);
+      warnings.push(`Bonus item "${i.label}" is not met yet (this does not affect eligibility).`);
     }
   }
 
   const { items, dataWarnings } = buildBaseSteps(profile, opp);
   warnings.push(...dataWarnings);
-  if (items.length === 0) warnings.push('这个机会没有列出准备项，路线里只有固定步骤，请以官网要求为准。');
+  if (items.length === 0) warnings.push('This opportunity lists no prep items, so the routes only have fixed steps. Follow the official requirements.');
 
   const hours = hoursState(profile.hours_per_week_available);
   if (hours.kind === 'invalid') {
-    warnings.push('档案里填写的每周可用小时数无效（需大于 0），暂时无法估算周数和能否来得及，请更新档案。');
+    warnings.push("The weekly available hours in your profile are invalid (must be more than 0), so we can't estimate weeks or whether you'll make the deadline. Please update your profile.");
   }
   const budgetRaw = profile.budget_usd;
   let budget: number | null = null;
   if (typeof budgetRaw === 'number' && Number.isFinite(budgetRaw) && budgetRaw >= 0) {
     budget = budgetRaw;
   } else if (budgetRaw != null) {
-    warnings.push('档案里填写的预算数值无效（不能为负数），这次没有做预算比较，请更新档案。');
+    warnings.push('The budget in your profile is invalid (it cannot be negative), so we skipped the budget check this time. Please update your profile.');
   }
 
   // 只做申请必需项：只取未被证据跳过的必需项；遇到已跳过的前置步骤不计入，也不再往前追。
@@ -493,7 +496,7 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
     budget,
     today: options?.today,
     requiredOnlyHours,
-    cyclicWarning: '部分准备项的依赖关系成环，无法确定先后，环上的步骤从原顺序最靠前的一项开始排，其余依赖关系仍被遵守，请向官方或团队确认。',
+    cyclicWarning: 'Some prep items depend on each other in a loop, so their order is unclear. Steps in the loop start from the earliest one in the original list; other dependencies are still respected. Please confirm with the organizer or your team.',
   };
 
   let anyCyclic = false;
@@ -502,7 +505,7 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
     anyCyclic = anyCyclic || cyclic;
     return buildRoute(type, order, cyclic, ctx);
   });
-  if (anyCyclic) warnings.push('机会数据中的准备项依赖关系成环，环上的步骤从原顺序最靠前的一项开始排列。');
+  if (anyCyclic) warnings.push('Prep items in the opportunity data depend on each other in a loop; steps in the loop start from the earliest one in the original list.');
 
   return {
     status: 'routes',

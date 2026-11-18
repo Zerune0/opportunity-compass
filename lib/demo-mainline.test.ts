@@ -222,7 +222,7 @@ describe('演示主线（引擎级集成测试，示例数据）', () => {
     const item = unknown.items[0];
     expect(item.status).toBe('unknown');
     expect(item.source_text).toBe(OPP.requirements[0].source_text);
-    expect(item.confirm_with_official).toContain('向官方确认');
+    expect(item.confirm_with_official).toContain('Confirm with the organizer');
     expect(item.confirm_with_official).toContain(OPP.requirements[0].source_text);
     expect(item.used_profile_fields).toContain('grade');
 

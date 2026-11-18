@@ -48,7 +48,7 @@ function alloc(i: string, s: string, o: string, cost: number): Allocation {
 
 function check(res: VerifyResult, name: string) {
   const c = res.checks.find((x) => x.name === name);
-  if (!c) throw new Error(`缺少检查项 ${name}`);
+  if (!c) throw new Error(`missing check ${name}`);
   return c;
 }
 
@@ -68,7 +68,7 @@ const laptopGrant = (student: string, opp: string | null, extra: Partial<Resourc
   type: 'device',
   device: 'laptop',
   status: 'approved',
-  provider: 'Example Org（虚构）',
+  provider: 'Example Org (fictional)',
   is_sample: true,
   ...extra,
 });
@@ -125,7 +125,7 @@ describe('verifyPlan：正确方案全部通过', () => {
     const res = verifyPlan(base(), { selected_intervention_ids: [], allocations: [] });
     expect(res.passed).toBe(true);
     expect(res.checks.some((c) => c.name === 'organizer_requirements')).toBe(false);
-    expect(check(res, 'metrics').detail).toContain('plan 未携带指标，仅重算');
+    expect(check(res, 'metrics').detail).toContain('The plan carries no metrics; recomputed only');
   });
 
   it('带正确指标的 JointResult 形状通过 metrics；软要求满足时 organizer_requirements 通过', () => {
@@ -234,7 +234,7 @@ describe('verifyPlan：容量', () => {
     };
     const res = verifyPlan(scenario, plan);
     expectFail(res, 'capacity');
-    expect(check(res, 'capacity').detail).toContain('默认时段');
+    expect(check(res, 'capacity').detail).toContain('the default time slot');
   });
 
   it('existing grant 占位（学生不在场景内、status 为 pending 也占）', () => {
@@ -390,7 +390,7 @@ describe('verifyPlan：分配合法', () => {
     };
     const res = verifyPlan(base(), plan);
     expectFail(res, 'allocation_validity');
-    expect(check(res, 'allocation_validity').detail).toContain('重复');
+    expect(check(res, 'allocation_validity').detail).toContain('Duplicate allocation');
   });
 });
 
@@ -468,7 +468,7 @@ function lossCase(): { scenario: Scenario; plan: JointPlan } {
     opportunities: [O1],
     interventions: [makeIntervention('weird', { type: 'time_support', resolves: ['time'], hours_per_week: -5, unit_cost_usd: 0 })],
     existing_grants: [
-      { id: 'e-time', student_id: 's6', opportunity_id: null, type: 'time_support', hours_per_week: 5, status: 'approved', provider: 'Example Org（虚构）', is_sample: true },
+      { id: 'e-time', student_id: 's6', opportunity_id: null, type: 'time_support', hours_per_week: 5, status: 'approved', provider: 'Example Org (fictional)', is_sample: true },
     ],
   });
   return { scenario, plan: { selected_intervention_ids: ['weird'], allocations: [alloc('weird', 's6', 'o1', 0)] } };
@@ -513,7 +513,7 @@ describe('verifyPlan：损失', () => {
     expect(check(res, 'input_validity').passed).toBe(true);
     expect(check(res, 'coverage_loss').passed).toBe(true);
     expectFail(res, 'metrics');
-    expect(check(res, 'metrics').detail).toContain('L 自带 1');
+    expect(check(res, 'metrics').detail).toContain('L reported 1');
   });
 });
 
@@ -534,33 +534,33 @@ describe('verifyPlan：软要求', () => {
 
 describe('verifyPlan：输入不合法与畸形方案', () => {
   const cases: [string, Scenario, VerifyOptions?][] = [
-    ['预算为负', base({ budget_usd: -1 })],
-    ['预算非有限', base({ budget_usd: Number.POSITIVE_INFINITY })],
-    ['评估日不合法', base({ evaluation_date: '2026-13-01' })],
-    ['学生 id 重复', base({ students: [S1, S1] })],
-    ['机会 id 重复', base({ opportunities: [O1, O1] })],
-    ['措施 id 重复', base({ interventions: [LOAN, LOAN] })],
-    ['requires 引用不存在', base({ interventions: [{ ...LOAN, requires: ['ghost'] }] })],
-    ['requires 引用自己', base({ interventions: [{ ...LOAN, requires: ['loan'] }] })],
-    ['互斥引用自己', base({ interventions: [{ ...LOAN, mutually_exclusive_with: ['loan'] }] })],
-    ['opportunity_ids 引用不存在', base({ interventions: [{ ...LOAN, opportunity_ids: ['nowhere'] }] })],
-    ['时段键引用不存在', base({ opportunity_time_slots: { nowhere: 'AM' } })],
-    ['capacity 为负', base({ interventions: [{ ...LOAN, capacity: -1 }] })],
-    ['unit_cost 为负', base({ interventions: [{ ...LOAN, unit_cost_usd: -1 }] })],
-    ['fixed_cost 非有限', base({ interventions: [{ ...LOAN, fixed_cost_usd: Number.NaN }] })],
-    ['loss_cap 为负', base(), { mode: 'tradeoff', loss_cap: -1 }],
-    ['min_gain 非有限', base(), { min_gain: Number.NaN }],
-    ['required 引用不存在', base(), { required_intervention_ids: ['ghost'] }],
-    ['assume_approved 引用不存在', base(), { assume_approved_intervention_ids: ['ghost'] }],
-    ['评估日前后有空格', base({ evaluation_date: ` ${EVAL_DATE} ` })],
-    ['时段标签不是字符串', base({ opportunity_time_slots: { o1: 1 as unknown as string } })],
-    ['时段标签为空字符串', base({ opportunity_time_slots: { o1: '' } })],
-    ['时段表不是对象', base({ opportunity_time_slots: ['AM'] as unknown as Record<string, string> })],
-    ['措施 amount_usd 为负', base({ interventions: [{ ...LOAN, amount_usd: -1 }] })],
-    ['措施 hours_per_week 非有限', base({ interventions: [{ ...LOAN, hours_per_week: Number.NaN }] })],
-    ['已有 grant 的 amount_usd 为负', base({ existing_grants: [laptopGrant('s5', null, { amount_usd: -10 })] })],
-    ['已有 grant 不是对象', base({ existing_grants: [null as unknown as ResourceGrant] })],
-    ['mode 不合法', base(), { mode: 'whatever' as 'protect' }],
+    ['negative budget', base({ budget_usd: -1 })],
+    ['budget not finite', base({ budget_usd: Number.POSITIVE_INFINITY })],
+    ['invalid evaluation date', base({ evaluation_date: '2026-13-01' })],
+    ['duplicate student id', base({ students: [S1, S1] })],
+    ['duplicate opportunity id', base({ opportunities: [O1, O1] })],
+    ['duplicate support measure id', base({ interventions: [LOAN, LOAN] })],
+    ['requires references a missing measure', base({ interventions: [{ ...LOAN, requires: ['ghost'] }] })],
+    ['requires references itself', base({ interventions: [{ ...LOAN, requires: ['loan'] }] })],
+    ['mutual exclusion references itself', base({ interventions: [{ ...LOAN, mutually_exclusive_with: ['loan'] }] })],
+    ['opportunity_ids references a missing opportunity', base({ interventions: [{ ...LOAN, opportunity_ids: ['nowhere'] }] })],
+    ['time slot key references a missing opportunity', base({ opportunity_time_slots: { nowhere: 'AM' } })],
+    ['negative capacity', base({ interventions: [{ ...LOAN, capacity: -1 }] })],
+    ['negative unit_cost', base({ interventions: [{ ...LOAN, unit_cost_usd: -1 }] })],
+    ['fixed_cost not finite', base({ interventions: [{ ...LOAN, fixed_cost_usd: Number.NaN }] })],
+    ['negative loss_cap', base(), { mode: 'tradeoff', loss_cap: -1 }],
+    ['min_gain not finite', base(), { min_gain: Number.NaN }],
+    ['required references a missing measure', base(), { required_intervention_ids: ['ghost'] }],
+    ['assume_approved references a missing measure', base(), { assume_approved_intervention_ids: ['ghost'] }],
+    ['evaluation date with surrounding spaces', base({ evaluation_date: ` ${EVAL_DATE} ` })],
+    ['time slot label not a string', base({ opportunity_time_slots: { o1: 1 as unknown as string } })],
+    ['time slot label is an empty string', base({ opportunity_time_slots: { o1: '' } })],
+    ['time slot map is not an object', base({ opportunity_time_slots: ['AM'] as unknown as Record<string, string> })],
+    ['measure amount_usd negative', base({ interventions: [{ ...LOAN, amount_usd: -1 }] })],
+    ['measure hours_per_week not finite', base({ interventions: [{ ...LOAN, hours_per_week: Number.NaN }] })],
+    ['existing grant amount_usd negative', base({ existing_grants: [laptopGrant('s5', null, { amount_usd: -10 })] })],
+    ['existing grant is not an object', base({ existing_grants: [null as unknown as ResourceGrant] })],
+    ['invalid mode', base(), { mode: 'whatever' as 'protect' }],
   ];
   for (const [name, scenario, options] of cases) {
     it(`input_validity 不通过：${name}（其余检查照常给出）`, () => {
@@ -634,7 +634,7 @@ describe('verifyPlan：纯函数', () => {
   });
 
   it('不读取学校名、显示名：只改这两个字段结果相同', () => {
-    const s1b = { ...S1, school_name: 'Fictional Elite Academy', display_name: '另一个名字' };
+    const s1b = { ...S1, school_name: 'Fictional Elite Academy', display_name: 'Another name' };
     const a = verifyPlan(base(), GOOD);
     const b = verifyPlan(base({ students: [s1b, S2, S3, S4, S5] }), GOOD);
     expect(b).toEqual(a);
@@ -734,7 +734,7 @@ function bruteNoPrune(scenario: Scenario, options: VerifyOptions = {}) {
 describe('exhaustiveBest：剪枝不改变最优指标（对照不剪枝的暴力枚举）', () => {
   const tiny: [string, Scenario, VerifyOptions?][] = [
     [
-      '两人两措施（设备 + 交通）、线下机会',
+      'two students, two measures (device + transport), in-person opportunity',
       makeScenario({
         students: [makeStudent('a', { transport: { level: 'none' } }), makeStudent('b')],
         opportunities: [makeOpp('in', { location: { format: 'in_person', country: 'US', state: 'CA' } })],
@@ -746,7 +746,7 @@ describe('exhaustiveBest：剪枝不改变最优指标（对照不剪枝的暴�
       }),
     ],
     [
-      '一人两机会、existing grant、per_time_slot',
+      'one student, two opportunities, existing grant, per_time_slot',
       makeScenario({
         students: [S1, S2],
         opportunities: [O1, O2],
@@ -755,9 +755,9 @@ describe('exhaustiveBest：剪枝不改变最优指标（对照不剪枝的暴�
         existing_grants: [laptopGrant('s2', 'o2', { intervention_id: 'loan' })],
       }),
     ],
-    ['不合法输入（负小时措施）：两边都不可行', lossCase().scenario, { mode: 'tradeoff', loss_cap: 1 }],
+    ['invalid input (negative-hours measure): infeasible on both sides', lossCase().scenario, { mode: 'tradeoff', loss_cap: 1 }],
     [
-      'tradeoff 模式 + pending 的已有 grant（占容量、不免成本）',
+      'tradeoff mode + pending existing grant (uses capacity, not free)',
       makeScenario({
         students: [S1, S2],
         opportunities: [O1],
@@ -834,7 +834,7 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
     expect(r.metrics).toMatchObject({ G: 1, L: 0, N: 1, total_usd: 120, lost_pairs: [], revoked_grant_ids: ['e-old'] });
     expect(r.metrics.R0).toEqual([P('s1', 'o1')]);
     expect(r.metrics.revocations).toEqual([{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1', forced_by: 'new' }]);
-    expect(check(r.result, 'revocation').detail).toContain('强制撤回 1 条');
+    expect(check(r.result, 'revocation').detail).toContain('1 forced');
   });
 
   it('protect 模式（缺省或显式）下任何撤回都不通过：强制撤回也不行', () => {
@@ -882,7 +882,7 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
           expect(check(res, 'input_validity').passed).toBe(true);
           expectFail(res, 'revocation');
           expect(check(res, 'revocation').detail).toContain('e-out');
-          expect(check(res, 'revocation').detail).toContain('不在场景内');
+          expect(check(res, 'revocation').detail).toContain('outside the scenario');
         }
         // 重算时 X 不含 e-out：它照样占容量 → 撤回列表虽非法，R1 不变（L = 0）
         const m = verifyAndMeasure(createJointEvaluator(scenario), plan, TRADE1).metrics;
@@ -897,10 +897,10 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
         const res = verifyPlan(scenario, SWAP, o);
         expectFail(res, 'mutual_exclusion');
         const d = check(res, 'mutual_exclusion').detail;
-        expect(d).toContain('「new」');
-        expect(d).toContain('「old」');
+        expect(d).toContain('"new"');
+        expect(d).toContain('"old"');
         expect(d).toContain('e-out');
-        expect(d).toContain('不可撤回');
+        expect(d).toContain('non-revocable');
         // 强制撤回只针对可撤回的 grant：tradeoff 下撤回 e-old 就满足 revocation，不要求（也不允许）撤回 e-out
         if (o?.mode === 'tradeoff') expect(failedNames(res)).toEqual(['mutual_exclusion']);
       }
@@ -969,11 +969,11 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
     const empty = { selected_intervention_ids: [], allocations: [] };
     const bad: [unknown, string][] = [
       [['ghost'], 'ghost'],
-      [['e-old', 'e-old'], '重复'],
-      [['e-free'], '不可撤回'],
-      [['e-gone'], '不可撤回'],
-      [[42], '非字符串'],
-      ['e-old', '不是数组'],
+      [['e-old', 'e-old'], 'Revoked more than once'],
+      [['e-free'], 'cannot be revoked'],
+      [['e-gone'], 'cannot be revoked'],
+      [[42], 'is not a string'],
+      ['e-old', 'is not an array'],
     ];
     for (const [ids, text] of bad) {
       const res = verifyPlan(scenario, { ...empty, revoked_grant_ids: ids as string[] }, TRADE1);
@@ -1014,7 +1014,7 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
     expect(failedNames(r.result)).toEqual([]);
     expect(r.metrics).toMatchObject({ G: 1, L: 1, N: 0, lost_pairs: [P('s1', 'o1')] });
     expect(r.metrics.revocations[0].forced_by).toBeNull();
-    expect(check(r.result, 'revocation').detail).toContain('自愿撤回 1 条');
+    expect(check(r.result, 'revocation').detail).toContain('1 voluntary');
     expectFail(verifyPlan(rev(), { ...plan, revoked_grant_ids: [] }, TRADE1), 'capacity');
   });
 
@@ -1078,17 +1078,17 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
       expect(failedNames(verifyPlan(rev(), honest, TRADE1))).toEqual([]);
     });
     const variants: [string, unknown][] = [
-      ['lost_pairs 为空', { ...honest, lost_pairs: [] }],
-      ['lost_pairs 多一个', { ...honest, lost_pairs: [P('s1', 'o1'), P('s2', 'o1')] }],
-      ['lost_pairs 重复', { ...honest, lost_pairs: [P('s1', 'o1'), P('s1', 'o1')] }],
-      ['lost_pairs 不是数组', { ...honest, lost_pairs: 'x' }],
-      ['revocations 为空', { ...honest, revocations: [] }],
-      ['forced_by 写成 null', { ...honest, revocations: [{ ...honest.revocations[0], forced_by: null }] }],
-      ['forced_by 缺省', { ...honest, revocations: [{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1' }] }],
-      ['student_id 错', { ...honest, revocations: [{ ...honest.revocations[0], student_id: 's2' }] }],
-      ['多一条', { ...honest, revocations: [...honest.revocations, { grant_id: 'e-x', intervention_id: 'old', student_id: 's2', forced_by: null }] }],
-      ['重复 grant_id', { ...honest, revocations: [honest.revocations[0], honest.revocations[0]] }],
-      ['R1 仍算上被撤回 grant 的学生', { ...honest, R1: [P('s1', 'o1'), P('s2', 'o1')], L: 0, N: 1, lost_pairs: [] }],
+      ['lost_pairs empty', { ...honest, lost_pairs: [] }],
+      ['lost_pairs has an extra pair', { ...honest, lost_pairs: [P('s1', 'o1'), P('s2', 'o1')] }],
+      ['lost_pairs duplicated', { ...honest, lost_pairs: [P('s1', 'o1'), P('s1', 'o1')] }],
+      ['lost_pairs not an array', { ...honest, lost_pairs: 'x' }],
+      ['revocations empty', { ...honest, revocations: [] }],
+      ['forced_by written as null', { ...honest, revocations: [{ ...honest.revocations[0], forced_by: null }] }],
+      ['forced_by missing', { ...honest, revocations: [{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1' }] }],
+      ['wrong student_id', { ...honest, revocations: [{ ...honest.revocations[0], student_id: 's2' }] }],
+      ['one extra entry', { ...honest, revocations: [...honest.revocations, { grant_id: 'e-x', intervention_id: 'old', student_id: 's2', forced_by: null }] }],
+      ['duplicate grant_id', { ...honest, revocations: [honest.revocations[0], honest.revocations[0]] }],
+      ['R1 still counts the student whose grant was revoked', { ...honest, R1: [P('s1', 'o1'), P('s2', 'o1')], L: 0, N: 1, lost_pairs: [] }],
     ];
     for (const [name, plan] of variants) {
       it(name, () => {
@@ -1109,8 +1109,8 @@ const F5 = makeStudent('f5', { statuses: ['first_generation'], devices: ['laptop
 
 const floor = (id: string, statuses: StudentStatus[], min_ratio: number): FairnessFloor => ({
   id,
-  label: `示例群体 ${id}`,
-  basis: '虚构的分组依据（示例）',
+  label: `Sample group ${id}`,
+  basis: 'Fictional grouping basis (sample)',
   statuses_any_of: statuses,
   min_ratio,
 });
@@ -1152,7 +1152,7 @@ describe('verifyPlan：公平底线（第 4 条）', () => {
     const r = fairnessOf(fair(), EMPTY, [UG]);
     expect(failedNames(r.result)).toEqual([]);
     expect(r.metrics.fairness).toEqual([{ floor_id: 'ug', eligible_members: 0, covered_members: 0, ratio: null, min_ratio: 1, satisfied: true }]);
-    expect(check(r.result, 'fairness').detail).toContain('不适用');
+    expect(check(r.result, 'fairness').detail).toContain('not applicable');
   });
 
   it('statuses 没填（null / undefined / 非数组）的学生不属于任何群体', () => {
@@ -1204,7 +1204,7 @@ describe('verifyPlan：公平底线（第 4 条）', () => {
   });
 
   it('不读取学校名、显示名：只改这两个字段，公平结果相同', () => {
-    const renamed = [F1, F2, F3, F4, F5].map((s, k) => ({ ...s, school_name: k % 2 ? 'Fictional Elite Academy' : 'Fictional Rural High', display_name: `别名 ${k}` }));
+    const renamed = [F1, F2, F3, F4, F5].map((s, k) => ({ ...s, school_name: k % 2 ? 'Fictional Elite Academy' : 'Fictional Rural High', display_name: `Alias ${k}` }));
     const a = fairnessOf(fair(), TO('f2'), [FG, LOW]);
     const b = fairnessOf(fair({ students: renamed }), TO('f2'), [FG, LOW]);
     expect(b.result).toEqual(a.result);
@@ -1213,20 +1213,20 @@ describe('verifyPlan：公平底线（第 4 条）', () => {
 
   describe('不合法的底线输入 → input_validity 不通过（fairness 检查同样不通过）', () => {
     const bad: [string, unknown][] = [
-      ['不是数组', { low: LOW }],
-      ['条目不是对象', [null]],
-      ['id 为空', [{ ...LOW, id: '' }]],
-      ['id 不是字符串', [{ ...LOW, id: 3 }]],
-      ['id 重复', [LOW, { ...FG, id: 'low' }]],
-      ['label 只有空格', [{ ...LOW, label: '   ' }]],
-      ['basis 缺失', [{ id: 'x', label: 'x', statuses_any_of: ['low_income'], min_ratio: 0.5 }]],
-      ['statuses_any_of 为空', [{ ...LOW, statuses_any_of: [] }]],
-      ['statuses_any_of 不是数组', [{ ...LOW, statuses_any_of: 'low_income' }]],
-      ['statuses_any_of 含非法取值', [{ ...LOW, statuses_any_of: ['low_income', 'rich'] }]],
-      ['min_ratio 大于 1', [{ ...LOW, min_ratio: 1.5 }]],
-      ['min_ratio 为负', [{ ...LOW, min_ratio: -0.1 }]],
+      ['not an array', { low: LOW }],
+      ['entry is not an object', [null]],
+      ['id empty', [{ ...LOW, id: '' }]],
+      ['id not a string', [{ ...LOW, id: 3 }]],
+      ['duplicate id', [LOW, { ...FG, id: 'low' }]],
+      ['label only spaces', [{ ...LOW, label: '   ' }]],
+      ['basis missing', [{ id: 'x', label: 'x', statuses_any_of: ['low_income'], min_ratio: 0.5 }]],
+      ['statuses_any_of empty', [{ ...LOW, statuses_any_of: [] }]],
+      ['statuses_any_of not an array', [{ ...LOW, statuses_any_of: 'low_income' }]],
+      ['statuses_any_of has an invalid value', [{ ...LOW, statuses_any_of: ['low_income', 'rich'] }]],
+      ['min_ratio greater than 1', [{ ...LOW, min_ratio: 1.5 }]],
+      ['min_ratio negative', [{ ...LOW, min_ratio: -0.1 }]],
       ['min_ratio NaN', [{ ...LOW, min_ratio: Number.NaN }]],
-      ['min_ratio 是字符串', [{ ...LOW, min_ratio: '0.5' }]],
+      ['min_ratio is a string', [{ ...LOW, min_ratio: '0.5' }]],
     ];
     for (const [name, floors] of bad) {
       it(name, () => {
@@ -1249,14 +1249,14 @@ describe('verifyPlan：公平底线（第 4 条）', () => {
       expect(failedNames(verifyPlan(fair(), honest, { fairness_floors: [FG, LOW] }))).toEqual([]);
     });
     const variants: [string, unknown][] = [
-      ['covered_members 多报', [{ ...truth[0], covered_members: 3 }, truth[1]]],
-      ['eligible_members 少报', [truth[0], { ...truth[1], eligible_members: 1, ratio: 1 }]],
-      ['ratio 不一致', [truth[0], { ...truth[1], ratio: 0.6 }]],
-      ['satisfied 造假', [truth[0], { ...truth[1], satisfied: false }]],
-      ['min_ratio 被降低', [{ ...truth[0], min_ratio: 0.5 }, truth[1]]],
-      ['顺序颠倒', [truth[1], truth[0]]],
-      ['少一条', [truth[0]]],
-      ['不是数组', 'ok'],
+      ['covered_members over-reported', [{ ...truth[0], covered_members: 3 }, truth[1]]],
+      ['eligible_members under-reported', [truth[0], { ...truth[1], eligible_members: 1, ratio: 1 }]],
+      ['ratio mismatch', [truth[0], { ...truth[1], ratio: 0.6 }]],
+      ['satisfied faked', [truth[0], { ...truth[1], satisfied: false }]],
+      ['min_ratio lowered', [{ ...truth[0], min_ratio: 0.5 }, truth[1]]],
+      ['order reversed', [truth[1], truth[0]]],
+      ['one entry missing', [truth[0]]],
+      ['not an array', 'ok'],
     ];
     for (const [name, f] of variants) {
       it(name, () => {
@@ -1271,7 +1271,7 @@ describe('verifyPlan：公平底线（第 4 条）', () => {
           expect(res.checks.some((c) => c.name === 'fairness')).toBe(false);
         }
       }
-      expect(check(verifyPlan(fair(), honest), 'metrics').detail).toContain('未比较 plan 自带的 fairness');
+      expect(check(verifyPlan(fair(), honest), 'metrics').detail).toContain("the plan's own fairness was not compared");
     });
   });
 
@@ -1381,11 +1381,11 @@ describe('exhaustiveBest / naiveBest：撤回与底线（对照手算与不剪�
   });
 
   const tiny: [string, Scenario, VerifyOptions][] = [
-    ['换用互斥措施（protect）', rev(), {}],
-    ['换用互斥措施（tradeoff 0）', rev(), TRADE0],
-    ['换用互斥措施（tradeoff 1）', rev(), TRADE1],
+    ['switch to the mutually exclusive measure (protect)', rev(), {}],
+    ['switch to the mutually exclusive measure (tradeoff 0)', rev(), TRADE0],
+    ['switch to the mutually exclusive measure (tradeoff 1)', rev(), TRADE1],
     [
-      '撤回 pending grant 腾名额',
+      'revoke a pending grant to free capacity',
       makeScenario({
         students: [S1, S2],
         opportunities: [O1],
@@ -1395,7 +1395,7 @@ describe('exhaustiveBest / naiveBest：撤回与底线（对照手算与不剪�
       TRADE0,
     ],
     [
-      '自愿撤回不值得（N 不变、L 变大）',
+      'voluntary revocation not worth it (N unchanged, L larger)',
       makeScenario({
         students: [S1, S2],
         opportunities: [O1],
@@ -1405,13 +1405,13 @@ describe('exhaustiveBest / naiveBest：撤回与底线（对照手算与不剪�
       { mode: 'tradeoff', loss_cap: 2 },
     ],
     [
-      '底线 + 撤回',
+      'floor + revocation',
       rev({ students: [{ ...S1, statuses: ['low_income'] }, { ...S2, statuses: ['first_generation'] }] }),
       { mode: 'tradeoff', loss_cap: 1, fairness_floors: [floor('fg', ['first_generation'], 1)] },
     ],
-    ['底线（三人一措施）', makeScenario({ students: [F1, F2, F5], opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }), { fairness_floors: [FG, LOW] }],
+    ['floor (three students, one measure)', makeScenario({ students: [F1, F2, F5], opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }), { fairness_floors: [FG, LOW] }],
     [
-      'R1：场景外学生的 grant 封锁互斥措施（tradeoff 2）',
+      'R1: an outside student grant blocks the mutually exclusive measure (tradeoff 2)',
       rev({
         interventions: [{ ...OLD, capacity: 2 }, NEW],
         existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],

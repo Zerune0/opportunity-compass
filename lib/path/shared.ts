@@ -7,9 +7,9 @@ import type { EvidenceKind, RouteType } from '../types';
 export { fmt };
 
 export const ROUTE_TITLES: Record<RouteType, string> = {
-  learning_first: '学习优先',
-  practice_first: '实践优先',
-  community: '社区协作',
+  learning_first: 'Learning first',
+  practice_first: 'Practice first',
+  community: 'Community',
 };
 
 /** 实践类准备项：evidence_kind 属于这些种类。其余（含未填）为学习 / 材料类。 */
@@ -26,7 +26,7 @@ export const PARTNER_STEP_ID = 'find-partner';
 export const RESERVED_STEP_IDS: readonly string[] = [SUBMIT_STEP_ID, PARTNER_STEP_ID];
 
 /** 报名费未写清时路线上的提醒；plan 生成、diff 用它判断「未写清 ↔ 有数字」。 */
-export const FEE_UNKNOWN_WARNING = '报名费官网未写清，未计入费用，请向官方确认。';
+export const FEE_UNKNOWN_WARNING = 'The application fee is not clear on the official site and is not counted in the cost. Confirm with the organizer.';
 
 /**
  * 结构化深比较（只处理 JSON 类数据：原始值、数组、普通对象），对对象键顺序不敏感。

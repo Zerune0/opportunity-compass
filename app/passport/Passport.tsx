@@ -69,7 +69,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
     <div className="rpg-stack rpg-stack--loose">
       <header className="rpg-head crt">
       <h1>Skill Passport</h1>
-      {profile?.is_sample && <p><StatusTag tone="warning">Sample profile / 示例档案</StatusTag> {profile.display_name}</p>}
+      {profile?.is_sample && <p><StatusTag tone="warning">Sample profile</StatusTag> {profile.display_name}</p>}
       {opportunityId && <a className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunityId)}`}>Return to Adventure Map</a>}
       </header>
       <SampleProfiles profile={profile} onChange={setProfile} />

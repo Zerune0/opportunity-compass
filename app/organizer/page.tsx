@@ -4,9 +4,9 @@ import WhatIf from "./what-if";
 import type { ClientScenarioEntry } from "./what-if";
 
 export const metadata: Metadata = {
-  title: "主办方 What-if（模拟）· Opportunity Compass",
+  title: "Organizer What-if (Simulated) · Opportunity Compass",
   description:
-    "示例场景下的主办方资源分配模拟：新增可达、失去可达、净变化、成本、公平底线与基线对比。模拟结果，不代表真实影响。",
+    "Simulated organizer resource allocation on sample scenarios: newly reachable, lost, net change, cost, fairness floors and baseline comparison. Simulated results. They do not represent real-world impact.",
 };
 
 /**

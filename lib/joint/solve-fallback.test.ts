@@ -22,7 +22,7 @@ vi.mock('./verify', async (importOriginal) => {
     verifyPlan: (...args: Parameters<typeof actual.verifyPlan>): VerifyResult => {
       const r = actual.verifyPlan(...args);
       if (!state.failIf(args[1])) return r;
-      return { passed: false, checks: [...r.checks, { name: 'metrics', passed: false, detail: '测试注入：模拟复核不通过' }] };
+      return { passed: false, checks: [...r.checks, { name: 'metrics', passed: false, detail: 'Test injection: simulated verification failure' }] };
     },
   };
 });
@@ -47,8 +47,8 @@ describe('M1(b)：复核不通过时不返回 OPTIMAL', () => {
     expect(r.cost).toEqual({ fixed_usd: 0, marginal_usd: 0, total_usd: 0 });
     expect([r.R0, r.R1, r.G, r.L, r.N]).toEqual([[], [], 0, 0, 0]);
     expect(r.verification?.passed).toBe(false);
-    expect(r.verification?.checks.some((c) => c.detail.includes('测试注入'))).toBe(true);
-    expect(r.notes.join('')).toContain('内部复核未通过，按不支持的输入处理，请检查场景数据');
+    expect(r.verification?.checks.some((c) => c.detail.includes('Test injection'))).toBe(true);
+    expect(r.notes.join('')).toContain('Internal verification failed; treated as unsupported input. Please check the scenario data');
     expect(r.alternative ?? null).toBeNull();
     expect(r.conditional ?? null).toBeNull();
   });
@@ -58,7 +58,7 @@ describe('M1(b)：复核不通过时不返回 OPTIMAL', () => {
     const v = runWhatIf(deviceLoanScenario, { enabledIds: [LAPTOP], requiredIds: [], budget: 400 });
     expect(v.status).toBe('UNSUPPORTED_INPUT');
     expect(v.verification.passed).toBe(false);
-    expect(v.verification.note).toContain('没有通过独立复核');
+    expect(v.verification.note).toContain('failed independent verification');
     expect(v.verification.checks.some((c) => !c.passed)).toBe(true);
     expect(v.uncovered).toBeNull();
   });
@@ -73,7 +73,7 @@ describe('M1(b)：复核不通过时不返回 OPTIMAL', () => {
       type: 'device',
       device: 'laptop',
       status: 'approved',
-      provider: '示例学校借用（模拟）',
+      provider: 'Sample school loan (simulated)',
       is_sample: true,
     });
     const sc = withEnabledInterventions(
@@ -91,8 +91,8 @@ describe('M1(b)：复核不通过时不返回 OPTIMAL', () => {
     expect(c.status).toBe('UNSUPPORTED_INPUT');
     expect(c.selected_intervention_ids).toEqual([]);
     expect(c.allocations).toEqual([]);
-    expect(c.note).toContain('内部复核未通过');
-    expect(c.note).toContain('尚未生效');
+    expect(c.note).toContain('Internal verification failed');
+    expect(c.note).toContain('Not in effect yet');
     const v = runWhatIf(sc, { enabledIds: [LAPTOP, SATELLITE], requiredIds: [], budget: 400 });
     expect(v.conditional?.verification_passed).toBe(false);
   });
@@ -105,8 +105,8 @@ describe('M1(b)：复核不通过时不返回 OPTIMAL', () => {
     expect(alt.relaxed).toEqual(['min_gain']);
     expect(alt.selected_intervention_ids).toEqual([]);
     expect(alt.allocations).toEqual([]);
-    expect(alt.note).toContain('内部复核未通过');
-    expect(alt.note).toContain('占位');
+    expect(alt.note).toContain('Internal verification failed');
+    expect(alt.note).toContain('placeholder');
   });
 });
 
@@ -132,7 +132,7 @@ describe('S5：达到搜索上限时回退到复核通过的较早候选', () =>
       expect(r.status).toBe('SEARCH_LIMIT_REACHED');
       expect(r.selected_intervention_ids).toEqual(['a-expensive']);
       expect(r.verification?.passed).toBe(true);
-      expect(r.notes.join('')).toContain('未证明最优');
+      expect(r.notes.join('')).toContain('optimality is not proven');
       found = true;
     }
     expect(found).toBe(true);
