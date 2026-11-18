@@ -1,0 +1,177 @@
+[
+  {
+    "verified_by": "Charlie",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "practice-open-source-pr",
+        "title": "Practice opening a pull request",
+        "skill": "git",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion — not an official requirement"
+      }
+    ],
+    "id": "mlh-open-source-week-2026",
+    "title": "Global Hack Week: Open Source Week",
+    "organizer": "Major League Hacking",
+    "category": "hackathon",
+    "fields": [
+      "software-development",
+      "open-source"
+    ],
+    "summary": "A free online week of open-source projects, challenges, and live workshops.",
+    "official_url": "https://events.mlh.com/events/15199-global-hack-week-open-source-week",
+    "deadline": null,
+    "deadline_note": "See the organizer for registration availability.",
+    "location": {
+      "format": "online"
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": false,
+      "note": "Free online participation."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": 1,
+      "note": "Check the event schedule for individual sessions.",
+      "start_date": "2026-12-04",
+      "end_date": "2026-12-10"
+    },
+    "requirements": []
+  },
+  {
+    "verified_by": "Charlie",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "id": "rutgers-newark-summer-research-2027",
+    "title": "Rutgers Newark Undergraduate Summer Research Program",
+    "organizer": "Rutgers School of Graduate Studies",
+    "category": "research",
+    "fields": [
+      "biomedical-research",
+      "life-sciences"
+    ],
+    "summary": "A 10-week supervised undergraduate biomedical research program in Newark, New Jersey.",
+    "official_url": "https://njms.rutgers.edu/sgs/prospective_students/info/summer_undergrad_research.php",
+    "deadline": "2027-03-05",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "state": "NJ",
+      "city": "Newark"
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The organizer lists stipends based on housing arrangements."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": 10,
+      "note": "See the organizer for the weekly schedule.",
+      "start_date": "2027-06-07",
+      "end_date": "2027-08-13"
+    },
+    "requirements": [
+      {
+        "id": "undergraduate",
+        "type": "grade",
+        "min": 13,
+        "max": 16,
+        "hard": true,
+        "label": "Undergraduate student",
+        "source_text": "This program provides the opportunity for undergraduates"
+      },
+      {
+        "id": "us-citizen-or-permanent-resident",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen or lawful permanent resident",
+        "source_text": "you must be a U.S. citizen or Permanent resident."
+      }
+    ]
+  },
+  {
+    "verified_by": "Charlie",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "id": "doe-suli-summer-2027",
+    "title": "DOE Science Undergraduate Laboratory Internships · Summer 2027",
+    "organizer": "U.S. Department of Energy Office of Science",
+    "category": "internship",
+    "fields": [
+      "stem",
+      "laboratory-research"
+    ],
+    "summary": "A paid summer internship at a participating DOE laboratory. Review the eligibility page for full requirements and exceptions for recent graduates.",
+    "official_url": "https://science.osti.gov/wdts/suli/How-to-Apply",
+    "deadline": "2027-01-06",
+    "deadline_note": "5:00 PM Eastern Time",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "note": "Location and dates vary by host laboratory."
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "Compensation and travel support depend on program terms."
+    },
+    "time_commitment": {
+      "hours_per_week": 40,
+      "total_weeks": 10,
+      "note": "Approximately 40 hours per week on site."
+    },
+    "requirements": [
+      {
+        "id": "us-citizen-or-permanent-resident",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen or lawful permanent resident",
+        "source_text": "United States Citizen or Lawful Permanent Resident"
+      },
+      {
+        "id": "minimum-age",
+        "label": "At least 18 when the internship begins",
+        "source_text": "18 years or older at the time the internship begins",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "enrollment",
+        "label": "Full-time undergraduate or qualifying recent graduate",
+        "source_text": "Recently graduated with an undergraduate degree",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "transcript-credits",
+        "label": "At least 6 STEM and 12 total undergraduate credits by the deadline",
+        "source_text": "a minimum of 12 total undergraduate credit hours",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "minimum-gpa",
+        "label": "At least a 3.0 cumulative GPA on a 4.0 scale",
+        "source_text": "cumulative GPA of at least 3.0",
+        "type": "manual",
+        "hard": true
+      }
+    ]
+  }
+]
