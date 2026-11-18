@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import { addEvidence, loadProfile, saveProfile } from "@/lib/store";
 import type { EvidenceItem, EvidenceKind, StudentProfile } from "@/lib/types";
+import { SampleProfiles } from "./SampleProfiles";
 
 const kinds = ["project", "portfolio", "certificate", "competition_result", "work_experience", "volunteer_experience", "course", "recommendation_letter", "other"] as const satisfies readonly EvidenceKind[];
 const labels = {
@@ -67,8 +68,11 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
   return (
     <div className="rpg-stack">
       <h1>Skill Passport</h1>
-      {profile?.is_sample && <StatusTag>Sample profile</StatusTag>}
+      {profile?.is_sample && <p><StatusTag tone="warning">Sample profile / 示例档案</StatusTag> {profile.display_name}</p>}
       {opportunityId && <a href={`/map?opp=${encodeURIComponent(opportunityId)}`}>Return to Adventure Map</a>}
+      <QuestCard>
+        <SampleProfiles profile={profile} onChange={setProfile} />
+      </QuestCard>
       <QuestCard>
         <h2>Add evidence</h2>
         <form className="rpg-stack rpg-evidence-form" onSubmit={submit}>
