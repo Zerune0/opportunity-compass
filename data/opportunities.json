@@ -13,7 +13,9 @@
         "estimated_cost_usd": 0,
         "depends_on": [],
         "required_for_application": false,
-        "source_text": "Team suggestion — not an official requirement"
+        "source_text": "Team suggestion — not an official requirement",
+        "material_kind": null,
+        "reusable_across_opportunities": null
       }
     ],
     "id": "mlh-open-source-week-2026",
@@ -21,15 +23,18 @@
     "organizer": "Major League Hacking",
     "category": "hackathon",
     "fields": [
-      "software-development",
-      "open-source"
+      "software_development",
+      "open_source"
     ],
     "summary": "A free online week of open-source projects, challenges, and live workshops.",
     "official_url": "https://events.mlh.com/events/15199-global-hack-week-open-source-week",
     "deadline": null,
     "deadline_note": "See the organizer for registration availability.",
     "location": {
-      "format": "online"
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
     },
     "cost": {
       "fee_usd": 0,
@@ -43,20 +48,79 @@
       "start_date": "2026-12-04",
       "end_date": "2026-12-10"
     },
-    "requirements": []
+    "requirements": [],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "review-research-interests",
+        "title": "Draft a short summary of biomedical research interests",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "practice-lab-data-cleanup",
+        "title": "Practice cleaning a small public biomedical dataset",
+        "skill": "python",
+        "evidence_kind": "project",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      },
+      {
+        "id": "write-research-project-note",
+        "title": "Write a short project note explaining methods and limitations",
+        "skill": "scientific_writing",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [
+          "practice-lab-data-cleanup"
+        ],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": "portfolio",
+        "reusable_across_opportunities": true
+      },
+      {
+        "id": "review-lab-safety-basics",
+        "title": "Review introductory laboratory safety guidance",
+        "skill": "laboratory_safety",
+        "evidence_kind": null,
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      }
+    ],
     "id": "rutgers-newark-summer-research-2027",
     "title": "Rutgers Newark Undergraduate Summer Research Program",
     "organizer": "Rutgers School of Graduate Studies",
     "category": "research",
     "fields": [
-      "biomedical-research",
-      "life-sciences"
+      "biomedical_research",
+      "life_sciences"
     ],
     "summary": "A 10-week supervised undergraduate biomedical research program in Newark, New Jersey.",
     "official_url": "https://njms.rutgers.edu/sgs/prospective_students/info/summer_undergrad_research.php",
@@ -99,20 +163,38 @@
         "label": "U.S. citizen or lawful permanent resident",
         "source_text": "you must be a U.S. citizen or Permanent resident."
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "draft-research-resume",
+        "title": "Draft a resume highlighting coursework and research interests",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "resume",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "id": "doe-suli-summer-2027",
     "title": "DOE Science Undergraduate Laboratory Internships · Summer 2027",
     "organizer": "U.S. Department of Energy Office of Science",
     "category": "internship",
     "fields": [
       "stem",
-      "laboratory-research"
+      "laboratory_research"
     ],
     "summary": "A paid summer internship at a participating DOE laboratory. Review the eligibility page for full requirements and exceptions for recent graduates. Eligibility source: https://science.osti.gov/wdts/suli/Eligibility",
     "official_url": "https://science.osti.gov/wdts/suli/How-to-Apply",
@@ -121,7 +203,9 @@
     "location": {
       "format": "in_person",
       "country": "US",
-      "note": "Location and dates vary by host laboratory."
+      "note": "Location and dates vary by host laboratory.",
+      "state": null,
+      "city": null
     },
     "cost": {
       "fee_usd": null,
@@ -180,27 +264,48 @@
         "type": "manual",
         "hard": true
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "outline-transfer-goals",
+        "title": "Outline transfer goals and educational background",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "id": "cooke-transfer-scholarship-2027",
     "title": "Cooke Undergraduate Transfer Scholarship",
     "organizer": "Jack Kent Cooke Foundation",
     "category": "scholarship",
     "fields": [
-      "college-transfer",
-      "financial-aid"
+      "college_transfer",
+      "financial_aid"
     ],
     "summary": "Scholarship for eligible community college students transferring to a four-year institution.",
     "official_url": "https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/",
     "deadline": "2026-12-09",
     "location": {
       "format": "online",
-      "note": "Application is online. The award supports study at a four-year institution."
+      "note": "Application is online. The award supports study at a four-year institution.",
+      "country": null,
+      "state": null,
+      "city": null
     },
     "cost": {
       "fee_usd": null,
@@ -219,20 +324,38 @@
         "type": "manual",
         "hard": true
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "outline-noaa-interests",
+        "title": "Outline interests related to NOAA science",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "id": "noaa-hollings-scholarship-2027",
     "title": "Ernest F. Hollings Undergraduate Scholarship",
     "organizer": "NOAA Office of Education",
     "category": "scholarship",
     "fields": [
-      "environmental-science",
-      "ocean-science"
+      "environmental_science",
+      "ocean_science"
     ],
     "summary": "An undergraduate scholarship that includes a paid summer internship at a NOAA facility.",
     "official_url": "https://www.noaa.gov/office-education/undergraduate-scholarships",
@@ -241,7 +364,9 @@
     "location": {
       "format": "in_person",
       "country": "US",
-      "note": "Online application. The internship takes place at a NOAA facility."
+      "note": "Online application. The internship takes place at a NOAA facility.",
+      "state": null,
+      "city": null
     },
     "cost": {
       "fee_usd": null,
@@ -267,20 +392,38 @@
         "type": "manual",
         "hard": true
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "draft-community-college-resume",
+        "title": "Draft a resume highlighting laboratory and STEM coursework",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "resume",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "id": "doe-cci-summer-2027",
     "title": "DOE Community College Internships · Summer 2027",
     "organizer": "U.S. Department of Energy Office of Science",
     "category": "internship",
     "fields": [
       "stem",
-      "laboratory-research"
+      "laboratory_research"
     ],
     "summary": "An on-site internship for eligible community college students at participating DOE laboratories.",
     "official_url": "https://science.osti.gov/wdts/cci",
@@ -289,7 +432,9 @@
     "location": {
       "format": "in_person",
       "country": "US",
-      "note": "Host laboratory depends on placement."
+      "note": "Host laboratory depends on placement.",
+      "state": null,
+      "city": null
     },
     "cost": {
       "fee_usd": null,
@@ -308,19 +453,37 @@
         "type": "manual",
         "hard": true
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "review-tess-tutorial",
+        "title": "Review the classification tutorial before contributing",
+        "estimated_hours": 0.5,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "id": "planet-hunters-tess",
     "title": "Planet Hunters TESS",
     "organizer": "Planet Hunters TESS team on Zooniverse",
     "category": "public_service",
     "fields": [
-      "citizen-science",
+      "citizen_science",
       "astronomy"
     ],
     "summary": "Online citizen science project where volunteers classify data to help find exoplanets.",
@@ -328,7 +491,10 @@
     "deadline": null,
     "deadline_note": "The organizer provides an active participation link. No deadline was confirmed.",
     "location": {
-      "format": "online"
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
     },
     "cost": {
       "fee_usd": null,
@@ -339,17 +505,38 @@
       "hours_per_week": null,
       "total_weeks": null
     },
-    "requirements": []
+    "requirements": [],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "review-exoplanet-workflow",
+        "title": "Review the no-telescope data analysis instructions",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "category": "public_service",
     "deadline": null,
     "location": {
-      "format": "online"
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
     },
     "time_commitment": {
       "hours_per_week": null,
@@ -360,7 +547,7 @@
     "title": "NASA Exoplanet Watch",
     "organizer": "NASA Exoplanet Watch",
     "fields": [
-      "citizen-science",
+      "citizen_science",
       "astronomy"
     ],
     "summary": "Contribute to exoplanet research by analyzing available telescope data online. A personal telescope is optional.",
@@ -370,18 +557,39 @@
       "fee_usd": 0,
       "requires_travel_expense": false,
       "note": "NASA provides free data and analysis tools for the online path."
-    }
+    },
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "review-aurora-reporting",
+        "title": "Review aurora reporting and verification guidance",
+        "estimated_hours": 0.5,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "category": "public_service",
     "deadline": null,
     "location": {
       "format": "online",
-      "note": "Online verification is available. Firsthand observations depend on local conditions."
+      "note": "Online verification is available. Firsthand observations depend on local conditions.",
+      "country": null,
+      "state": null,
+      "city": null
     },
     "time_commitment": {
       "hours_per_week": null,
@@ -392,7 +600,7 @@
     "title": "Aurorasaurus",
     "organizer": "Aurorasaurus citizen science project",
     "fields": [
-      "citizen-science",
+      "citizen_science",
       "heliophysics"
     ],
     "summary": "Help track auroras by verifying reports online or reporting an observation. Project activity was confirmed; the signed-in reporting flow was not tested.",
@@ -402,13 +610,31 @@
       "fee_usd": null,
       "requires_travel_expense": false,
       "note": "No travel is required for online verification. A participation fee was not confirmed."
-    }
+    },
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "outline-stem-interests",
+        "title": "Draft a summary of STEM interests and goals",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "time_commitment": {
       "hours_per_week": null,
       "total_weeks": null
@@ -433,7 +659,8 @@
       "format": "hybrid",
       "country": "US",
       "state": "TX",
-      "note": "Virtual activities and Johnson Space Center, Houston. Confirm the senior cohort schedule."
+      "note": "Virtual activities and Johnson Space Center, Houston. Confirm the senior cohort schedule.",
+      "city": null
     },
     "requirements": [
       {
@@ -468,13 +695,31 @@
         "label": "U.S. citizen",
         "source_text": "U.S Citizens"
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "outline-fellowship-project",
+        "title": "Outline a proposed area of study or original work",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "time_commitment": {
       "hours_per_week": null,
       "total_weeks": null
@@ -491,7 +736,7 @@
     "fields": [
       "mathematics",
       "computing",
-      "interdisciplinary-study"
+      "interdisciplinary_study"
     ],
     "summary": "A fellowship supporting study and original work. The 2027 application form was accessible during review; confirm the full eligibility and participation terms with the organizer.",
     "official_url": "https://www.herbatschekfellowship.org/apply",
@@ -499,7 +744,10 @@
     "deadline_note": "2:00 PM Eastern Time",
     "location": {
       "format": "hybrid",
-      "note": "Online application. The fellowship's required attendance locations and format need confirmation."
+      "note": "Online application. The fellowship's required attendance locations and format need confirmation.",
+      "country": null,
+      "state": null,
+      "city": null
     },
     "requirements": [
       {
@@ -509,37 +757,62 @@
         "label": "Organizer review of eligibility, work evidence, and application materials",
         "source_text": "Eligibility and completeness review"
       }
-    ]
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "review-cloudspotting-tutorial",
+        "title": "Review the cloud classification tutorial",
+        "estimated_hours": 0.5,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
     "time_commitment": {
       "hours_per_week": null,
       "total_weeks": null
     },
     "cost": {
-      "fee_usd": null,
+      "fee_usd": 0,
       "requires_travel_expense": false,
-      "note": "Fee not confirmed during the human source review."
+      "note": "Free online participation confirmed by Jiale Li in follow-up verification."
     },
     "id": "nasa-cloudspotting-mars",
     "title": "Cloudspotting on Mars",
     "organizer": "NASA Cloudspotting on Mars team",
     "category": "public_service",
     "fields": [
-      "citizen-science",
-      "planetary-science"
+      "citizen_science",
+      "planetary_science"
     ],
     "summary": "Classify clouds in Mars spacecraft data. The reviewer confirmed that the classification task could be entered.",
     "official_url": "https://science.nasa.gov/citizen-science/cloudspotting/",
     "deadline": null,
     "deadline_note": "No participation deadline was confirmed.",
     "location": {
-      "format": "online"
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
     },
-    "requirements": []
+    "requirements": [],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
   }
 ]
