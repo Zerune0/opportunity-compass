@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import { diffRoutes, planRoutes } from "@/lib/path";
@@ -29,7 +30,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
     };
   }, []);
 
-  if (!opportunity) return <QuestCard><h1>Adventure Map</h1><p>Choose an opportunity to see its preparation routes.</p><a href="/quests">Open Quest Board</a></QuestCard>;
+  if (!opportunity) return <QuestCard><h1>Adventure Map</h1><p>Choose an opportunity to see its preparation routes.</p><Link href="/quests">Open Quest Board</Link></QuestCard>;
   const passport = `/passport?opp=${encodeURIComponent(opportunity.id)}`;
   const profile = context?.profile;
   const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today }) : null;
