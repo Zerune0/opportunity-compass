@@ -5,8 +5,16 @@ import { useEffect, useState } from "react";
 import { checkEligibility } from "../../../lib/eligibility";
 import { analyzeReachability } from "../../../lib/reachability";
 import { planRoutes } from "../../../lib/path";
-import { grantsFor, loadProfile } from "../../../lib/store";
+import { analyzeGaps } from "../../../lib/gap";
+import { explainMatch, findAlternatives } from "../../../lib/match";
+import { grantsFor, loadGrants, loadProfile, loadUserPostedOpportunities } from "../../../lib/store";
+import opportunities from "../../../data/opportunities.json";
 import type { Opportunity, ResourceGrant, StudentProfile } from "../../../lib/types";
+import { AlternativesSection } from "./alternatives";
+import { JournalButton } from "./journal-button";
+import { GapAnalysisSection, MatchExplanationSection } from "./match-and-gaps";
+
+const officialCatalog = opportunities as Opportunity[];
 
 const eligibilityLabels = { eligible: "Requirements satisfied", not_eligible: "Hard requirement not met", unknown: "Eligibility unconfirmed" };
 const itemLabels = { satisfied: "Satisfied", not_satisfied: "Not satisfied", unknown: "Unknown" };
@@ -15,27 +23,61 @@ const section = "rpg-card";
 const itemTones = { satisfied: "rpg-tag rpg-tag--success", not_satisfied: "rpg-tag rpg-tag--danger", unknown: "rpg-tag rpg-tag--warning" };
 const overallTones = { eligible: "rpg-tag rpg-tag--success", not_eligible: "rpg-tag rpg-tag--danger", unknown: "rpg-tag rpg-tag--warning" };
 
+type AssessmentContext = {
+  profile: StudentProfile | null;
+  /** Grants that apply to this student on this opportunity (shared by all engines for this page). */
+  grants: ResourceGrant[];
+  /** Every grant recorded for this student; alternatives use each candidate's own subset. */
+  studentGrants: ResourceGrant[];
+  today: string;
+  catalog: Opportunity[];
+};
+
+function readContext(opportunityId: string): AssessmentContext {
+  const profile = loadProfile();
+  const date = new Date();
+  const today = [
+    date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+  return {
+    profile, today,
+    grants: profile ? grantsFor(profile.id, opportunityId) : [],
+    studentGrants: profile ? loadGrants().filter((grant) => grant.student_id === profile.id) : [],
+    catalog: [...officialCatalog, ...loadUserPostedOpportunities()],
+  };
+}
+
 export function QuestAssessment({ opportunity }: { opportunity: Opportunity }) {
-  const [context, setContext] = useState<{
-    profile: StudentProfile | null; grants: ResourceGrant[]; today: string;
-  } | null>(null);
+  const [context, setContext] = useState<AssessmentContext | null>(null);
 
   useEffect(() => {
-    const profile = loadProfile();
-    const date = new Date();
-    const today = [
-      date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-    ].join("-");
-    // Browser-only data (localStorage, local date) can only be read after mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setContext({ profile, today, grants: profile ? grantsFor(profile.id, opportunity.id) : [] });
+    // Browser-only data (localStorage, local date) is read after mount and re-read when it may have changed.
+    const refresh = () => setContext(readContext(opportunity.id));
+    const initialRead = window.requestAnimationFrame(refresh);
+    window.addEventListener("storage", refresh);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      window.cancelAnimationFrame(initialRead);
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("pageshow", refresh);
+    };
   }, [opportunity.id]);
 
   const profile = context?.profile;
   const eligibility = context && profile && checkEligibility(profile, opportunity, { today: context.today });
   const reach = context && profile && analyzeReachability(profile, opportunity, context.grants, { today: context.today });
   const plan = context && profile && eligibility?.overall === "not_eligible" ? planRoutes(profile, opportunity, { today: context.today }) : null;
+  // All four engines share the same grants and today so their conclusions agree.
+  const evalOptions = context ? { today: context.today, grants: context.grants } : null;
+  const match = context && profile && evalOptions && explainMatch(profile, opportunity, evalOptions);
+  const gapAnalysis = context && profile && analyzeGaps(profile, opportunity, context.grants, { today: context.today });
+  // findAlternatives only applies grants through analyzeReachability, which keeps the ones matching each
+  // opportunity, so passing all of the student's grants lets every candidate use its own grants while this
+  // opportunity still sees exactly context.grants.
+  const alternatives = context && profile && evalOptions
+    ? findAlternatives(profile, opportunity, context.catalog, { today: context.today, grants: context.studentGrants })
+    : [];
   const gaps = reach?.readiness_gaps ?? [];
   const covered = reach ? opportunity.preparation.filter((item) =>
     !gaps.some((gap) => gap.prep_item_id === item.id),
@@ -114,10 +156,24 @@ export function QuestAssessment({ opportunity }: { opportunity: Opportunity }) {
           <p className="rpg-muted rpg-small">The assessment describes participation constraints. Admission decisions are made by the organizer.</p>
         </section>
       </div>
-      {plan?.status === "blocked" && <section className="rpg-card"><h2>Other options</h2><ul>{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul></section>}
+      {plan?.status === "blocked" && alternatives.length === 0 && plan.alternatives.length > 0 && <section className="rpg-card"><h2>Other options</h2><ul>{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul></section>}
       {eligibility?.overall !== "not_eligible" && (
         <Link className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunity.id)}`}>View growth routes</Link>
       )}
+      {context && !profile && (
+        <section className="rpg-card">
+          <h2>Personal fit and gaps</h2>
+          <p>Load or create a student profile to see why this fits, your gaps and alternatives. <Link href="/passport">Go to Skill Passport</Link></p>
+        </section>
+      )}
+      {match && <MatchExplanationSection match={match} />}
+      {gapAnalysis && <GapAnalysisSection gaps={gapAnalysis} />}
+      {context && profile && (
+        <AlternativesSection suggestions={alternatives} catalog={context.catalog}
+          profile={profile} studentGrants={context.studentGrants} today={context.today}
+          currentEligibility={eligibility ? eligibility.overall : null} />
+      )}
+      {context && <JournalButton opportunity={opportunity} profile={profile ?? null} today={context.today} />}
     </>
   );
 }

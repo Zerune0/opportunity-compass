@@ -2,6 +2,7 @@ const destinations = [
   { href: "/quests", label: "Quest Board" },
   { href: "/map", label: "Adventure Map" },
   { href: "/passport", label: "Skill Passport" },
+  { href: "/journal", label: "Quest Journal" },
   { href: "/organizer", label: "Organizer" },
 ];
 

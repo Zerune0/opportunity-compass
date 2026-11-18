@@ -18,6 +18,7 @@ const navItems = [
   { href: "/quests", label: "Quests" },
   { href: "/map", label: "Map" },
   { href: "/passport", label: "Passport" },
+  { href: "/journal", label: "Journal" },
   { href: "/organizer", label: "Organizer" },
 ];
 
