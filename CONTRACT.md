@@ -60,10 +60,10 @@
 | `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => ReachabilityResult` | 已实现 |
 | `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => PlanResult` | 已实现 |
 | `diffRoutes` | `lib/path` | `(before: PlanResult, after: PlanResult) => RouteDiff` | 已实现 |
-| `solveJoint` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | 已实现（精确搜索，见「联合求解模型」） |
-| `verifyPlan` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | 已实现（独立复核，不 import 求解器）；第 3 层的撤回 / 公平底线检查待实现 |
+| `solveJoint` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | 已实现（精确搜索，含撤回 / 权衡模式 / 公平底线，见「联合求解模型」） |
+| `verifyPlan` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | 已实现（独立复核，不 import 求解器；含第 3 层的 `revocation` / `fairness` 检查） |
 
-第 3 层新增（不属于六个共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，待实现，规则见「联合求解模型」第 10 条。`solveJoint` 的撤回 / 公平底线 / 新目标顺序同样待实现。
+第 3 层新增（不属于六个共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，已实现（A / B / C / joint 四行；基线 D 未实现），规则见「联合求解模型」第 10 条。`solveJoint` 的撤回、权衡模式、公平底线与新目标顺序均已实现。
 
 `VerifyOptions = { mode?: 'protect' | 'tradeoff'; loss_cap?: number; assume_approved_intervention_ids?: string[]; required_intervention_ids?: string[]; min_gain?: number; fairness_floors?: FairnessFloor[] }`（字段类型沿用 `SolveOptions`）。**第三参数确定保留，为可选**：复核损失 `L` 时需要知道模式与损失上限。不传（或不给 `mode`）按 protect 处理，即损失 `L` 必须为 0；`mode: 'tradeoff'` 时 `L ≤ loss_cap` 才算通过；`mode: 'tradeoff'` 但没给 `loss_cap` 时 `verifyPlan` 判为不通过（与 `solveJoint` 在同样输入下返回 `UNSUPPORTED_INPUT` 一致）。
 
@@ -287,7 +287,7 @@
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
   `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。带校验的加载函数待定。
 - **主办方 What-if（`solveJoint` / `verifyPlan`）**：
-  - 页面用 `runWhatIf(scenario, input)`（`lib/joint/whatif.ts`）拿汇总视图：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，并把结果整理成只含人数和汇总数字的 `WhatIfView`。
+  - 页面用 `runWhatIf(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（`/organizer` 页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / 联合求解的基线对比表）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，并把结果整理成只含人数和汇总数字的 `WhatIfView`。
   - 直接用 `solveJoint` 时，展示前**自己再调一次 `verifyPlan`**（相同的 `mode` / `loss_cap` / 软要求；复核 `conditional` 时传 `assume_approved_intervention_ids`），不要只信结果里自带的 `verification`。
   - 所有结果都是**模拟**（示例学生、示例场景），界面标「示例 / 模拟」；可达 ≠ 录取；`SEARCH_LIMIT_REACHED` 不等于最优也不等于无解；`INFEASIBLE` 的主结果是空方案，替代方案要写明放松了什么。
   - 权衡分析模式（tradeoff）只在组织者主动设置 `loss_cap` 时使用；界面要说明受影响的对数（`lost_pairs` 的数量）和撤回条数（其中强制撤回多少条），不列出具体学生。公平底线、基线对比同样只显示人数与比例。
@@ -400,4 +400,5 @@ npm run build      # 生产构建（提交前必须通过）
   - 模型变化（「联合求解模型」）：第 2、3 条新增撤回已有 grant 与硬约束第 8 条 `revocation`；第 4 条新增公平底线；第 5 条目标顺序改为 N → L → 成本 → 分配条数 → 措施数 → 撤回数 → 字典序；第 6 条新增 UNSUPPORTED_INPUT 条件（existing grant 的 `id` 必须是唯一字符串；`fairness_floors` 格式）与三项软要求统一的放松规则（两项时与原规则一致）；第 8 条新增检查项 `revocation`、`fairness`，`capacity` / `cost_accounting` / `coverage_loss` / `metrics` 按撤回更新；新增第 10 条基线对比。删去「合法输入下 L 恒为 0」「tradeoff 仅为向前兼容」的说法。
   - **行为变化**：选中与「已有 grant 所属措施」互斥的措施时，现在必须撤回那些 grant（此前不要求，那些 grant 照样生效）。由此可能产生 `L > 0`，protect 模式下这样的方案不可行。existing grant 的 `id` 不唯一的场景现在是 `UNSUPPORTED_INPUT`。
   - **补充（用户决定）**：**保护模式不动任何已有承诺**——`mode` 为 protect（默认）时 `revoked_grant_ids` 必须为空，强制与自愿撤回都不允许（approved 与 pending 一样）；因此 protect 下与「有可撤回已有 grant 的措施」互斥的措施不能被选中。只有 tradeoff 模式（给出 `loss_cap`）允许撤回，约束 `L ≤ loss_cap`。验证器的 `revocation` 检查在 protect 下对任何非空 `revoked_grant_ids` 判不通过（第 3 条第 8 款 d、第 5 条、第 8 条已同步）。
-  - 现有 `solveJoint` / `verifyPlan` 尚未实现这些规则（下一步实现）；`compareBaselines` 待实现。
+  - 当时 `solveJoint` / `verifyPlan` 尚未实现这些规则，`compareBaselines` 尚未编写（均已实现，见下一条）。
+- 2026-11-17：**第 3 层已实现（状态更新，规则条文不变）**：`solveJoint` / `verifyPlan` 支持撤回已有 grant、权衡模式（`loss_cap`）与公平底线（`revocation`、`fairness` 检查）；新增 `compareBaselines`（`lib/joint/baselines.ts`，从 `lib/joint` 导出），A / B / C / joint 四行，说明书中的基线 D 未实现。`runWhatIf` 新增可选第三参数 `availableFloors`，`WhatIfInput` 新增 `fairnessFloorIds?`、`minRatioOverrides?`，视图新增模式说明、失去 / 收回汇总、公平底线结果与基线对比（只含人数与汇总）；`/organizer` 页面可切换两个演示场景。全部为模拟结果。

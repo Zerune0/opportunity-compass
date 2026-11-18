@@ -4,10 +4,19 @@
  * 设备借用固定 $100 + 每人 $20；线上入口 requires 设备借用；卫星会场 pending。
  */
 import { describe, expect, it } from 'vitest';
-import { DEVICE_LOAN_IDS as IDS, assertScenarioShape, deviceLoanScenario } from './scenarios';
+import {
+  DEVICE_LOAN_IDS as IDS,
+  SCENARIOS,
+  VENUE_TRADEOFF_IDS as V,
+  assertScenarioShape,
+  deviceLoanScenario,
+  venueTradeoffScenario,
+} from './scenarios';
 import {
   defaultWhatIfInput,
   INFEASIBLE_UNCOVERED_CAUSE,
+  MODE_EXPLANATIONS,
+  PROTECT_LOSS_NOTE,
   missingPrerequisites,
   runWhatIf,
   scrubStudentInfo,
@@ -22,9 +31,9 @@ const SUBSIDY = IDS.transportSubsidy;
 const ONLINE = IDS.onlineEntry;
 const SATELLITE = IDS.satelliteVenue;
 
-function assertNoStudentInfo(view: WhatIfView) {
+function assertNoStudentInfo(view: WhatIfView, sc: Scenario = S) {
   const json = JSON.stringify(view);
-  for (const s of S.students) {
+  for (const s of sc.students) {
     expect(json.includes(s.id), `含学生 id ${s.id}`).toBe(false);
     expect(json.includes(s.display_name), `含姓名 ${s.display_name}`).toBe(false);
     if (s.school_name) expect(json.includes(s.school_name), `含学校 ${s.school_name}`).toBe(false);
@@ -289,3 +298,259 @@ describe('assertScenarioShape：措施不得含学生信息（S4）', () => {
   });
 });
 
+
+// ───────────────────────────── 第 3 层：模式、损失、公平底线、基线 ─────────────────────────────
+
+const VT = venueTradeoffScenario;
+const DL_FLOORS = SCENARIOS[0].suggestedFairnessFloors;
+const VT_FLOORS = SCENARIOS[1].suggestedFairnessFloors;
+const LOW_INCOME = 'floor-low-income';
+const vtInput = (extra: Partial<Parameters<typeof runWhatIf>[1]> = {}) => ({ ...defaultWhatIfInput(VT), ...extra });
+const dlInput = (extra: Partial<Parameters<typeof runWhatIf>[1]> = {}) => ({ ...defaultWhatIfInput(S), ...extra });
+
+describe('runWhatIf：权衡场景（手算见 ./solve-tradeoff.test.ts 文件头）', () => {
+  it('保护模式：G 2 / L 0 / N 2、$50；写明不收回任何已有资源', () => {
+    const v = runWhatIf(VT, vtInput(), VT_FLOORS);
+    expect(v.status).toBe('OPTIMAL');
+    expect([v.R0_count, v.R1_count, v.G, v.L, v.N]).toEqual([3, 5, 2, 0, 2]);
+    expect(v.cost.total_usd).toBe(50);
+    expect(v.mode).toBe('protect');
+    expect(v.mode_label).toBe('保护模式');
+    expect(v.mode_explanation).toBe(MODE_EXPLANATIONS.protect);
+    expect(v.loss_cap).toBeNull();
+    expect(v.loss).toEqual({ lost_pairs: 0, affected_students: 0, groups: [], headline: null, protect_note: PROTECT_LOSS_NOTE });
+    expect(v.revocations).toEqual({ total: 0, forced: 0, voluntary: 0, items: [] });
+    expect(v.fairness).toEqual([]);
+    expect(v.capacity_usage.find((c) => c.id === V.weekdayShuttle)?.slots[0]).toMatchObject({ used: 3, full: true });
+    assertNoStudentInfo(v, VT);
+  });
+
+  it('权衡模式、损失上限 2：与保护模式相同（卫星会场会失去 3 个）', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 2 }));
+    expect([v.G, v.L, v.N]).toEqual([2, 0, 2]);
+    expect(v.mode_label).toBe('权衡模式');
+    expect(v.loss_cap).toBe(2);
+    expect(v.loss?.headline).toBeNull();
+    expect(v.loss?.protect_note).toBeNull();
+    expect(v.revocations?.total).toBe(0);
+    expect(v.assumptions.some((a) => a.includes('权衡模式的含义') && a.includes('损失上限 2'))).toBe(true);
+    assertNoStudentInfo(v, VT);
+  });
+
+  it('权衡模式、损失上限 3：G 6 / L 3 / N 3、$140；失去与收回只给汇总', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 3 }));
+    expect(v.status).toBe('OPTIMAL');
+    expect([v.R0_count, v.R1_count, v.G, v.L, v.N]).toEqual([3, 6, 6, 3, 3]);
+    expect(v.cost).toMatchObject({ fixed_usd: 80, per_student_usd: 60, total_usd: 140, remaining_usd: 160 });
+    expect(v.loss?.lost_pairs).toBe(3);
+    expect(v.loss?.affected_students).toBe(3);
+    expect(v.loss?.headline).toBe('为了新增 6 个，有 3 个原本可达的（学生, 机会）对在此方案下不再可达。');
+    expect(v.loss?.groups).toEqual([
+      expect.objectContaining({
+        revoked_title: '工作日接驳车（示例，已在运行）',
+        forced_by_title: '周末卫星会场（示例）',
+        revoked_count: 3,
+        students: 3,
+        pairs: 3,
+      }),
+    ]);
+    expect(v.revocations).toMatchObject({ total: 3, forced: 3, voluntary: 0 });
+    expect(v.revocations?.items).toEqual([
+      { title: '工作日接驳车（示例，已在运行）', count: 3, reason: expect.stringContaining('互斥') },
+    ]);
+    // 被收回的接驳车不再占名额
+    expect(v.capacity_usage.find((c) => c.id === V.weekdayShuttle)?.slots[0]).toMatchObject({ used: 0, full: false });
+    expect(v.uncovered?.reasons.find((r) => r.kind === 'revoked')).toMatchObject({ students: 3 });
+    expect(v.verification.passed).toBe(true);
+    expect(v.verification.checks.find((c) => c.name === 'revocation')?.label).toBe('收回已有资源的规则');
+    assertNoStudentInfo(v, VT);
+  });
+
+  it('权衡模式 + 低收入底线：底线结果按人数与比例给出', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 3, fairnessFloorIds: [LOW_INCOME] }), VT_FLOORS);
+    expect([v.G, v.L, v.N]).toEqual([6, 3, 3]);
+    expect(v.effective.fairness_floor_ids).toEqual([LOW_INCOME]);
+    expect(v.fairness).toEqual([
+      expect.objectContaining({
+        floor_id: LOW_INCOME,
+        label: '低收入学生',
+        eligible_members: 4,
+        covered_members: 2,
+        ratio_percent: 50,
+        min_ratio_percent: 50,
+        satisfied: true,
+        not_applicable: false,
+      }),
+    ]);
+    expect(v.fairness[0].basis).toContain('示例');
+    assertNoStudentInfo(v, VT);
+  });
+});
+
+describe('runWhatIf：设备借用场景的公平底线', () => {
+  it('不设底线：fairness 为空，G = 5', () => {
+    const v = runWhatIf(S, dlInput(), DL_FLOORS);
+    expect(v.fairness).toEqual([]);
+    expect(v.G).toBe(5);
+  });
+
+  it('低收入 ≥ 50%：G 仍为 5、$200，覆盖 2 / 4', () => {
+    const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME] }), DL_FLOORS);
+    expect([v.G, v.L, v.N, v.cost.total_usd]).toEqual([5, 0, 5, 200]);
+    expect(v.fairness[0]).toMatchObject({ eligible_members: 4, covered_members: 2, ratio_percent: 50, satisfied: true });
+    expect(v.verification.checks.find((c) => c.name === 'fairness')).toMatchObject({ passed: true, label: '公平底线' });
+    assertNoStudentInfo(v);
+  });
+
+  it('比例覆盖为 100%：4 / 4，多用一份交通补助（$225）', () => {
+    const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME], minRatioOverrides: { [LOW_INCOME]: 1 } }), DL_FLOORS);
+    expect(v.status).toBe('OPTIMAL');
+    expect(v.fairness[0]).toMatchObject({ covered_members: 4, ratio_percent: 100, min_ratio_percent: 100, satisfied: true });
+    expect(v.cost.total_usd).toBe(225);
+    expect(v.G).toBe(5);
+  });
+
+  it('没勾选的底线即使有覆盖值也不参与', () => {
+    const v = runWhatIf(S, dlInput({ minRatioOverrides: { [LOW_INCOME]: 1 } }), DL_FLOORS);
+    expect(v.fairness).toEqual([]);
+    expect(v.cost.total_usd).toBe(200);
+  });
+});
+
+describe('runWhatIf：基线对比表格', () => {
+  it('设备借用默认：4 行，声称 / 复核 / 截断数字', () => {
+    const v = runWhatIf(S, dlInput());
+    const rows = v.baselines!.rows;
+    expect(rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'joint']);
+    expect(rows.map((r) => r.claimed_reachable)).toEqual([10, 10, 7, 5]);
+    expect(rows.map((r) => r.executable)).toEqual([true, false, true, true]);
+    expect(rows.map((r) => r.verified?.G ?? null)).toEqual([0, null, 5, 5]);
+    expect(rows[1].failed_checks).toEqual(['未超出名额', '未超出预算']);
+    expect(rows[1].repaired).toMatchObject({ G: 5, total_usd: 350 });
+    expect(rows[2].verified?.total_usd).toBe(350);
+    expect(rows[3].verified?.total_usd).toBe(200);
+    expect(rows.map((r) => r.soft_label)).toEqual(['未设要求', '未设要求', '未设要求', '未设要求']);
+    expect(v.baselines!.notes.join('')).toContain('基线 D');
+    // 视图里的基线行不带方案（方案里有学生 id）
+    for (const r of rows) expect(Object.keys(r)).not.toContain('plan');
+  });
+
+  it('带底线时：不可执行的行写「方案不可执行，不评估」', () => {
+    const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME] }), DL_FLOORS);
+    expect(v.baselines!.rows.map((r) => r.soft_label)).toEqual(['不满足', '方案不可执行，不评估', '不满足', '满足']);
+  });
+
+  it('输入不合法（负预算）：基线 rows 为空，notes 写明原因', () => {
+    const v = runWhatIf(S, dlInput({ budget: -1 }));
+    expect(v.baselines?.rows).toEqual([]);
+    expect(v.baselines?.notes[0]).toContain('未做基线对比');
+  });
+});
+
+describe('runWhatIf：视图不含任何学生标识（两个场景、各种模式）', () => {
+  const cases: [string, Scenario, Parameters<typeof runWhatIf>[1]][] = [
+    ['设备借用默认', S, dlInput()],
+    ['设备借用 + 底线 100%', S, dlInput({ fairnessFloorIds: [LOW_INCOME], minRatioOverrides: { [LOW_INCOME]: 1 } })],
+    ['设备借用 tradeoff 0', S, dlInput({ mode: 'tradeoff', lossCap: 0 })],
+    ['设备借用 最低新增 6（做不到）', S, dlInput({ minGain: 6, fairnessFloorIds: [LOW_INCOME] })],
+    ['设备借用 只开笔记本、预算 0', S, dlInput({ enabledIds: [LAPTOP], budget: 0 })],
+    ['权衡 protect', VT, vtInput()],
+    ['权衡 tradeoff 2', VT, vtInput({ mode: 'tradeoff', lossCap: 2 })],
+    ['权衡 tradeoff 3', VT, vtInput({ mode: 'tradeoff', lossCap: 3 })],
+    ['权衡 tradeoff 3 + 底线', VT, vtInput({ mode: 'tradeoff', lossCap: 3, fairnessFloorIds: [LOW_INCOME] })],
+    ['权衡 tradeoff 9 + 底线 100%', VT, vtInput({ mode: 'tradeoff', lossCap: 9, fairnessFloorIds: [LOW_INCOME], minRatioOverrides: { [LOW_INCOME]: 1 } })],
+    ['权衡 必须启用卫星会场（protect 做不到）', VT, vtInput({ requiredIds: [V.weekendSatellite] })],
+    ['权衡 tradeoff 未填上限', VT, vtInput({ mode: 'tradeoff', lossCap: null })],
+  ];
+  for (const [name, sc, input] of cases) {
+    it(name, () => {
+      const floors = sc === S ? DL_FLOORS : VT_FLOORS;
+      const v = runWhatIf(sc, input, floors);
+      assertNoStudentInfo(v, sc);
+      // 也不含已有 grant 的 id（它们和具体学生一一对应）
+      const json = JSON.stringify(v);
+      for (const g of sc.existing_grants ?? []) expect(json.includes(g.id), `含 grant id ${g.id}`).toBe(false);
+      for (const w of ['NaN', 'Infinity', 'undefined']) expect(json.includes(w), `含 ${w}`).toBe(false);
+    });
+  }
+});
+
+describe('runWhatIf：损失上限 / 底线比例不合法时不调用求解器', () => {
+  const bad: [string, Parameters<typeof runWhatIf>[1], RegExp][] = [
+    ['tradeoff 未填上限（null）', vtInput({ mode: 'tradeoff', lossCap: null }), /需要填写损失上限/],
+    ['tradeoff 未填上限（缺省）', { ...vtInput({ mode: 'tradeoff' }), lossCap: undefined }, /需要填写损失上限/],
+    ['上限负数', vtInput({ mode: 'tradeoff', lossCap: -1 }), /0 或以上的整数/],
+    ['上限非整数', vtInput({ mode: 'tradeoff', lossCap: 1.5 }), /0 或以上的整数/],
+    ['上限 NaN', vtInput({ mode: 'tradeoff', lossCap: NaN }), /0 或以上的整数/],
+    ['上限 Infinity', vtInput({ mode: 'tradeoff', lossCap: Infinity }), /0 或以上的整数/],
+    ['底线比例 1.5', vtInput({ fairnessFloorIds: [LOW_INCOME], minRatioOverrides: { [LOW_INCOME]: 1.5 } }), /0% 到 100%/],
+    ['底线比例 NaN', vtInput({ fairnessFloorIds: [LOW_INCOME], minRatioOverrides: { [LOW_INCOME]: NaN } }), /0% 到 100%/],
+    ['未知底线', vtInput({ fairnessFloorIds: ['nope'] }), /没有找到所选的公平底线/],
+  ];
+  for (const [name, input, re] of bad) {
+    it(name, () => {
+      const v = runWhatIf(VT, input, VT_FLOORS);
+      expect(v.input_errors.length).toBeGreaterThan(0);
+      expect(v.input_errors.join('')).toMatch(re);
+      expect(v.status).toBe('UNSUPPORTED_INPUT');
+      expect(v.status_explanation).toMatch(re);
+      expect([v.R0_count, v.R1_count, v.G, v.L, v.N]).toEqual([null, null, null, null, null]);
+      expect(v.loss).toBeNull();
+      expect(v.revocations).toBeNull();
+      expect(v.baselines).toBeNull();
+      expect(v.solver_notes).toEqual([]);
+      expect(v.verification.checks).toEqual([]);
+      expect(v.effective.loss_cap).toBeNull();
+      const json = JSON.stringify(v);
+      for (const w of ['NaN', 'Infinity', 'undefined']) expect(json.includes(w), `含 ${w}`).toBe(false);
+      assertNoStudentInfo(v, VT);
+    });
+  }
+
+  it('保护模式下的损失上限被忽略（不报错，也不传给求解器）', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'protect', lossCap: -1 }));
+    expect(v.input_errors).toEqual([]);
+    expect(v.loss_cap).toBeNull();
+    expect([v.G, v.L, v.N]).toEqual([2, 0, 2]);
+  });
+
+  it('上限 0 合法：与保护模式数字相同', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 0 }));
+    expect(v.input_errors).toEqual([]);
+    expect([v.G, v.L, v.N]).toEqual([2, 0, 2]);
+  });
+});
+
+describe('runWhatIf：替代方案 / 条件性方案也带 L、收回与公平', () => {
+  it('权衡场景必须启用卫星会场：protect 做不到，替代方案放松「必须启用」', () => {
+    const v = runWhatIf(VT, vtInput({ requiredIds: [V.weekendSatellite] }));
+    expect(v.status).toBe('INFEASIBLE');
+    expect(v.alternative).toMatchObject({ G: 2, L: 0, revocation_counts: { total: 0, forced: 0, voluntary: 0 }, loss_text: null });
+    expect(v.alternative!.fairness).toEqual([]);
+  });
+
+  it('权衡 tradeoff 3 + 必须启用拼车：替代方案的 L 与收回汇总', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 3, requiredIds: [V.weekdayCarpool], minGain: 6 }));
+    expect(v.status).toBe('INFEASIBLE');
+    const alt = v.alternative!;
+    expect(alt.N).toBe(alt.G - alt.L);
+    if (alt.L > 0) expect(alt.loss_text).toContain(`失去 ${alt.L} 个`);
+    expect(alt.revocation_counts.total).toBe(alt.revocation_counts.forced + alt.revocation_counts.voluntary);
+    assertNoStudentInfo(v, VT);
+  });
+
+  it('设备借用纳入待审批卫星会场 + 底线：conditional 带公平结果', () => {
+    const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME] }), DL_FLOORS);
+    expect(v.conditional).not.toBeNull();
+    expect(v.conditional!.fairness).toHaveLength(1);
+    expect(v.conditional!.revocation_counts).toEqual({ total: 0, forced: 0, voluntary: 0 });
+  });
+
+  it('假设与不确定性补充了模式、公平底线方法与基线说明', () => {
+    const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME] }), DL_FLOORS);
+    const all = v.assumptions.join('\n');
+    for (const kw of ['保护模式', '自己声明的身份标签', '分母只算', '各算一次', '不代表任何真实系统', '基线 D', '虚构依据']) {
+      expect(all).toContain(kw);
+    }
+  });
+});

@@ -14,7 +14,13 @@
  *    让页面能看到哪一项没通过。
  * 4. 汇总成 WhatIfView：只含汇总数字，不含任何学生的 id、姓名、学校或逐人明细；
  *    求解器 / 验证器文字里的措施 id 先换成标题，再把学生 id、姓名、学校替换为「某学生」/「某学校」，并注明涉及人数。
- * 5. 没有评估出来的数字（UNSUPPORTED_INPUT 时的成本、余额、G / L / N 等）为 null，页面显示「—」。
+ * 5. 第 3 层：模式（保护 / 权衡）与损失上限、公平底线（从调用方传入的可用底线 availableFloors 里按 id 勾选，
+ *    可覆盖最低比例）、基线对比（./baselines 的 compareBaselines，同一场景、同一选项）。
+ *    视图只含汇总：失去的对数 / 受影响人数 / 按「被收回的措施 → 原因」汇总的人数，收回条数，
+ *    每条底线的分子 / 分母 / 比例，基线每行的声称与复核后数字。lost_pairs、revocations、基线方案里的学生 id 不进视图。
+ *    损失上限或底线比例不合法（空、负数、非整数、非有限数、tradeoff 未填上限）时**不调用求解器**，
+ *    视图的 input_errors 写明原因，状态按 UNSUPPORTED_INPUT 显示，数字为 null。
+ * 6. 没有评估出来的数字（UNSUPPORTED_INPUT 时的成本、余额、G / L / N 等）为 null，页面显示「—」。
  *    预算或最低新增目标不是有限数时不会抛错；视图里的文字不出现 NaN / Infinity（换成「未填写或无效」），
  *    非有限的数字字段一律为 null。页面本身应在输入无效时不调用 runWhatIf，这里只是防线。
  *
@@ -22,6 +28,7 @@
  * 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
  */
 import { analyzeReachability } from '../reachability';
+import { compareBaselines } from './baselines';
 import { solveJoint } from './solve';
 import { verifyPlan } from './verify';
 import {
@@ -36,6 +43,10 @@ export { missingPrerequisites };
 import type {
   Allocation,
   BarrierType,
+  BaselineComparison,
+  FairnessFloor,
+  FairnessReport,
+  GrantRevocation,
   Intervention,
   JointCost,
   JointOutcome,
@@ -60,8 +71,12 @@ export interface WhatIfInput {
   minGain?: number | null;
   /** 缺省 protect（不允许原有覆盖减少）。 */
   mode?: 'protect' | 'tradeoff';
-  /** tradeoff 模式下允许的最大损失。 */
+  /** tradeoff 模式下允许的最大损失（必填，非负整数）；protect 模式下忽略。 */
   lossCap?: number | null;
+  /** 勾选的公平底线 id（取自 runWhatIf 第三个参数 availableFloors）；缺省 = 不设底线。 */
+  fairnessFloorIds?: string[];
+  /** 可选：按底线 id 覆盖最低比例（0–1）。只对勾选的底线生效。 */
+  minRatioOverrides?: Record<string, number>;
 }
 
 export interface WhatIfLabels {
@@ -144,6 +159,106 @@ export interface WhatIfOutcomeSummary {
   N: number;
   cost: WhatIfPlanCost;
   selected: WhatIfSelected[];
+  /** 收回已有资源的条数汇总（不含学生）。 */
+  revocation_counts: WhatIfRevocationCounts;
+  /** 失去可达的说明（L > 0 时非空），只含人数。 */
+  loss_text: string | null;
+  /** 公平底线结果（未设底线时为空数组）。 */
+  fairness: WhatIfFairnessRow[];
+}
+
+export interface WhatIfRevocationCounts {
+  total: number;
+  forced: number;
+  voluntary: number;
+}
+
+/** 按「被收回的措施 → 原因（被哪项新措施替换 / 自愿收回）」汇总的一组损失。 */
+export interface WhatIfLossGroup {
+  revoked_title: string;
+  /** 导致强制收回的新措施标题；自愿收回为 null。 */
+  forced_by_title: string | null;
+  /** 收回的已有 grant 条数。 */
+  revoked_count: number;
+  /** 因此失去可达的不同学生人数。 */
+  students: number;
+  /** 因此失去可达的（学生, 机会）对数。 */
+  pairs: number;
+  text: string;
+}
+
+export interface WhatIfLoss {
+  /** 失去可达的（学生, 机会）对数（= L）。 */
+  lost_pairs: number;
+  /** 受影响的不同学生人数。 */
+  affected_students: number;
+  groups: WhatIfLossGroup[];
+  /** tradeoff 且 L > 0 时的醒目说明；否则 null。 */
+  headline: string | null;
+  /** protect 模式的说明（「保护模式不会收回任何已有资源」）；tradeoff 时为 null。 */
+  protect_note: string | null;
+}
+
+export interface WhatIfRevocationItem {
+  title: string;
+  /** 收回的条数。 */
+  count: number;
+  reason: string;
+}
+
+export interface WhatIfRevocations extends WhatIfRevocationCounts {
+  items: WhatIfRevocationItem[];
+}
+
+export interface WhatIfFairnessRow {
+  floor_id: string;
+  label: string;
+  basis: string;
+  /** 分母：该群体中至少对一个机会符合官方资格的学生数。 */
+  eligible_members: number;
+  /** 分子：其中方案后至少有一个可达对的学生数。 */
+  covered_members: number;
+  /** 比例（百分比，保留 1 位小数）；分母为 0 时为 null。 */
+  ratio_percent: number | null;
+  /** 要求的最低比例（百分比）。 */
+  min_ratio_percent: number;
+  satisfied: boolean;
+  /** 分母为 0：不适用（自动满足）。 */
+  not_applicable: boolean;
+  text: string;
+}
+
+export interface WhatIfBaselineMetrics {
+  R1_count: number;
+  G: number;
+  L: number;
+  N: number;
+  total_usd: number;
+}
+
+export interface WhatIfBaselineRow {
+  id: string;
+  label: string;
+  description: string;
+  /** 该做法自己声称的可达对数（不经复核）。 */
+  claimed_reachable: number;
+  /** 可执行性检查是否全部通过。 */
+  executable: boolean;
+  /** 不通过的可执行性检查（中文标签）。 */
+  failed_checks: string[];
+  /** 可执行时的复核后数字；否则 null（页面标「不可执行」，不显示原方案的数字）。 */
+  verified: WhatIfBaselineMetrics | null;
+  /** 先到先得截断后的数字与说明；没有截断时为 null。 */
+  repaired: (WhatIfBaselineMetrics & { note: string }) | null;
+  /** 是否满足主办方要求（必须启用 / 最低新增 / 公平底线）；没设要求时为 null。 */
+  soft_requirements_met: boolean | null;
+  /** 「是 / 否 / 未设要求」等中文说明。 */
+  soft_label: string;
+}
+
+export interface WhatIfBaselines {
+  rows: WhatIfBaselineRow[];
+  notes: string[];
 }
 
 export interface WhatIfAlternative extends WhatIfOutcomeSummary {
@@ -165,8 +280,8 @@ export interface WhatIfConditional extends WhatIfOutcomeSummary {
 }
 
 export interface WhatIfUncoveredReason {
-  /** 障碍类型或 'eligibility' / 'unknown'。 */
-  kind: BarrierType | 'eligibility' | 'unknown';
+  /** 障碍类型或 'eligibility' / 'unknown' / 'revoked'（原本可达、因收回已有资源而不再可达）。 */
+  kind: BarrierType | 'eligibility' | 'unknown' | 'revoked';
   /** 涉及的不同学生人数。 */
   students: number;
   /** 可能原因（中文）。 */
@@ -207,7 +322,16 @@ export interface WhatIfView {
     min_gain: number | null;
     mode: 'protect' | 'tradeoff';
     loss_cap: number | null;
+    /** 参与求解的公平底线（已应用比例覆盖）。 */
+    fairness_floor_ids: string[];
   };
+  /** 输入级问题（损失上限、底线比例等不合法）；非空时没有调用求解器。 */
+  input_errors: string[];
+  mode: 'protect' | 'tradeoff';
+  /** tradeoff 时的损失上限；protect 或未填时为 null。 */
+  loss_cap: number | null;
+  mode_label: string;
+  mode_explanation: string;
   /** 因前置依赖未纳入而被排除的措施。 */
   excluded: WhatIfExcluded[];
   /** 被忽略的「必须启用」项。 */
@@ -229,6 +353,14 @@ export interface WhatIfView {
   conditional: WhatIfConditional | null;
   /** UNSUPPORTED_INPUT 时为 null（没有评估）。 */
   uncovered: WhatIfUncovered | null;
+  /** 失去可达的汇总；没有评估时为 null。 */
+  loss: WhatIfLoss | null;
+  /** 收回已有资源的汇总；没有评估时为 null。 */
+  revocations: WhatIfRevocations | null;
+  /** 公平底线结果；不设底线或没有评估时为空数组。 */
+  fairness: WhatIfFairnessRow[];
+  /** 基线对比；没有调用求解器（input_errors 非空）时为 null。 */
+  baselines: WhatIfBaselines | null;
   /** 求解器说明（已脱敏）。 */
   solver_notes: string[];
   assumptions: string[];
@@ -253,9 +385,9 @@ export const STATUS_LABELS: Record<JointStatus, string> = {
 
 const STATUS_EXPLANATIONS: Record<JointStatus, string> = {
   OPTIMAL:
-    '已完成全部搜索：在当前勾选、预算与要求下，没有比这更好的方案（先比净变化，再比成本）。',
+    '已完成全部搜索：在当前勾选、预算与要求下，没有比这更好的方案（先比净变化，再比失去的数量，再比成本）。',
   INFEASIBLE:
-    '做不到：在不突破容量、预算、互斥、前置依赖等硬约束的前提下，无法同时满足你提的要求（必须启用的措施 / 最低新增目标）。当前结果是「不启用任何措施」；放松要求后的替代方案见下方，求解器没有悄悄降低要求。',
+    '做不到：在不突破容量、预算、互斥、前置依赖、损失上限等硬约束的前提下，无法同时满足你提的要求（必须启用的措施 / 最低新增目标 / 公平底线）。当前结果是「不启用任何措施」；放松要求后的替代方案见下方，求解器没有悄悄降低要求。',
   SEARCH_LIMIT_REACHED:
     '达到搜索上限后停止：显示的是上限内找到的、经独立复核通过的最好方案，不保证最优，也不代表没有更好的方案。',
   UNSUPPORTED_INPUT:
@@ -274,8 +406,10 @@ export const CHECK_LABELS: Record<string, string> = {
   eligibility: '资格交叉检查（措施不改变官方资格）',
   deadline: '截止日期交叉检查',
   barrier_resolution: '障碍确实被化解',
-  coverage_loss: '原本可达的没有减少',
+  coverage_loss: '失去的可达对数在允许范围内',
+  revocation: '收回已有资源的规则',
   organizer_requirements: '主办方要求',
+  fairness: '公平底线',
   metrics: '指标重算一致',
 };
 
@@ -291,6 +425,19 @@ const RELAXED_ZH: Record<SoftRequirementKey, string> = {
   min_gain: '不再要求最低新增目标',
   fairness_floors: '不再要求公平底线',
 };
+
+export const MODE_LABELS: Record<'protect' | 'tradeoff', string> = {
+  protect: '保护模式',
+  tradeoff: '权衡模式',
+};
+
+export const MODE_EXPLANATIONS: Record<'protect' | 'tradeoff', string> = {
+  protect: '保护模式：不动任何已有承诺——不收回任何已经发出的资源，原本可达的（学生, 机会）对不会减少。',
+  tradeoff:
+    '权衡模式：主办方设了损失上限才允许收回已有资源（包括与新措施互斥、必须停掉的资源）；失去的可达对数不超过上限，并写明失去多少、因为什么。',
+};
+
+export const PROTECT_LOSS_NOTE = '保护模式不会收回任何已有资源，原本可达的（学生, 机会）对不会减少。';
 
 /** INFEASIBLE 时「仍未覆盖」的障碍原因。 */
 export const INFEASIBLE_UNCOVERED_CAUSE = '当前要求无法满足，主结果为不启用任何措施；可参考上方的替代方案';
@@ -436,7 +583,47 @@ function costOf(c: JointCost): WhatIfPlanCost {
   return { fixed_usd: round2(c.fixed_usd), per_student_usd: round2(c.marginal_usd), total_usd: round2(c.total_usd) };
 }
 
-function outcomeSummary(scenario: Scenario, o: JointOutcome): WhatIfOutcomeSummary {
+function revocationCounts(revs: readonly GrantRevocation[] | undefined): WhatIfRevocationCounts {
+  const list = revs ?? [];
+  const forced = list.filter((r) => r.forced_by !== null).length;
+  return { total: list.length, forced, voluntary: list.length - forced };
+}
+
+function lossText(L: number, counts: WhatIfRevocationCounts): string | null {
+  if (L <= 0) return null;
+  return `失去 ${L} 个原本可达的（学生, 机会）对：收回了 ${counts.total} 条已有资源（其中因互斥必须收回 ${counts.forced} 条、自愿收回 ${counts.voluntary} 条）。`;
+}
+
+const pct = (x: number) => Math.round(x * 1000) / 10;
+
+function fairnessRows(reports: readonly FairnessReport[] | undefined, floors: readonly FairnessFloor[]): WhatIfFairnessRow[] {
+  const byId = new Map(floors.map((f) => [f.id, f]));
+  return (reports ?? []).map((r) => {
+    const f = byId.get(r.floor_id);
+    const label = f?.label ?? r.floor_id;
+    const ratio = r.ratio === null ? null : pct(r.ratio);
+    const min = pct(r.min_ratio);
+    const text =
+      r.ratio === null
+        ? `${label}：场景里没有符合资格的该群体学生（分母为 0），这条底线不适用（视为满足）。`
+        : `${label}：符合资格的 ${r.eligible_members} 人中有 ${r.covered_members} 人方案后至少有一个可达的机会（${ratio}%），要求至少 ${min}%，${r.satisfied ? '满足' : '不满足'}。`;
+    return {
+      floor_id: r.floor_id,
+      label,
+      basis: f?.basis ?? '',
+      eligible_members: r.eligible_members,
+      covered_members: r.covered_members,
+      ratio_percent: ratio,
+      min_ratio_percent: min,
+      satisfied: r.satisfied,
+      not_applicable: r.ratio === null,
+      text,
+    };
+  });
+}
+
+function outcomeSummary(scenario: Scenario, o: JointOutcome, floors: readonly FairnessFloor[]): WhatIfOutcomeSummary {
+  const counts = revocationCounts(o.revocations);
   return {
     R1_count: o.R1.length,
     G: o.G,
@@ -444,12 +631,16 @@ function outcomeSummary(scenario: Scenario, o: JointOutcome): WhatIfOutcomeSumma
     N: o.N,
     cost: costOf(o.cost),
     selected: summarizeSelected(scenario, o),
+    revocation_counts: counts,
+    loss_text: lossText(o.L, counts),
+    fairness: fairnessRows(o.fairness, floors),
   };
 }
 
 const DEFAULT_SLOT = '\u0000default';
 
-function capacityUsage(scenario: Scenario, plan: JointPlan2): WhatIfCapacity[] {
+function capacityUsage(scenario: Scenario, plan: JointPlan2 & { revoked_grant_ids?: string[] }): WhatIfCapacity[] {
+  const revoked = new Set(plan.revoked_grant_ids ?? []);
   const slotOf = (oid: string | null | undefined): string => {
     const slots = scenario.opportunity_time_slots;
     if (slots && oid != null && Object.prototype.hasOwnProperty.call(slots, oid)) return slots[oid];
@@ -462,7 +653,8 @@ function capacityUsage(scenario: Scenario, plan: JointPlan2): WhatIfCapacity[] {
     .filter(isApproved)
     .map((iv) => {
       const allocs = plan.allocations.filter((a) => a.intervention_id === iv.id);
-      const existing = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === iv.id);
+      // 被本方案收回的已有 grant 不占名额（契约第 3 条第 5 款只数 E'）。
+      const existing = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === iv.id && !revoked.has(g.id));
       if (iv.capacity == null) {
         return { id: iv.id, title: iv.title, selected: selected.has(iv.id), slots: [], unlimited: true };
       }
@@ -502,7 +694,10 @@ function uncoveredSummary(
 ): WhatIfUncovered {
   const ivById = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const r1 = new Set(outcome.R1.map((p) => pairKey(p.student_id, p.opportunity_id)));
-  const existing = scenario.existing_grants ?? [];
+  const lost = new Set((outcome.lost_pairs ?? []).map((p) => pairKey(p.student_id, p.opportunity_id)));
+  const revoked = new Set(outcome.revoked_grant_ids ?? []);
+  // 按 E'（未被收回的已有 grant）分析仍未覆盖的原因。
+  const existing = (scenario.existing_grants ?? []).filter((g) => !revoked.has(g.id));
   const byKind = new Map<WhatIfUncoveredReason['kind'], Set<string>>();
   const kindsOf = new Map<string, Set<WhatIfUncoveredReason['kind']>>();
   const add = (k: WhatIfUncoveredReason['kind'], sid: string) => {
@@ -520,6 +715,10 @@ function uncoveredSummary(
       if (r1.has(pairKey(s.id, o.id))) continue;
       pairs++;
       students.add(s.id);
+      if (lost.has(pairKey(s.id, o.id))) {
+        add('revoked', s.id);
+        continue;
+      }
       const grants: ResourceGrant[] = [...existing];
       for (const a of outcome.allocations) {
         if (a.student_id !== s.id || a.opportunity_id !== o.id) continue;
@@ -560,13 +759,16 @@ function uncoveredSummary(
     return '受互斥、前置依赖等其他约束限制，方案没有覆盖';
   };
 
-  const order: WhatIfUncoveredReason['kind'][] = ['eligibility', 'device', 'transport', 'cost', 'time', 'unknown'];
+  const order: WhatIfUncoveredReason['kind'][] = ['revoked', 'eligibility', 'device', 'transport', 'cost', 'time', 'unknown'];
   const reasons: WhatIfUncoveredReason[] = [];
   for (const k of order) {
     const set = byKind.get(k);
     if (!set || set.size === 0) continue;
     const n = set.size;
-    if (k === 'eligibility') {
+    if (k === 'revoked') {
+      const cause = '原本可达，因收回已有资源而在此方案下不再可达（见「失去」说明）';
+      reasons.push({ kind: k, students: n, cause, text: `${n} 人${cause}` });
+    } else if (k === 'eligibility') {
       const cause = '措施不能改变官方资格';
       reasons.push({ kind: k, students: n, cause, text: `${n} 人不符合官方资格：${cause}` });
     } else if (k === 'unknown') {
@@ -580,9 +782,169 @@ function uncoveredSummary(
   return { pairs, students: students.size, reasons };
 }
 
+// ───────────────────────────── 第 3 层：输入检查与汇总 ─────────────────────────────
+
+/** 损失上限：tradeoff 模式下必填、非负整数；protect 模式下忽略。 */
+function checkLossCap(mode: 'protect' | 'tradeoff', raw: unknown): { value: number | null; error: string | null } {
+  if (mode !== 'tradeoff') return { value: null, error: null };
+  if (raw === null || raw === undefined) {
+    return {
+      value: null,
+      error: '权衡模式需要填写损失上限（0 或以上的整数）：最多允许多少个原本可达的（学生, 机会）对在新方案下不再可达。未填写时不计算。',
+    };
+  }
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || !Number.isInteger(raw)) {
+    return { value: null, error: '损失上限需要是 0 或以上的整数。' };
+  }
+  return { value: raw, error: null };
+}
+
+/** 从可用底线里按 id 勾选（按可用列表的顺序），并应用最低比例覆盖。 */
+function selectFloors(
+  available: readonly FairnessFloor[],
+  ids: readonly string[] | undefined,
+  overrides: Record<string, number> | undefined,
+): { floors: FairnessFloor[]; errors: string[] } {
+  const want = new Set(ids ?? []);
+  const errors: string[] = [];
+  const knownIds = new Set(available.map((f) => f.id));
+  for (const id of want) if (!knownIds.has(id)) errors.push(`没有找到所选的公平底线（${id}），请重新选择。`);
+  const floors: FairnessFloor[] = [];
+  for (const f of available) {
+    if (!want.has(f.id)) continue;
+    let min = f.min_ratio;
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, f.id)) {
+      const x = overrides[f.id];
+      if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1) {
+        errors.push(`「${f.label}」的最低比例需要是 0% 到 100% 之间的数字。`);
+        continue;
+      }
+      min = x;
+    }
+    floors.push({ ...f, statuses_any_of: [...f.statuses_any_of], min_ratio: min });
+  }
+  return { floors, errors };
+}
+
+function lossAndRevocations(
+  scenario: Scenario,
+  outcome: JointOutcome,
+  mode: 'protect' | 'tradeoff',
+): { loss: WhatIfLoss; revocations: WhatIfRevocations } {
+  const ivTitle = (id: string) => scenario.interventions.find((iv) => iv.id === id)?.title ?? id;
+  const grantById = new Map((scenario.existing_grants ?? []).map((g) => [g.id, g]));
+  const revs = outcome.revocations ?? [];
+  const lost = outcome.lost_pairs ?? [];
+  type Group = { iv: string; by: string | null; revs: GrantRevocation[] };
+  const groups: Group[] = [];
+  for (const r of revs) {
+    let g = groups.find((x) => x.iv === r.intervention_id && x.by === r.forced_by);
+    if (!g) {
+      g = { iv: r.intervention_id, by: r.forced_by, revs: [] };
+      groups.push(g);
+    }
+    g.revs.push(r);
+  }
+  const lossGroups: WhatIfLossGroup[] = groups.map((g) => {
+    const hit = lost.filter((p) =>
+      g.revs.some((r) => {
+        const grant = grantById.get(r.grant_id);
+        return r.student_id === p.student_id && (grant?.opportunity_id === null || grant?.opportunity_id === p.opportunity_id);
+      }),
+    );
+    const students = new Set(hit.map((p) => p.student_id)).size;
+    const revTitle = ivTitle(g.iv);
+    const head =
+      g.by !== null
+        ? `因启用「${ivTitle(g.by)}」（与「${revTitle}」互斥，不能同时运行）必须收回「${revTitle}」的 ${g.revs.length} 条已有资源`
+        : `自愿收回「${revTitle}」的 ${g.revs.length} 条已有资源（为腾出名额）`;
+    const tail =
+      hit.length > 0
+        ? `：${students} 名学生的 ${hit.length} 个（学生, 机会）对因此在此方案下不再可达。`
+        : '：没有因此失去可达的对（例如收回的是待审批的资源，或已由其他措施补上）。';
+    return {
+      revoked_title: revTitle,
+      forced_by_title: g.by !== null ? ivTitle(g.by) : null,
+      revoked_count: g.revs.length,
+      students,
+      pairs: hit.length,
+      text: head + tail,
+    };
+  });
+  const counts = revocationCounts(revs);
+  const loss: WhatIfLoss = {
+    lost_pairs: outcome.L,
+    affected_students: new Set(lost.map((p) => p.student_id)).size,
+    groups: lossGroups,
+    headline:
+      mode === 'tradeoff' && outcome.L > 0
+        ? `为了新增 ${outcome.G} 个，有 ${outcome.L} 个原本可达的（学生, 机会）对在此方案下不再可达。`
+        : null,
+    protect_note: mode === 'protect' ? PROTECT_LOSS_NOTE : null,
+  };
+  const revocations: WhatIfRevocations = {
+    ...counts,
+    items: groups.map((g) => ({
+      title: ivTitle(g.iv),
+      count: g.revs.length,
+      reason:
+        g.by !== null
+          ? `与新启用的「${ivTitle(g.by)}」互斥，两者不能同时运行，必须停掉`
+          : '自愿收回（权衡模式下为腾出名额给其他学生）',
+    })),
+  };
+  return { loss, revocations };
+}
+
+const SOFT_CHECK_NAMES = new Set(['organizer_requirements', 'fairness']);
+
+function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBaselines {
+  const m = (x: { R1_count: number; G: number; L: number; N: number; total_usd: number }): WhatIfBaselineMetrics => ({
+    R1_count: x.R1_count,
+    G: x.G,
+    L: x.L,
+    N: x.N,
+    total_usd: round2(x.total_usd),
+  });
+  return {
+    rows: cmp.rows.map((r) => {
+      const failed = r.verification.checks.filter((c) => !SOFT_CHECK_NAMES.has(c.name) && !c.passed);
+      const executable = r.verified !== null;
+      return {
+        id: r.id,
+        label: r.label,
+        description: r.description,
+        claimed_reachable: r.claimed_reachable,
+        executable,
+        failed_checks: failed.map((c) => CHECK_LABELS[c.name] ?? c.name),
+        verified: r.verified ? m(r.verified) : null,
+        repaired: r.repaired ? { ...m(r.repaired), note: cleanText(r.repaired.note, scenario) } : null,
+        soft_requirements_met: r.soft_requirements_met,
+        soft_label:
+          r.soft_requirements_met === null
+            ? '未设要求'
+            : !executable
+              ? '方案不可执行，不评估'
+              : r.soft_requirements_met
+                ? '满足'
+                : '不满足',
+      };
+    }),
+    notes: cmp.notes.map((n) => cleanText(n, scenario)),
+  };
+}
+
 // ───────────────────────────── 主函数 ─────────────────────────────
 
-export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
+/**
+ * @param availableFloors 该场景可选的公平底线（如 ./scenarios 的 SCENARIOS[i].suggestedFairnessFloors）；
+ *   input.fairnessFloorIds 只能从这里选。缺省 = 没有可选底线。
+ */
+export function runWhatIf(
+  scenario: Scenario,
+  input: WhatIfInput,
+  availableFloors: readonly FairnessFloor[] = [],
+): WhatIfView {
   const byId = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const title = (id: string) => byId.get(id)?.title ?? id;
 
@@ -606,17 +968,107 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
   }
   required.sort(cmpStr);
 
-  const mode = input.mode ?? 'protect';
+  const mode: 'protect' | 'tradeoff' = input.mode === 'tradeoff' ? 'tradeoff' : 'protect';
   const minGain = input.minGain ?? null;
   const budgetValid = Number.isFinite(input.budget);
-  const lossCap = input.lossCap ?? null;
+  const budgetUsd = budgetValid ? input.budget : null;
+  const lossCapCheck = checkLossCap(mode, input.lossCap);
+  const lossCap = lossCapCheck.value;
+  const floorSel = selectFloors(availableFloors, input.fairnessFloorIds, input.minRatioOverrides);
+  const floors = floorSel.floors;
+  const input_errors = [...(lossCapCheck.error ? [lossCapCheck.error] : []), ...floorSel.errors];
+
+  const eff = withBudget(withEnabledInterventions(scenario, enabled), input.budget);
+  const enabledPending = eff.interventions.filter((iv) => !isApproved(iv)).map((iv) => `「${iv.title}」`);
+
+  // 假设与不确定性（与是否求解无关的部分）
+  const assumptions: string[] = [
+    '所有学生和场景数据都是示例 / 模拟，不是真实学生，结果不代表真实影响。',
+    '机会目前是占位，之后替换为人工核实过的真实机会（官方链接 + 核实日期）。',
+    '「可达」只表示资格不冲突、现实条件（时间 / 费用 / 交通 / 设备）走得通，不等于录取，也不代表录取概率。',
+    '模型假设学生会接受分配到的资源；实际是否接受、能否到场未纳入计算。',
+    '各项成本、名额、预算都是示例数字。',
+    `评估日期为 ${scenario.evaluation_date}：资格、年龄与截止日期都按这一天计算。`,
+    enabledPending.length > 0
+      ? `待审批的措施（${enabledPending.join('、')}）未计入当前结果，只出现在「如果获批」的条件性结果里。`
+      : '待审批的措施不计入当前结果；本次没有纳入待审批的措施。',
+    '每项措施的作用只通过它提供的资源（设备 / 补助 / 替代参与方式 / 时间）是否化解学生的现实障碍来判断，措施不能改变官方资格。',
+    '若勾选的措施有前置依赖而依赖项没有纳入，该措施会被排除、不参与求解（不会出现「依赖没开、措施照样生效」）。',
+    '名额或预算不够、多名学生条件相同时，按学生编号顺序决定分给谁（模拟中的确定性规则），不代表谁更需要。',
+    MODE_EXPLANATIONS[mode],
+    mode === 'tradeoff'
+      ? `权衡模式的含义：允许为新增覆盖而收回已有资源（与新措施互斥的资源必须收回），由此失去的可达对计入「失去可达 L」，且不超过损失上限${lossCap !== null ? ` ${lossCap}` : ''}；收回不退款，不会增加预算。`
+      : '保护模式下不会收回任何已有资源；与已有资源互斥的新措施因此不能启用。',
+    '公平底线只依据学生自己声明的身份标签（如低收入、第一代大学生），不读学校名或姓名；分母只算至少对一个机会符合官方资格的该群体学生，按学生计（至少有一个可达机会即算覆盖）；一个学生属于多个群体时，在每个群体里各算一次。',
+    '基线对比中的 A / B / C 是确定性的简化做法（按编号升序、先到先得），不代表任何真实系统，也不代表谁更需要；说明书中的基线 D（充分协调的分离式规划器）未实现。',
+  ];
+  if (floors.length > 0) assumptions.push('本次设置的公平底线及其依据都是示例（虚构依据），仅用于演示。');
+  for (const e of excluded) assumptions.push(e.reason);
+  for (const r of ignored_required) assumptions.push(r.reason);
+
+  const base = {
+    scenario_title: scenario.title,
+    evaluation_date: scenario.evaluation_date,
+    is_sample: true as const,
+    student_count: scenario.students.length,
+    opportunities: scenario.opportunities.map((o) => ({
+      title: o.title,
+      is_placeholder: o.is_sample === true || o.title.includes('占位'),
+    })),
+    effective: {
+      enabled_ids: enabled,
+      required_ids: required,
+      budget_usd: budgetUsd,
+      min_gain: minGain !== null && Number.isFinite(minGain) ? minGain : null,
+      mode,
+      loss_cap: lossCap,
+      fairness_floor_ids: floors.map((f) => f.id),
+    },
+    input_errors,
+    mode,
+    loss_cap: lossCap,
+    mode_label: MODE_LABELS[mode],
+    mode_explanation: MODE_EXPLANATIONS[mode],
+    excluded,
+    ignored_required,
+    labels: WHATIF_LABELS,
+  };
+
+  // 输入级问题：不调用求解器，不把异常值传下去。
+  if (input_errors.length > 0) {
+    const view: WhatIfView = {
+      ...base,
+      status: 'UNSUPPORTED_INPUT',
+      status_label: STATUS_LABELS.UNSUPPORTED_INPUT,
+      status_explanation: `设置不完整或不合法，没有计算：${input_errors.join(' ')}`,
+      R0_count: null,
+      R1_count: null,
+      G: null,
+      L: null,
+      N: null,
+      cost: { fixed_usd: null, per_student_usd: null, total_usd: null, budget_usd: budgetUsd, remaining_usd: null },
+      selected: [],
+      capacity_usage: capacityUsage(eff, { selected_intervention_ids: [], allocations: [] }),
+      verification: { passed: false, checks: [], note: '设置不完整或不合法，没有调用求解器，也没有复核。' },
+      alternative: null,
+      conditional: null,
+      uncovered: null,
+      loss: null,
+      revocations: null,
+      fairness: [],
+      baselines: null,
+      solver_notes: [],
+      assumptions,
+    };
+    return scrubNonFinite(view);
+  }
 
   // 2. 求解
-  const eff = withBudget(withEnabledInterventions(scenario, enabled), input.budget);
   const opts: SolveOptions = { mode };
   if (mode === 'tradeoff' && lossCap !== null) opts.loss_cap = lossCap;
   if (required.length > 0) opts.required_intervention_ids = required;
   if (minGain !== null) opts.min_gain = minGain;
+  if (floors.length > 0) opts.fairness_floors = floors;
   const result = solveJoint(eff, opts);
 
   // 3. 独立复核（主结果）
@@ -624,7 +1076,12 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
   if (opts.loss_cap !== undefined) vOpts.loss_cap = opts.loss_cap;
   if (opts.required_intervention_ids) vOpts.required_intervention_ids = opts.required_intervention_ids;
   if (opts.min_gain !== undefined) vOpts.min_gain = opts.min_gain;
-  const plainPlan = { selected_intervention_ids: result.selected_intervention_ids, allocations: result.allocations };
+  if (opts.fairness_floors) vOpts.fairness_floors = opts.fairness_floors;
+  const plainPlan = {
+    selected_intervention_ids: result.selected_intervention_ids,
+    allocations: result.allocations,
+    revoked_grant_ids: result.revoked_grant_ids ?? [],
+  };
   // 内部复核未通过（UNSUPPORTED_INPUT 且求解器保留了失败的复核）：展示那次失败的复核。
   const internalFailure = result.status === 'UNSUPPORTED_INPUT' && result.verification != null;
   const vr =
@@ -641,7 +1098,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     })),
     note:
       result.status === 'INFEASIBLE'
-        ? '主结果是「不启用任何措施」的空方案，它本来就不满足你提的要求，所以「主办方要求」一项不通过是预期的；其余硬约束检查用来确认空方案本身合法。'
+        ? '主结果是「不启用任何措施」的空方案，它本来就不满足你提的要求，所以「主办方要求」或「公平底线」一项不通过是预期的；其余硬约束检查用来确认空方案本身合法。'
         : internalFailure
           ? '求解器找到的方案没有通过独立复核，已舍弃、未给出（当前结果为空方案）；下面是被舍弃方案的复核结果。请检查场景数据。'
           : result.status === 'UNSUPPORTED_INPUT'
@@ -651,7 +1108,6 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
 
   // 4. 汇总
   const evaluated = result.status !== 'UNSUPPORTED_INPUT';
-  const budgetUsd = budgetValid ? input.budget : null;
   const planCost = costOf(result.cost);
   const cost: WhatIfCost = evaluated
     ? {
@@ -665,7 +1121,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
   let alternative: WhatIfAlternative | null = null;
   if (result.alternative) {
     alternative = {
-      ...outcomeSummary(eff, result.alternative),
+      ...outcomeSummary(eff, result.alternative, floors),
       relaxed: result.alternative.relaxed.map((k) => RELAXED_ZH[k]),
       note: cleanText(result.alternative.note, scenario),
     };
@@ -676,7 +1132,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     const c = result.conditional;
     const cv = verifyPlan(eff, c, { ...vOpts, assume_approved_intervention_ids: c.assumed_approved_intervention_ids });
     conditional = {
-      ...outcomeSummary(eff, c),
+      ...outcomeSummary(eff, c, floors),
       status: c.status,
       status_label: STATUS_LABELS[c.status],
       assumed_approved: c.assumed_approved_intervention_ids.map(title),
@@ -694,25 +1150,9 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
   const uncovered = evaluated
     ? uncoveredSummary(eff, scenario, result, capacity_usage, cost.remaining_usd ?? 0, result.status === 'INFEASIBLE')
     : null;
+  const lr = evaluated ? lossAndRevocations(eff, result, mode) : null;
+  const baselines = baselinesView(compareBaselines(eff, opts), scenario);
 
-  // 假设与不确定性
-  const enabledPending = eff.interventions.filter((iv) => !isApproved(iv)).map((iv) => `「${iv.title}」`);
-  const assumptions: string[] = [
-    '所有学生和场景数据都是示例 / 模拟，不是真实学生，结果不代表真实影响。',
-    '机会目前是占位，之后替换为人工核实过的真实机会（官方链接 + 核实日期）。',
-    '「可达」只表示资格不冲突、现实条件（时间 / 费用 / 交通 / 设备）走得通，不等于录取，也不代表录取概率。',
-    '模型假设学生会接受分配到的资源；实际是否接受、能否到场未纳入计算。',
-    '各项成本、名额、预算都是示例数字。',
-    `评估日期为 ${scenario.evaluation_date}：资格、年龄与截止日期都按这一天计算。`,
-    enabledPending.length > 0
-      ? `待审批的措施（${enabledPending.join('、')}）未计入当前结果，只出现在「如果获批」的条件性结果里。`
-      : '待审批的措施不计入当前结果；本次没有纳入待审批的措施。',
-    '每项措施的作用只通过它提供的资源（设备 / 补助 / 替代参与方式 / 时间）是否化解学生的现实障碍来判断，措施不能改变官方资格。',
-    '若勾选的措施有前置依赖而依赖项没有纳入，该措施会被排除、不参与求解（不会出现「依赖没开、措施照样生效」）。',
-    '名额或预算不够、多名学生条件相同时，按学生编号顺序决定分给谁（模拟中的确定性规则），不代表谁更需要。',
-  ];
-  for (const e of excluded) assumptions.push(e.reason);
-  for (const r of ignored_required) assumptions.push(r.reason);
   if (result.status === 'SEARCH_LIMIT_REACHED') {
     assumptions.push('本次求解达到搜索上限：结果不保证最优，也不代表没有更好的方案。');
   }
@@ -721,24 +1161,7 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
   }
 
   const view: WhatIfView = {
-    scenario_title: scenario.title,
-    evaluation_date: scenario.evaluation_date,
-    is_sample: true,
-    student_count: scenario.students.length,
-    opportunities: scenario.opportunities.map((o) => ({
-      title: o.title,
-      is_placeholder: o.is_sample === true || o.title.includes('占位'),
-    })),
-    effective: {
-      enabled_ids: enabled,
-      required_ids: required,
-      budget_usd: budgetUsd,
-      min_gain: minGain !== null && Number.isFinite(minGain) ? minGain : null,
-      mode,
-      loss_cap: lossCap,
-    },
-    excluded,
-    ignored_required,
+    ...base,
     status: result.status,
     status_label: STATUS_LABELS[result.status],
     status_explanation: STATUS_EXPLANATIONS[result.status],
@@ -754,14 +1177,17 @@ export function runWhatIf(scenario: Scenario, input: WhatIfInput): WhatIfView {
     alternative,
     conditional,
     uncovered,
+    loss: lr ? lr.loss : null,
+    revocations: lr ? lr.revocations : null,
+    fairness: evaluated ? fairnessRows(result.fairness, floors) : [],
+    baselines,
     solver_notes: result.notes.map((n) => cleanText(n, scenario)),
     assumptions,
-    labels: WHATIF_LABELS,
   };
   return scrubNonFinite(view);
 }
 
-/** 页面「恢复默认」用的默认输入：纳入全部措施、不设必须启用、场景预算、无最低新增目标。 */
+/** 页面「恢复默认」用的默认输入：纳入全部措施、不设必须启用、场景预算、无最低新增目标、保护模式、不设底线。 */
 export function defaultWhatIfInput(scenario: Scenario): WhatIfInput {
   return {
     enabledIds: scenario.interventions.map((iv) => iv.id),
@@ -769,5 +1195,7 @@ export function defaultWhatIfInput(scenario: Scenario): WhatIfInput {
     budget: scenario.budget_usd,
     minGain: null,
     mode: 'protect',
+    lossCap: null,
+    fairnessFloorIds: [],
   };
 }
