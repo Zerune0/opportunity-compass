@@ -86,8 +86,8 @@ describe('现有数据全部合格', () => {
     expect(validateProfile(goodProfile())).toEqual([]);
   });
 
-  it('data/profiles.json 的 3 个示例档案全部合格', () => {
-    expect(profilesJson).toHaveLength(3);
+  it('data/profiles.json 的 4 个示例档案全部合格', () => {
+    expect(profilesJson).toHaveLength(4);
     for (const p of profilesJson) expect(validateProfile(p), JSON.stringify(validateProfile(p))).toEqual([]);
   });
 
@@ -154,6 +154,13 @@ const OPP_CASES: [string, Mut, RegExp][] = [
   ['preparation evidence_kind 不合法', (o) => (prep(o, 'prep-a').evidence_kind = 'video'), /prep-a\]\.evidence_kind: expected one of/],
   ['preparation required_for_application 缺失', (o) => delete prep(o, 'prep-b').required_for_application, /prep-b\]\.required_for_application: expected true \/ false/],
   ['is_sample 不是布尔', (o) => (o.is_sample = 'yes'), /is_sample: expected true \/ false/],
+  ['source_tier 不在枚举内', (o) => (o.source_tier = 'blog'), /source_tier: expected one of: official \/ trusted_aggregator \/ user_posted.*got "blog"/],
+  ['source_tier 为 null（只能缺省）', (o) => (o.source_tier = null), /source_tier: expected one of/],
+  ['posted_by 不是字符串', (o) => (o.posted_by = 42), /posted_by: expected a string or null/],
+  ['user_posted 但 is_sample 为 false', (o) => Object.assign(o, { source_tier: 'user_posted', is_sample: false }), /is_sample: expected true when source_tier is "user_posted".*got false/],
+  ['user_posted 但缺 is_sample', (o) => { o.source_tier = 'user_posted'; delete o.is_sample; }, /is_sample: expected true when source_tier is "user_posted"/],
+  ['preparation material_kind 不合法', (o) => (prep(o, 'prep-b').material_kind = 'cv'), /prep-b\]\.material_kind: expected one of.*"cv"/],
+  ['preparation reusable_across_opportunities 不是布尔', (o) => (prep(o, 'prep-b').reusable_across_opportunities = 'yes'), /prep-b\]\.reusable_across_opportunities: expected true \/ false or null/],
 ];
 
 describe('validateOpportunity：每类错误都能报出', () => {
@@ -185,6 +192,20 @@ describe('validateOpportunity：每类错误都能报出', () => {
       delete x.is_sample;
     });
     expect(validateOpportunity(o)).toEqual([]);
+  });
+
+  it('第二阶段新增的可选字段：合法取值都合格', () => {
+    for (const tier of ['official', 'trusted_aggregator', 'user_posted']) {
+      const o = mutated(goodOpp, (x) => {
+        x.source_tier = tier;
+        x.posted_by = tier === 'user_posted' ? 'sample-publisher-1' : null;
+        prep(x, 'prep-b').material_kind = 'resume';
+        prep(x, 'prep-b').reusable_across_opportunities = true;
+        prep(x, 'prep-a').material_kind = null;
+        prep(x, 'prep-a').reusable_across_opportunities = null;
+      });
+      expect(validateOpportunity(o)).toEqual([]);
+    }
   });
 });
 

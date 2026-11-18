@@ -304,8 +304,8 @@ describe('checkEligibility — 示例档案冒烟', () => {
     { id: 'req-m', type: 'manual', label: '推荐信', hard: true, source_text: 'One recommendation.' },
   ]);
 
-  it('三个示例档案都能跑，状态合法', () => {
-    expect(profiles).toHaveLength(3);
+  it('四个示例档案都能跑，状态合法', () => {
+    expect(profiles).toHaveLength(4);
     for (const p of profiles) {
       const r = checkEligibility(p, opp, { today: '2026-11-17' });
       expect(r.items).toHaveLength(8);

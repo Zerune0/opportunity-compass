@@ -431,9 +431,9 @@ describe('planRoutes：确定性与公平性', () => {
     expect(planRoutes({ ...a, grade: 8 }, OPP, { today: TODAY })).toEqual(planRoutes({ ...b, grade: 8 }, OPP, { today: TODAY }));
   });
 
-  it('data/profiles.json 三个示例档案跑一遍不抛错', () => {
+  it('data/profiles.json 四个示例档案跑一遍不抛错', () => {
     const profiles = profilesJson as unknown as StudentProfile[];
-    expect(profiles).toHaveLength(3);
+    expect(profiles).toHaveLength(4);
     for (const p of profiles) {
       for (const opp of [OPP, NO_PRACTICE_OPP, CHAIN_OPP]) {
         const r = planRoutes(p, opp, { today: TODAY });

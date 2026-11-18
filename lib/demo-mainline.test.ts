@@ -28,7 +28,7 @@ const byId = (id: string): StudentProfile => {
 
 /** 示例高中生 Maya：11 年级、只有手机（缺笔记本）、交通可靠、每周 4 小时、预算 $20。 */
 const maya = () => byId('sample-maya');
-/** 示例高中生 Leo：10 年级、有笔记本，但没有交通工具。 */
+/** 示例高中生 Leo：10 年级、有笔记本、预算 $40，但没有交通工具。 */
 const leo = () => byId('sample-leo');
 
 /** 明显虚构的线下活动（example.com、is_sample: true）。 */
@@ -332,7 +332,9 @@ describe('演示主线（引擎级集成测试，示例数据）', () => {
     expect(approved.barriers[0]).toMatchObject({ type: 'device', resolved: true });
     expect(approved.applied_grant_ids).toEqual([laptopGrant(student.id, 'approved').id]);
 
-    // 交通同理：Leo 拿到 approved 的交通补助后，交通障碍被化解（Leo 档案没填预算，所以整体是「无法判断」而不是可达）。
+    // 交通同理：Leo 拿到 approved 的交通补助后，交通障碍被化解。
+    // 第二阶段给 Leo 补了预算（$40，够付本机会的必需准备费），不再缺 profile.budget_usd，
+    // 所以结论从原先的「无法判断（null）」变为可达（true）。可达 ≠ 录取。
     const l = leo();
     const transport: ResourceGrant = {
       id: 'grant-transport-leo',
@@ -346,8 +348,8 @@ describe('演示主线（引擎级集成测试，示例数据）', () => {
     };
     const lr = analyzeReachability(l, OPP, [transport], OPTS);
     expect(lr.barriers.find((b) => b.type === 'transport')).toMatchObject({ resolved: true });
-    expect(lr.reachable).toBeNull();
-    expect(lr.missing_info).toEqual(['profile.budget_usd']);
+    expect(lr.reachable).toBe(true);
+    expect(lr.missing_info).toEqual([]);
   });
 
   it('第 7 幕「主办方 what-if」：6 名示例学生都缺笔记本、3 个借用名额 → OPTIMAL，G = 3、L = 0、N = 3 → 复核通过；多分给第 4 人 → 容量检查不通过', () => {

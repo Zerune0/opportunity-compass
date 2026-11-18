@@ -1,7 +1,7 @@
 # CONTRACT — Opportunity Compass 团队契约
 
 给四位队友看的共享约定。**类型以 `lib/types.ts` 为准**；本文件与代码不一致时，以代码为准并立刻告诉主导。
-产品全貌见 `docs/`，四天范围以本文件为准。
+产品全貌见 `docs/`；第一阶段（四天）与第二阶段的范围都以本文件为准。
 
 ---
 
@@ -48,11 +48,47 @@
 
 常量：`ELIGIBILITY_STATUSES`、`BARRIER_TYPES`、`ROUTE_TYPES`、`JOINT_STATUSES`、`SUPPORT_RESOLVES`（支持类型 → 化解的障碍类型）、`STUDENT_STATUSES`（`StudentStatus` 的全部取值）、`SOFT_REQUIREMENT_RELAX_ORDER`。
 
+### 第二阶段新增类型（全部向后兼容：新类型、新的可选字段、只读常量；现有字段不改名、不删除、不改类型）
+
+| 类型 | 用途 | 关键字段 |
+|---|---|---|
+| `SourceTier`；`Opportunity.source_tier` / `posted_by` | 机会信息的来源等级 | 取值 `official`（由人打开主办方官网核实）/ `trusted_aggregator`（可信的机会汇总站，仍以官网为准）/ `user_posted`（用户发布，本阶段只来自 Connect 的本地示例）。`Opportunity.source_tier?` 缺省按 `'official'` 处理，读取时写 `opp.source_tier ?? 'official'`；`Opportunity.posted_by?: string \| null` = user_posted 时为 `SamplePublisher.id`，其他等级为 null 或缺省。**user_posted 的机会必须同时 `is_sample: true`**，它的 `verified_on` / `verified_by` 只记录发布日期与示例发布者，界面不得显示为「已核实」 |
+| `MaterialKind`；`PrepItem.material_kind` / `reusable_across_opportunities` | 申请材料种类 | 取值 `resume` / `transcript` / `personal_statement` / `recommendation_letter` / `portfolio` / `essay` / `other`。`PrepItem.material_kind?: MaterialKind \| null`（null / 缺省 = 这个准备项不是材料）；`PrepItem.reusable_across_opportunities?: boolean \| null`（true = 通用材料，联合规划时只算一次；false = 针对每个机会单独准备；null / 缺省按 false 处理，不确定时不假设省时间） |
+| `GapCategory` | 差距五类 | `knowledge_or_experience`（知识或经验）/ `materials`（材料）/ `time_and_cost`（时间和成本）/ `unchangeable_eligibility`（当前不可改变的资格限制）/ `unknown_info`（未知信息）；常量 `GAP_CATEGORIES` 是固定顺序（也是界面展示顺序） |
+| `GapBasis` | 一条差距的依据（判别联合，判别字段 `kind`） | `{ kind: 'requirement', requirement_id, source_text }` / `{ kind: 'prep_item', prep_item_id, source_text: string \| null }` / `{ kind: 'barrier', barrier_type }` / `{ kind: 'missing_field', field }`（`field` 的写法与 `missing_info` 一致，如 `profile.devices`） |
+| `GapItem` | 一条差距 | `id`（结果内唯一且稳定，形如 `materials:prep-resume`）、`category`、`title`、`detail`、`basis`、`improvable`、**`action`（`string \| null`；`improvable` 为 false 时为 null；`unchangeable_eligibility` 一律为 null）**、`estimated_hours?`、`estimated_cost_usd?`（不适用或不知道为 null） |
+| `GapAnalysis` | `analyzeGaps` 的返回 | `profile_id`、`opportunity_id`、`items`（先按 `GAP_CATEGORIES` 分组，组内按机会里的原顺序）、`counts`（`Record<GapCategory, number>`，五个键都有）、`eligibility_overall`、`reachable`（语义同 `ReachabilityResult.reachable`）、`summary` |
+| `AlternativeSuggestion` | `findAlternatives` 返回数组中的一条 | `kind`（`next_cycle` = 等下一届 / `same_field` = 同领域的其他机会）、`opportunity_id`（`string \| null`；same_field 为目录中那个机会，next_cycle 指原机会）、`title`、`reason`、`eligibility_overall`（`OverallEligibility \| null`；same_field 不会是 `not_eligible`；next_cycle 通常为 null）、`shared_fields`（与原机会共有的领域标签，按 `normalizeTag` 比较，用建议机会原本的写法；next_cycle 为原机会的全部 `fields`）。给了 `options.today` 时 same_field 不含截止日期已过的机会 |
+| `MatchReasonKind` / `MatchReason` | 一条匹配理由 | `kind`：`interest` / `eligibility` / `reachability` / `format` / `time` / `cost`（常量 `MATCH_REASON_KINDS`）；`positive`（true = 有利 / false = 不利 / null = 信息不足，不猜）、`text` |
+| `MatchExplanation` | `explainMatch` 的返回 | `profile_id`、`opportunity_id`、`reasons`（按 `MATCH_REASON_KINDS` 顺序）、`eligibility_overall`、`reachable`、`shared_interests`（`profile.interests ∩ opp.fields`，按 `normalizeTag` 比较，用机会原本的写法、按 `opp.fields` 顺序；兴趣没填时为 `[]`）、`summary`。**没有任何分数、百分比或名次字段** |
+| `MatchOptions` | `explainMatch` 的可选第三参数（`extends EvalOptions`） | `today?`；`grants?: ResourceGrant[]`（主办方已分配给该学生、对这个机会生效的资源，与 `analyzeGaps` 的 `grants` 同义；缺省 = `[]`）。同一页面同时显示 `analyzeGaps` 时传同一组 grants，两者的 `reachable` 才一致 |
+| `CrossPlanItem` | 联合规划中的一个机会 | `opportunity_id`、`title`、`deadline`、`status`（`planned` / `blocked` / `past_deadline` / `insufficient_data`；后三者小时为 0、不计入负荷；`insufficient_data` = 机会数据不完整、规划时出错，仍列在 `items` 里，`note` 说明缺什么，同时写进 `warnings` 与 `missing_info`）、`route_type`（`RouteType \| null`；非 planned 为 null）、`required_hours`（计入材料复用后：可复用材料只算在 `order` 最靠前的机会上，按 `hours_each` 计，所以承担者的 `required_hours` 可能大于它的 `hours_before_reuse`）、`hours_before_reuse`（不考虑复用时自己需要的小时）、`hours_saved_by_reuse`（因材料已由更靠前的机会承担而少算的小时，≥ 0；承担者为 0）、`weeks_left`（`number \| null`）、`feasible_alone`（`boolean \| null`，口径见「第二阶段新函数」中 `planAcrossOpportunities`）、`order`（1 起，按截止日期；只是建议）、`note`。非 planned 时三个小时字段都为 0 |
+| `MaterialReuse` | 一类材料在多个机会之间的复用情况 | `material_kind`、`reusable`、`opportunity_ids`、`hours_each`（各机会该材料小时数的最大值）、`hours_saved`（reusable 时 = 各机会之和 − `hours_each`；不可复用时为 0）、`note` |
+| `WeeklyLoad` | 某一周的负荷（按天分摊） | `week_start`（该周周一）、`days`（该周落在计划窗口里的天数，1–7：第一周从 today 算起，最后一周算到计入负荷的机会中最晚的截止日）、`hours_needed`（各机会每天分摊小时 × 该机会在本周的天数，求和）、`hours_available`（`number \| null`；= `hours_per_week_available × days / 7`，即按该周落在计划窗口内的天数折算后的小时；没填为 null）、`over`（`boolean \| null`；`hours_available` 为 null 时为 null）、`opportunity_ids` |
+| `CrossPlan` | `planAcrossOpportunities` 的返回 | `profile_id`、`evaluated_on`（`ISODate \| null`）、`items`（按 `order` 升序）、`weekly_load`、`reuse`、`total_hours`、`total_hours_without_reuse`（两者只算 planned 的机会，差 = 复用省下的小时）、`conflicts`、`warnings`、`missing_info` |
+| `CrossPlanOptions` | `planAcrossOpportunities` 的可选末位参数（`extends EvalOptions`） | `today?`；`priorities?: string[]`（学生自己给的优先顺序，只用于冲突说明里的对照，不改变 `order`，也不代表系统建议放弃其他机会） |
+| `JournalApplicationStatus` / `EligibilityConfirmation` / `JournalDecision` | Quest Journal 的三项独立状态（学生自己记录，不是系统判断） | `JournalApplicationStatus`：`preparing` / `submitted` / `withdrawn`（学生的申请进度）；`EligibilityConfirmation`：`unconfirmed` / `confirmed` / `rejected`（官方是否确认了资格）；`JournalDecision`：`pending` / `admitted` / `not_admitted`（官方录取结果）。连同 `JournalEntry.participated`，**四项互相独立：提交 ≠ 官方确认资格 ≠ 被录取 ≠ 已参与**，界面分开显示，不能互相推断 |
+| `JournalEvent` / `JournalHistoryItem` | Journal 事件与事件记录 | `JournalEvent`（常量 `JOURNAL_EVENTS`）：`added`（创建条目时记录，不改其他字段）/ `submitted`（`application = 'submitted'`，`submitted_on` = 当天）/ `withdrawn`（`application = 'withdrawn'`，`submitted_on` 保留）/ `reopened`（`application` 回到 `'preparing'`，`submitted_on = null`）/ `eligibility_confirmed` / `eligibility_rejected`（`eligibility_confirmation` = `'confirmed'` / `'rejected'`）/ `admitted` / `not_admitted`（`decision`）/ `participated` / `did_not_participate`（`participated` = true / false）。`JournalHistoryItem` = `{ event, on }` |
+| `JournalTask` | Journal 里的一条任务 | `id`、`title`、`prep_item_id?`、`done`、`done_on?` |
+| `Material`（`MaterialStatus`） | 一份申请材料（单独存放，Journal 条目用 `material_ids` 引用） | `id`（全局唯一）、`profile_id`（属于哪个档案）、`kind`（`MaterialKind`）、`title`、`reusable`、`opportunity_id`（`string \| null`；通用材料为 null）、`prep_item_id?`、`estimated_hours`（`number \| null`）、`status`（`not_started` / `in_progress` / `ready`，常量 `MATERIAL_STATUSES`）。可复用材料被多个条目引用时是同一条记录：改一次状态，所有引用它的条目都看到 |
+| `OutcomeFeedback` | 学生自愿记录的主观反馈 | 全部可缺（缺省 / null = 没记）：`discovered_new_opportunity?`、`understood_eligibility?`、`completed_materials?`、`helpful_note?`、`recorded_on?`。是否提交、是否参与以 `JournalEntry` 的 `application` / `participated` 为准，这里不重复。不是系统判断，也不是真实影响的证据 |
+| `JournalEntry` | Quest Journal 的一个条目（一个档案 × 一个机会，存在浏览器 localStorage；唯一键 (`profile_id`, `opportunity_id`)） | `id`（全局唯一）、`profile_id`、`opportunity_id`、`added_on`、`application`（`JournalApplicationStatus`）、`submitted_on`（`ISODate \| null`；最近一次提交的日期）、`eligibility_confirmation`（`EligibilityConfirmation`）、`decision`（`JournalDecision`）、`participated`（`boolean \| null`；null = 还没发生 / 没记录）、`history`（`JournalHistoryItem[]`，按记录先后，通常第一项是 `added`；同一事件同一天只记一次）、`route_type?`、`tasks`、`material_ids`（引用同一档案的 `Material.id`）、`official_url`（不完成任何任务也能直接去官方申请）、`notes?`、`outcome?` |
+| `PlanTrigger` | 触发一次重新规划的原因 | `initial` / `evidence_added` / `evidence_removed` / `evidence_edited` / `profile_edited` / `manual`（常量 `PLAN_TRIGGERS`） |
+| `PlanSnapshot`（`PlanSnapshotInputs`） | 一次规划的快照（回放用） | `id`、`profile_id`、`opportunity_id`、`taken_on`、`plan`（当时 `planRoutes` 的完整结果）、`inputs`（`evidence_ids`、`hours_per_week_available`、`budget_usd`、`grade`、`today`、`changed_fields?`：触发原因为 `profile_edited` 时改了哪些档案字段，如 `['grade', 'hours_per_week_available']`，其他情况缺省）、`trigger`、`trigger_detail?`。回放取同一档案、同一机会相邻的两个快照，用 `diffRoutes(before.plan, after.plan)` 得到变化与原因 |
+| `SamplePublisher`（`PublisherKind`） | Connect 的示例发布者（虚构账户） | `id`、`name`、`kind`（`research_group` / `student_club` / `nonprofit` / `project_team` / `individual`）、`is_sample: true`、`description?` |
+| `ShareSettings` | Talent Board 的按字段授权（学生自己设置，存在浏览器本地） | `profile_id`、`share_handle`（对发布者显示的不透明句柄，如 `share-<uuid>`，不含姓名、档案 id 或其片段；由 `defaultShareSettings` 生成，同一档案保存后保持不变、撤回分享也不换；邀请与屏蔽都按它关联）、`evidence_ids`、`skills`、`share_interests`、`collaboration_note`（`string \| null`）、`updated_on`。默认全部不分享，可随时撤回；联系方式、精确位置、学校名、身份标签、私人材料永不分享 |
+| `SharedProfileView` | 发布者能看到的内容（只含已授权字段） | `share_handle`（= `ShareSettings.share_handle`；**不含档案 id**）、`alias`（化名，不是 `display_name`）、`evidence`（只含 `id` / `title` / `kind` / `skills` / `status`）、`skills`、`interests`（`share_interests` 为 false 时为 `[]`）、`collaboration_note`、`is_sample` |
+| `Invitation`（`InvitationStatus`） | 示例发布者发给学生的邀请（本地示例，不发生真实联系） | `id`、`publisher_id`、`share_handle`（被邀请学生的 `SharedProfileView.share_handle`；发布者只知道句柄，不知道档案 id，学生自己的浏览器里用 `profileIdForShareHandle` 对回档案）、`opportunity_id`（`string \| null`）、`reasons`（可解释的理由，不含分数或名次）、`status`（`pending` / `declined` / `accepted` / `blocked`）、`is_sample: true`、`sent_on`、`responded_on?` |
+
+第二阶段新增常量：`SOURCE_TIERS`、`MATERIAL_KINDS`、`MATERIAL_STATUSES`、`GAP_CATEGORIES`、`MATCH_REASON_KINDS`、`JOURNAL_EVENTS`、`PLAN_TRIGGERS`（都从 `@/lib/types` 导入；`lib/validation.ts` 里有同名的 `SOURCE_TIERS` / `MATERIAL_KINDS` 校验用常量，页面不要从那里导入）。
+
+**领域标签的比较**：`Opportunity.fields` 与档案的 `interests` 比较时一律用 `lib/tags.ts` 的 `normalizeTag`（去首尾空格、转小写，连续的空白 / 下划线 / 连字符合并成一个下划线，所以 `Data-Science`、`data science`、`data_science` 视为同一标签）；页面做领域筛选、兴趣匹配时也必须用它（或 `normalizedTagSet` / `sharedTags`），不要自己写 `===`。归一化只用于比较，给学生看的标签保留数据原本的写法。数据里推荐统一写成小写加下划线。
+
 ---
 
-## ② 六个共享函数
+## ② 十个共享函数（第一阶段六个 + 第二阶段四个）
 
-全部是 `lib/` 下的**纯函数**：确定性、无 IO、不读 localStorage、不调 AI。AI 不参与资格判断和求解。
+全部是 `lib/` 下的**纯函数**：确定性、无 IO、不读 localStorage、不调 AI。AI 不参与资格判断、路线规划和求解。
 
 | 函数 | 位置 | 签名 | 状态 |
 |---|---|---|---|
@@ -60,15 +96,90 @@
 | `analyzeReachability` | `lib/reachability` | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => ReachabilityResult` | 已实现 |
 | `planRoutes` | `lib/path` | `(profile: StudentProfile, opp: Opportunity, options?: EvalOptions) => PlanResult` | 已实现 |
 | `diffRoutes` | `lib/path` | `(before: PlanResult, after: PlanResult) => RouteDiff` | 已实现 |
-| `solveJoint` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | 已实现（精确搜索，含撤回 / 权衡模式 / 公平底线，见「联合求解模型」） |
-| `verifyPlan` | `lib/joint`（主导，接手 Charles 的任务） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | 已实现（独立复核，不 import 求解器；含第 3 层的 `revocation` / `fairness` 检查） |
+| `solveJoint` | `lib/joint`（主办方端与 Connect 负责人） | `(scenario: Scenario, options?: SolveOptions) => JointResult` | 已实现（精确搜索，含撤回 / 权衡模式 / 公平底线，见「联合求解模型」） |
+| `verifyPlan` | `lib/joint`（主办方端与 Connect 负责人） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | 已实现（独立复核，不 import 求解器；含第 3 层的 `revocation` / `fairness` 检查） |
+| `analyzeGaps` | `lib/gap`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => GapAnalysis` | 示例版本（签名为最终版；第 1 层替换为完整实现） |
+| `findAlternatives` | `lib/match`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, catalog: Opportunity[], options?: EvalOptions) => AlternativeSuggestion[]` | 示例版本（签名为最终版；第 1 层替换为完整实现） |
+| `planAcrossOpportunities` | `lib/planner`（第二阶段） | `(profile: StudentProfile, opps: Opportunity[], options?: CrossPlanOptions) => CrossPlan` | 示例版本（签名为最终版；第 2 层替换为完整实现） |
+| `explainMatch` | `lib/match`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, options?: MatchOptions) => MatchExplanation` | 示例版本（签名为最终版；第 2 层替换为完整实现） |
 
-第 3 层新增（不属于六个共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，已实现（A / B / C / joint 四行；基线 D 未实现），规则见「联合求解模型」第 10 条。`solveJoint` 的撤回、权衡模式、公平底线与新目标顺序均已实现。
+第 3 层新增（不属于上表的共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，已实现（A / B / C / joint 四行；基线 D 未实现），规则见「联合求解模型」第 10 条。`solveJoint` 的撤回、权衡模式、公平底线与新目标顺序均已实现。
 
 `VerifyOptions = { mode?: 'protect' | 'tradeoff'; loss_cap?: number; assume_approved_intervention_ids?: string[]; required_intervention_ids?: string[]; min_gain?: number; fairness_floors?: FairnessFloor[] }`（字段类型沿用 `SolveOptions`）。**第三参数确定保留，为可选**：复核损失 `L` 时需要知道模式与损失上限。不传（或不给 `mode`）按 protect 处理，即损失 `L` 必须为 0；`mode: 'tradeoff'` 时 `L ≤ loss_cap` 才算通过；`mode: 'tradeoff'` 但没给 `loss_cap` 时 `verifyPlan` 判为不通过（与 `solveJoint` 在同样输入下返回 `UNSUPPORTED_INPUT` 一致）。
 
-导入：`import { checkEligibility } from '@/lib/eligibility'`，类型 `import type { Opportunity } from '@/lib/types'`。
-**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。六个共享函数都已是真实实现。
+导入：`import { checkEligibility } from '@/lib/eligibility'`，类型 `import type { Opportunity } from '@/lib/types'`；第二阶段：`import { analyzeGaps } from '@/lib/gap'`、`import { explainMatch, findAlternatives } from '@/lib/match'`、`import { planAcrossOpportunities } from '@/lib/planner'`。
+
+第二阶段的辅助纯函数（不属于上表的共享函数，页面可以直接用）：
+- `lib/tags.ts`：`normalizeTag(s: string): string`（`' Data-Science '` → `'data_science'`）；`normalizedTagSet(tags: readonly unknown[]): Set<string>`（跳过非字符串与归一化后为空的项）；`sharedTags(tags: readonly string[], against: ReadonlySet<string>): string[]`（`tags` 中归一化后在 `against` 里的项，保留原写法与顺序，归一化后重复的只留第一个）。
+- `lib/journal.ts`：`isJournalEvent(v: unknown): v is JournalEvent`；`applyJournalEvent(entry: JournalEntry, event: JournalEvent, on: ISODate): JournalEntry`（返回新对象，按 `JournalEvent` 更新对应字段并追加 `history`，同一事件同一天不重复追加；页面一般不直接调用，用 `recordJournalEvent`）；`journalHeadline(entry: JournalEntry): string`（列表用的一句英文摘要，由四项派生，只说学生记录了什么）。
+**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。第一阶段的六个共享函数都已是真实实现；第二阶段的四个函数目前是示例版本，换成完整实现时签名与返回类型不变，页面不用改。
+
+### 第二阶段新函数：现在的示例版本做了什么、还没做什么
+
+四个示例版本都是纯函数：只读传入的参数，日期只来自 `options.today`（不读系统时钟），无随机、无 IO、不调 AI，**永不抛异常**（数据不完整时返回「信息不足」形式的结果）；都不读取 `school_name`、`display_name`（只改这两项，结果完全不变，有对照测试 `lib/fairness-p2.test.ts`）。示例版本的内容是简化的，但不编造：只整理已有引擎（`checkEligibility` / `analyzeReachability` / `planRoutes`）的结论。
+
+**`analyzeGaps`**（`lib/gap/index.ts`）
+- 内部调用 `analyzeReachability(profile, opp, grants, options)`，按它的结论归类，不发明新规则。
+- 资格项（按 `opp.requirements` 顺序），逐条归类：
+  - status 为 `not_satisfied` 且类型为 `portfolio` → `materials`（`improvable: true`，行动是准备作品并在 Skill Passport 记录证据；硬性与偏好都列，`detail` 写明是否影响资格）；
+  - status 为 `not_satisfied` 且类型为 `prerequisite_skill` → `knowledge_or_experience`（`improvable: true`，行动是补这项技能并更新技能或证据；硬性与偏好都列，`detail` 写明是否影响资格）；
+  - status 为 `not_satisfied`、**硬性**、类型是其他（实际只可能是 `grade` / `age` / `region` / `citizenship` / `status`，因为 `manual` 永远是 unknown）→ `unchangeable_eligibility`：`improvable: false`、**`action: null`**，只给原因与官网原文；
+  - status 为 `not_satisfied`、非硬性（偏好）、类型是上一款那几类 → 不列（偏好不影响资格）；
+  - status 为 `unknown`（硬性与偏好都列，含 `manual`）→ `unknown_info`，行动是该项的「向官方确认」提示。
+- 准备差距（`readiness_gaps`，按 `opp.preparation` 顺序）：准备项有 `material_kind` → `materials`，否则 → `knowledge_or_experience`；行动是「完成该准备项并在 Skill Passport 记录证据」；`estimated_hours` / `estimated_cost_usd` 来自准备项。
+- 未化解的障碍（`resolved: false`）→ `time_and_cost`，按 `BARRIER_TYPES` 顺序；「已过截止日期」不可改善（`improvable: false`、`action: null`），其余给一条通用但真实的行动（向主办方询问时间支持 / 费用减免 / 线上参与或交通支持 / 借用设备）；有 pending grant 时在 `detail` 里注明「若获批可能有帮助（pending ≠ approved）」。
+- `missing_info` 中的**每个字段各一条** `unknown_info`（`basis.kind = 'missing_field'`；`profile.*` → 去 Skill Passport 补填；`options.today` → 页面会补上日期；其余 `opportunity.*` → 看官网或问主办方），不合并成一句笼统的话。
+- `id` 形如 `<category>:<依据 id>`；万一重复，依次加 `#2`、`#3`，保证结果内唯一且稳定。
+- 还没做：不区分「会随时间改善」的阻断（如年级低于下限，明年可能满足），一律归入 `unchangeable_eligibility`（「本届」不可改变是真的）；行动建议是通用句子，没结合具体缺口数值与路线步骤；非准备项差距的小时 / 费用为 null；机会数据缺关键字段导致引擎出错时，只返回一条笼统的 `unknown_info`（`basis.field = 'opportunity'`），最终版会逐字段列出。
+
+**`findAlternatives`**（`lib/match/index.ts`）
+- 只从传入的 `catalog` 里找，不编造机会。
+- `next_cycle`：仅当 `opp.recurring_annually === true` 时给一条（`opportunity_id` = 原机会 id，`eligibility_overall: null`，`shared_fields` = 原机会全部 `fields`）；理由文字不承诺下一届能申请。
+- `same_field`：`catalog` 中与 `opp.fields` 有交集（按 `normalizeTag` 比较，`shared_fields` 用候选机会原本的写法）、id 不是原机会、`checkEligibility(...).overall !== 'not_eligible'`、并且（**给了 `options.today` 时**）截止日期没过的机会（截止日期为 null = 滚动招生，保留；截止日期无法解析的也保留；没给 `today` 时不按截止日期过滤）；目录内重复 id 只取第一条，没有 id、数据不完整、判断出错的跳过；按 id 排序，最多 3 条。`user_posted` 的机会在 `reason` 里注明是示例发布、未经官网核实。
+- 还没做：`next_cycle` 不判断阻断原因「是否会随时间改善」（最终版收紧为只在会改善时给出）；`same_field` 不看现实可达性、不按兴趣进一步筛选。
+
+**`planAcrossOpportunities`**（`lib/planner/index.ts`）
+- 机会去重（同 id 只取第一条；非对象 / 无 id 的跳过并写进 `warnings`）；每个机会调用 `planRoutes`：
+  - `blocked` → `status: 'blocked'`、小时为 0、`route_type: null`，`note` 用 `planRoutes` 的第一条原因；
+  - 否则按 `today` 截止已过 → `past_deadline`、小时为 0、`route_type: null`、`feasible_alone: false`；
+  - 否则 `planned`：取第一条路线（learning_first），`hours_before_reuse` = 该路线未跳过步骤的小时合计（= `route.total_hours`）；
+  - `planRoutes` 因数据不完整出错 → `status: 'insufficient_data'`（小时为 0、`route_type: null`、`feasible_alone: null`，`note` 说明缺什么），**仍列在 `items` 里**，同时写进 `warnings` 与 `missing_info`（`opportunity.<id>`）。
+- `order`：按截止日期升序，无截止日期（或无法解析）的排最后，同日期按输入顺序；`items` 按 `order` 排列。
+- 材料复用：只看 planned 机会第一条路线里未跳过、且对应准备项 `material_kind` 非空的步骤。`reusable_across_opportunities === true` 的同类材料被 ≥ 2 个机会用到 → 一条 `reusable: true`，`hours_each` = 各机会该材料小时的最大值，`hours_saved` = 各机会之和 − `hours_each`；这份材料只算在 `order` 最靠前的机会上（按 `hours_each` 计，所以它的 `required_hours` 可能大于 `hours_before_reuse`），其他机会的 `required_hours` 减去自己那份，并把这份计入 `hours_saved_by_reuse`。其余（不可复用 / 未标明）的同类材料被 ≥ 2 个机会用到 → 一条 `reusable: false`、`hours_saved: 0` 的说明。
+- `weekly_load`（**按天分摊**，需要 `options.today`）：设 H = `profile.hours_per_week_available`。
+  - 每个 planned 且 `required_hours > 0` 的机会：D = today（含）到截止日（含）的天数，每天分摊 = `required_hours / D`；它在某周的小时 = 每天分摊 × 它落在该周的天数；各机会按周一对齐求和得到 `hours_needed`。
+  - 计划窗口 = today（含）到计入负荷的机会中最晚的截止日（含）；`days` = 该周落在窗口里的天数（1–7）；`hours_available = H × days / 7`；`over = hours_needed > hours_available`（H 没填时两者为 null，并写进 `missing_info` 的 `profile.hours_per_week_available`）。没有任何机会投入的周不列出。
+  - 没有截止日期（或无法解析）的 planned 机会不进 `weekly_load`，写进 `missing_info`（`opportunity.<id>.deadline`）。
+  - `over: true` 的周生成一条 `conflicts`；给了 `options.priorities` 时再说明「这一周只保留前几个优先项时需要多少小时」，只做对照，不替学生取舍。
+- `feasible_alone`（planned 时）= `hours_before_reuse ≤ H × D / 7`（不考虑复用；D 同上）；today、截止日期或 H 缺失时为 null。只有一个机会时，某周 `over` 为 true ⇔ 该机会 `feasible_alone` 为 false，两者一致。**注意**：第一阶段 `planRoutes` 的 `Route.feasible_by_deadline` 按「today 到截止日的天数差」（不含 today 当天）计，两者在临界日可能不同；**联合规划页以 `feasible_alone` 为准**。
+- `total_hours` / `total_hours_without_reuse` 只算 planned 的机会。
+- 还没做：只按 learning_first 路线（含建议项）计小时，不在多条路线间挑选，也不算「只做必需项」的最低负荷；每周负荷是按天平均摊开的粗略估计，不考虑步骤依赖顺序与参与期本身的每周投入（`time_commitment`）；材料复用只按 `material_kind` 粗分（同类即视为同一份）；优先项对照只按周计算。
+
+**`explainMatch`**（`lib/match/index.ts`）
+- 理由只来自三件事，按 `MATCH_REASON_KINDS` 顺序输出 `interest`、`eligibility`、`reachability` 三条。
+- `interest`：`profile.interests ∩ opp.fields`（按 `normalizeTag` 比较：去首尾空格、不区分大小写、空格 / 下划线 / 连字符视为同一写法；`shared_interests` 保留机会里的原顺序与原写法）。兴趣没填或机会没有领域标签 → `positive: null`；有交集 → true；都填了但没交集 → false。
+- `eligibility`：`checkEligibility` 的 `overall`：eligible → true，not_eligible → false（列出不满足的硬性要求），unknown → null（列出待确认的硬性要求）。
+- `reachability`：`analyzeReachability(profile, opp, options.grants ?? [], { today })` 的 `reachable` 与 `summary`。**页面上同时显示 `analyzeGaps` 时请给两者传同一组 grants**，两者的 `reachable` 才一致。
+- 机会数据不完整导致引擎出错时：`eligibility_overall: 'unknown'`、`reachable: null`，两条理由都是 `positive: null`。
+- 还没做：`format` / `time` / `cost` 三类理由（最终版从障碍里拆出单独理由）。
+
+**页面必须遵守的约定**
+- **`explainMatch` 不输出分数、百分比或名次，不得用它（或拼出的任何数字）给学生排名**；页面也不要从理由条数推算分数。
+- **`unchangeable_eligibility` 的条目没有 action（恒为 null）**，页面不得自行补「绕过」建议；只显示原因与官网原文（可以并列显示 `findAlternatives` 的结果）。
+- **`findAlternatives` 的 `same_field` 不会返回该学生硬性资格不满足（`not_eligible`）的机会**；`eligibility_overall` 为 `'unknown'` 的建议要显示为 `Unknown` 并提示向官方确认，不能显示成符合资格。
+- **`planAcrossOpportunities` 不替学生取舍**：只摆出截止日期、每周负荷、冲突、复用与省下的小时；`order` 只是按截止日期的建议，页面不得写成「建议放弃某个机会」。`insufficient_data` 的条目要照常列出并显示它的 `note`，不能从页面上消失；判断「来得及吗」用 `feasible_alone`，不要另用 `planRoutes` 的 `feasible_by_deadline`。
+- **领域标签一律用 `normalizeTag` 比较**（见「① 类型一览」第二阶段一节末尾），页面的领域筛选也一样。
+- **Quest Journal**：
+  - 申请（`application`）、官方资格确认（`eligibility_confirmation`）、录取决定（`decision`）、是否参与（`participated`）**四项互相独立，必须分开显示**，不能合并成一个状态，也不能由其中一项推断另一项：**提交 ≠ 官方确认资格 ≠ 被录取 ≠ 已参与**。
+  - 状态变化一律通过 `lib/store.ts` 的 `recordJournalEvent` 记录（它用 `lib/journal.ts` 的 `applyJournalEvent` 更新对应字段并追加 `history`），不要直接改这几个字段。
+  - 列表里需要一句话摘要时用 `lib/journal.ts` 的 `journalHeadline(entry)`（由四项派生、不存储）；它不能代替四项的分开显示。
+  - 不阻止「不合常理」的顺序（如没提交就记 `admitted`）——学生记录的是现实。页面引导而不拦截：未提交时把录取结果 / 资格确认放在次要位置并提示「通常在提交后才会有」；记这些事件时若仍是 `preparing`，询问是否同时记一次 `submitted`；已 `withdrawn` 时把 `reopened` 放在显眼处。
+  - 读写 Journal 与材料时都带上当前档案的 `profile_id`（按档案隔离，见「浏览器存储」）。
+- **四个函数都要传 `{ today: 'YYYY-MM-DD' }`**（由页面传入今天）。不传时：
+  - `analyzeGaps`：依赖日期的判断按信息不足处理——有截止日期的机会 `reachable` 不会是 true（没有其他确定的阻碍时为 null），`unknown_info` 里会多一条 `options.today`；有参考日期（`as_of` 或截止日期）的年龄要求为 unknown。
+  - `findAlternatives`：候选机会中依赖日期的资格判断为 unknown，`same_field` 的 `eligibility_overall` 可能是 `'unknown'`（因此本应按年龄排除的机会可能以 unknown 出现）；也不按截止日期过滤，截止已过的机会可能出现。
+  - `explainMatch`：`eligibility` 理由可能是 `positive: null`（unknown），有截止日期的机会 `reachable` 不会是 true。
+  - `planAcrossOpportunities`：`evaluated_on` 为 null，`weekly_load` 为 `[]`，`conflicts` 为空，每项的 `weeks_left` 与 `feasible_alone` 为 null，不会出现 `past_deadline`，`missing_info` 含 `options.today`。
 
 ### 联合求解模型（`solveJoint` / `verifyPlan` / `compareBaselines` 的实现者只读这一节）
 
@@ -233,7 +344,7 @@
 - 独立性：`verify.ts` / `exhaustive.ts` 不 import `./solve`、`./index`、`./scenarios`、`./baselines`（有静态守卫测试）。`baselines.ts` 可以 import `./solve`（为了 joint 行）和 `./verify`。
 - `withEnabledInterventions(scenario, ids)`：只保留勾选的措施；**前置依赖没有全部启用的措施一并移除**（按闭包反复判断；前置依赖只认「勾选且自身依赖满足」的措施），不会删掉 `requires` 让措施单独生效；指向已移除措施的互斥引用会被清理（互斥对象不在场景里不构成约束）。
 - **运行中的措施（第 0 条）不能通过取消勾选而消失**：它一律保留在场景里，不受勾选影响，互斥、容量、已有 grant 的效果照常生效（例如只勾选与它互斥的新措施时，选中新措施仍须按第 3 条第 8 款撤回它的可撤回 grant，protect 下新措施因此不能选）。它是否继续接受**新分配**由勾选决定：没有勾选（或勾选了但前置依赖没有全部启用）的运行中措施，在返回的场景副本里 `opportunity_ids` 设为 `[]`（不适用于任何机会，因此不可能出现它的新 Allocation；`[]` 是合法输入，不触发 `UNSUPPORTED_INPUT`；容量只数已有 grant 与 Allocation、不看 `opportunity_ids`，所以已有 grant 的占用不变），其余字段不变；只有这类措施的 `requires` 可能指向已移除的措施，这些引用被清理（它不会有新分配，清理不放松实际约束）。
-- `resolveEnabledInterventions` 返回 `enabled`（勾选且依赖满足）、`removed`（真正移出场景的，不含运行中的措施）、`running`（全部运行中的措施）、`frozen`（运行中但不接受新分配的措施及原因 `unchecked` / `missing_requires`）。`runningInterventionIds(scenario)` 返回运行中的措施。What-if 页面给运行中的措施显示「运行中」徽标与说明「已有 N 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配」。
+- `resolveEnabledInterventions` 返回 `enabled`（勾选且依赖满足）、`removed`（真正移出场景的，不含运行中的措施）、`running`（全部运行中的措施）、`frozen`（运行中但不接受新分配的措施及原因 `unchecked` / `missing_requires`）。`runningInterventionIds(scenario)` 返回运行中的措施。What-if 页面给运行中的措施显示英文徽标 `Running` 与一句英文说明（大意：已有 N 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配）。
 
 **10. 基线对比 `compareBaselines(scenario, options?)`**（`lib/joint/baselines.ts`；类型 `BaselineComparison` / `BaselineRow` / `BaselineMetrics` / `BaselineId`）
 - 签名：`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`。纯函数、确定性。所有基线使用**同一份** scenario、同一份 options（`mode`、`loss_cap`、软要求、`fairness_floors`）、同一个 `analyzeReachability`、同一个验证器；不得故意削弱任何基线。下面的「按 id 升序」「先到先得」都是确定性的简化，不代表任何真实系统。
@@ -281,7 +392,7 @@
 
 ### 接入学生端函数的提示
 
-- **传入今天的日期**：有截止日期的机会，调用 `checkEligibility` / `analyzeReachability` / `planRoutes` 时要传 `{ today: 'YYYY-MM-DD' }`。不传时依赖日期的结果按设计为 unknown / null：例如 `reachable` 为 `null`、`missing_info` 含 `options.today`，路线的 `feasible_by_deadline` 为 `null`。
+- **传入今天的日期**：有截止日期的机会，调用 `checkEligibility` / `analyzeReachability` / `planRoutes`（以及第二阶段的四个函数，见「第二阶段新函数」一节）时要传 `{ today: 'YYYY-MM-DD' }`。不传时依赖日期的结果按设计为 unknown / null：例如 `reachable` 为 `null`、`missing_info` 含 `options.today`，路线的 `feasible_by_deadline` 为 `null`。
 - **`missing_info` 目前可能出现的字段名**：`profile.devices`、`profile.budget_usd`、`profile.transport`、`profile.hours_per_week_available`、`opportunity.cost.fee_usd`、`opportunity.cost.requires_travel_expense`、`opportunity.time_commitment.hours_per_week`、`opportunity.deadline`（格式无法识别）、`options.today`。
 - **grant 是否化解障碍**：`applied_grant_ids` 是所有匹配的 approved grant，**不等于「已化解」**；是否化解看每条障碍的 `resolved` / `resolved_by_grant_ids`。
 - **已过截止日期**：表现为一条 `type: 'time'`、`shortfall: null`、任何 grant 都不能化解的障碍。
@@ -293,12 +404,12 @@
 - **主办方 What-if（`solveJoint` / `verifyPlan`）**：
   - 页面用 `runWhatIf(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（`/organizer` 页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / 联合求解的基线对比表）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，并把结果整理成只含人数和汇总数字的 `WhatIfView`。
   - 直接用 `solveJoint` 时，展示前**自己再调一次 `verifyPlan`**（相同的 `mode` / `loss_cap` / 软要求；复核 `conditional` 时传 `assume_approved_intervention_ids`），不要只信结果里自带的 `verification`。
-  - 所有结果都是**模拟**（示例学生、示例场景），界面标「示例 / 模拟」；可达 ≠ 录取；`SEARCH_LIMIT_REACHED` 不等于最优也不等于无解；`INFEASIBLE` 的主结果是空方案，替代方案要写明放松了什么。
+  - 所有结果都是**模拟**（示例学生、示例场景），界面标 `Sample` / `Simulated`；可达 ≠ 录取；`SEARCH_LIMIT_REACHED` 不等于最优也不等于无解；`INFEASIBLE` 的主结果是空方案，替代方案要写明放松了什么。
   - 权衡分析模式（tradeoff）只在组织者主动设置 `loss_cap` 时使用；界面要说明受影响的对数（`lost_pairs` 的数量）和撤回条数（其中强制撤回多少条），不列出具体学生。公平底线、基线对比同样只显示人数与比例。
   - **不要在界面显示单个学生的信息**（id、姓名、学校、逐人分配）；只显示人数与汇总。`runWhatIf` 已把说明文字里的学生 id / 姓名 / 学校替换为「某学生」。
 
 语义约定：
-- **unknown**：信息不全（学生没填、或官方要求机器判定不了）时返回 unknown，并给出「请向官方确认」提示。界面要把 unknown 显示成「待确认」，不能显示成通过或不通过。
+- **unknown**：信息不全（学生没填、或官方要求机器判定不了）时返回 unknown，并给出「请向官方确认」提示。界面要把 unknown 显示成 `Unknown`（并提示向官方确认），不能显示成通过或不通过。
 - **总体资格**：任一硬性要求 not_satisfied → not_eligible；否则任一硬性 unknown → unknown；否则 eligible。非硬性（偏好）不影响总体。
 - **`reachable` 的语义（固定，按顺序判定）**：
   - `false`：存在硬性要求 `not_satisfied`，**或**存在未被 approved grant 化解的障碍（无论资格是否 unknown，结论都确定）。
@@ -313,9 +424,74 @@
 - **公平性**：任何判断函数都不得读取 `school_name`。
 - **联合求解**：SEARCH_LIMIT_REACHED 不等于无解，也不得声称全局最优；INFEASIBLE 不得悄悄放松约束；`verifyPlan` 独立复核，不依赖求解器自己的可行性标记。所有结果都是模拟。
 
-浏览器存储：`lib/store.ts`（主导）封装 localStorage，键名 `oc:v1:*`，SSR 安全（服务器端返回默认值）。
-提供 `loadProfile / saveProfile / clearProfile`、`loadEvidence / addEvidence / removeEvidence`（证据存在档案里）、
-`loadSavedOpportunityIds / toggleSavedOpportunity`、`loadGrants / saveGrants / grantsFor`、`clearAll`。在 React 中请于 `useEffect` 里调用。
+### 浏览器存储 `lib/store.ts`
+
+`lib/store.ts`（主导）封装 localStorage，键名 `oc:v1:*`，SSR 安全（服务器端读返回默认值，写 / 清除为空操作）；JSON 损坏或形状不对时回退默认值，列表逐条丢弃非法条目，不抛异常。
+- **页面不直接读写 localStorage**，一律用下面的函数（`readJSON` / `writeJSON` / `removeKey` / `storageKey` / `STORE_KEYS` 是底层工具，页面不要用）；需要新的键找主导。
+- **读取放在挂载后的 effect 里**（React 的 `useEffect`），不要在渲染时读，否则首屏会不一致（hydration mismatch）。
+- **日期一律由调用方传入**（`on` / `taken_on` / `updated_on` 等）：存储层不读系统时钟；唯一例外是生成 id 与分享句柄（`createEmptyProfile`、`createJournalEntry`、`defaultShareSettings` 用 `crypto.randomUUID`，不可用时回退为时间戳 + 计数）。
+
+第一阶段（不变）：`loadProfile / saveProfile / clearProfile`、`loadEvidence / addEvidence / removeEvidence`（证据存在档案里）、`loadSavedOpportunityIds / saveSavedOpportunityIds / toggleSavedOpportunity / clearSavedOpportunityIds`、`loadGrants / saveGrants / grantsFor / clearGrants`、`clearAll`（现在也会清除第二阶段新增的键）。
+
+第二阶段新增（新键：`journal`、`materials`、`plan_snapshots`、`user_posted_opportunities`、`share_settings`、`invitations`）。**Journal 与材料都按 `profile_id` 隔离**：同一浏览器里可能切换示例档案，各档案的 Journal、材料互不影响；读写时都带上当前档案的 `profile_id`。
+
+**档案与证据**
+- `createEmptyProfile(displayName?: string): StudentProfile` —— 纯构造、不写存储：非示例档案（`is_sample: false`），`display_name` 缺省 `'My profile'`，`evidence: []`，其余字段都不填（= 没填）。
+- `updateProfile(patch: Partial<Omit<StudentProfile, 'id' | 'evidence'>>): StudentProfile | null` —— 把 patch 合并到当前档案并保存，返回保存后的档案；没有档案时先用 `createEmptyProfile()` 建一个再合并。**patch 中 `undefined` = 不改该字段；`null` = 清空该字段（保存为 null，判断时等于「没填」）**。`id`、`evidence` 不能通过 patch 修改（运行时也忽略）；`display_name` / `is_sample` 不接受 null（忽略）；示例档案编辑后 `is_sample` 仍为 true，除非 patch 明确给出 `is_sample`。写入失败（含 SSR）返回 null。
+- `updateEvidence(evidenceId: string, patch: Partial<Omit<EvidenceItem, 'id'>>): StudentProfile | null` —— 修改一条证据（状态、标题、技能、链接、`prep_item_ids` 等），返回更新后的档案。**找不到档案或该证据时返回 null，且不写存储**。`undefined` = 不改；`null` = 清空，只对可空字段 `url` / `description` 生效，必填字段（`title` / `kind` / `skills` / `status` / `added_on`）忽略 null；要清空 `prep_item_ids` 传 `[]`（它不接受 null）；`id` 不能改。
+- `prepLinkKey(opportunityId: string, prepItemId: string): string` —— 返回 `<opportunity_id>:<prep_item_id>`（证据关联准备项的推荐写法）。
+- `linkEvidenceToPrep(evidenceId: string, opportunityId: string, prepItemId: string): StudentProfile | null` —— 把该键写入证据的 `prep_item_ids`（去重），返回更新后的档案；档案 / 证据不存在返回 null。
+- `unlinkEvidenceFromPrep(evidenceId: string, opportunityId: string, prepItemId: string): StudentProfile | null` —— 解除关联（同时对剩余项去重；原本没关联也返回档案）；档案 / 证据不存在返回 null。
+
+**Quest Journal**（按 (`profile_id`, `opportunity_id`) 唯一；条目只存 `material_ids`，材料见下一组）
+- `loadJournal(profileId?: string): JournalEntry[]` —— 传 `profileId` = 只返回该档案的条目；不传 = 所有档案。损坏回退 `[]`，非法条目逐条丢弃，同 (`profile_id`, `opportunity_id`) 重复时保留第一条；条目内的 `history` / `tasks` 逐条过滤，`material_ids` 只留字符串并去重。
+- `saveJournal(entries: JournalEntry[]): boolean` —— 整体保存（**覆盖所有档案的条目**；同 (`profile_id`, `opportunity_id`) 只留最后一条）；SSR / 写入失败返回 false。
+- `getJournalEntry(profileId: string, opportunityId: string): JournalEntry | null`。
+- `createJournalEntry(profileId: string, opportunity: Pick<Opportunity, 'id' | 'official_url'>, on: ISODate): JournalEntry` —— 纯构造、不写存储：`application: 'preparing'`、`submitted_on: null`、`eligibility_confirmation: 'unconfirmed'`、`decision: 'pending'`、`participated: null`、`history: [{ event: 'added', on }]`、无任务、无材料、`official_url` 抄自机会。
+- `upsertJournalEntry(entry: JournalEntry): JournalEntry[]` —— 新增或替换（替换时保持原位置），返回**该档案**（`entry.profile_id`）更新后的条目列表；形状不对时不写，返回该档案现有列表（连 `profile_id` 都没有时返回 `[]`）。
+- `removeJournalEntry(profileId: string, opportunityId: string): JournalEntry[]` —— 删除该档案在该机会上的条目，返回该档案剩下的条目。**删除条目不删材料**（可复用材料可能还被别的条目用；不再需要的材料用 `removeMaterial` 删）。
+- `recordJournalEvent(profileId: string, opportunityId: string, event: JournalEvent, on: ISODate): JournalEntry | null` —— 记录一个事件：用 `lib/journal.ts` 的 `applyJournalEvent` 更新对应字段（见 `JournalEvent`）并在 `history` 追加 `{ event, on }`；同一事件同一天不重复追加。条目不存在或事件非法返回 null。不阻止不合常理的顺序（页面引导，见「页面必须遵守的约定」）。
+- `toggleJournalTask(profileId: string, opportunityId: string, taskId: string, done: boolean, on?: ISODate): JournalEntry | null` —— `done: true` 时 `done_on = on`（没传为 null），`done: false` 时 `done_on = null`；条目或任务不存在返回 null。
+- `clearJournal(profileId?: string): void` —— 不传 = 清空全部条目（所有档案）；传 = 只清该档案的条目。
+
+**申请材料**（单独存，按 `id` 唯一；**可复用材料只有一条记录**，被多个条目的 `material_ids` 引用，改一次状态所有引用它的条目都看到）
+- `loadMaterials(profileId?: string): Material[]` —— 传 `profileId` = 只返回该档案的；不传 = 全部。损坏回退 `[]`，非法条目逐条丢弃，同 id 重复时保留第一条。
+- `upsertMaterial(material: Material): Material[]` —— 新增或替换（按 id，替换时保持原位置），返回该档案（`material.profile_id`）更新后的材料列表；形状不对时不写，返回该档案现有列表（连 `profile_id` 都没有时返回 `[]`）。
+- `removeMaterial(id: string): boolean` —— 删除一份材料，并从所有 Journal 条目的 `material_ids` 里移除它；返回是否找到并删除（SSR / 不存在为 false）。
+- `setMaterialStatus(id: string, status: MaterialStatus): Material | null` —— 设置材料状态；材料不存在或状态非法返回 null。
+- `clearMaterials(profileId?: string): void` —— 不传 = 清空全部材料（并清空所有条目的 `material_ids`）；传 = 只清该档案的材料（并清空该档案条目的 `material_ids`）。
+
+**规划快照**
+- `loadPlanSnapshots(opportunityId?: string, profileId?: string): PlanSnapshot[]` —— 旧 → 新（按 `taken_on`，同一天按插入顺序）；可按机会、档案过滤（不传 = 不过滤）。
+- `pushPlanSnapshot(snapshot: PlanSnapshot, keep = 5): PlanSnapshot[]` —— 追加一个快照（同 id 先移除旧的，新的算作最新插入）；**每个 (`profile_id`, `opportunity_id`) 按插入顺序只保留最近插入的 `keep` 条（缺省 5，至少 1）**，刚推入的一定保留（即使它的 `taken_on` 比已有的都早）；**返回该 (`profile_id`, `opportunity_id`) 保留下来的快照（按 `taken_on` 旧 → 新）**，不是全部快照。
+- `latestPlanSnapshot(opportunityId: string, profileId: string): PlanSnapshot | null`。
+- `clearPlanSnapshots(opportunityId?: string): void` —— 不传 = 清空全部；传 = 只清该机会的快照（所有档案）。
+
+**用户发布的机会**（Connect 本地示例）
+- `loadUserPostedOpportunities(): Opportunity[]` —— 不是 `source_tier: 'user_posted'` 且 `is_sample: true` 的条目一律丢弃。
+- `addUserPostedOpportunity(opp: Opportunity): Opportunity[]` —— 添加（同 id 替换），**传入的 `source_tier` / `is_sample` 一律被覆盖为 `'user_posted'` / `true`**（用户发布的机会永远不能伪装成官网核实的机会）；返回更新后的列表。
+- `removeUserPostedOpportunity(id: string): Opportunity[]` —— 删除并返回剩下的列表。
+- `clearUserPostedOpportunities(): void`。
+
+**分享设置**（Connect 本地示例；按 `profile_id` 唯一）
+- `defaultShareSettings(profileId: string, on: ISODate, shareHandle?: string): ShareSettings` —— 纯构造：什么都不分享；`shareHandle` 不传时新生成一个不透明句柄（每次调用都不同——要让句柄稳定，请保存，或用 `getOrCreateShareSettings`）。
+- `loadShareSettings(profileId: string): ShareSettings | null` —— 没有（或损坏）返回 null。
+- `getOrCreateShareSettings(profileId: string, on: ISODate): ShareSettings` —— 有就返回；没有就用 `defaultShareSettings` 新建并保存（从此 `share_handle` 稳定）。SSR / 写入失败时仍返回新建的默认设置（未保存，句柄下次会不同）。
+- `saveShareSettings(settings: ShareSettings): boolean` —— 按 `profile_id` 替换；形状不对、`share_handle` 已被别的档案使用、SSR 或写入失败返回 false。
+- `profileIdForShareHandle(handle: string): string | null` —— 学生自己的浏览器里由句柄对回档案 id（邀请只带句柄）；找不到返回 null。
+- `clearShareSettings(profileId?: string, on?: ISODate): void` —— 不传 = 清空全部分享设置（含句柄）；传 = 撤回该档案的分享：**恢复默认（什么都不分享）但保留原 `share_handle`**，这样已有的邀请与屏蔽仍然对得上（`updated_on` 用 `on`，没传沿用原日期）；该档案没有设置时什么都不做。
+- `buildSharedProfileView(profile: StudentProfile, settings: ShareSettings | null): SharedProfileView | null` —— 纯函数，**只输出学生已授权的字段**：`share_handle` 抄自 settings（不含档案 id）；证据只含被勾选且档案里确实存在的，只取 `id` / `title` / `kind` / `skills` / `status`；技能只含被勾选且档案里确实有的；`interests` 仅在 `share_interests` 为 true 时给出；空白的 `collaboration_note` 视为 null；`alias` 为 `'Sample student'`（示例档案）或 `'Student'`。永不包含档案 id、显示名、学校名、地区、联系方式、身份标签、年级、预算。**settings 为 null、属于别的档案、没有 `share_handle`、或最终什么都没分享时返回 null**；档案损坏时不抛异常。
+
+**邀请**（Connect 本地示例；**按 `share_handle` 关联**，发布者不知道档案 id）
+- `loadInvitations(shareHandle?: string): Invitation[]` —— 可按被邀请学生的 `share_handle` 过滤（学生页面：先 `loadShareSettings(profileId)?.share_handle`，再用它读取）；非法条目（含 `is_sample` 不为 true 的）逐条丢弃。
+- `saveInvitations(list: Invitation[]): boolean` —— 整体保存，`is_sample` 强制为 true；SSR / 写入失败返回 false。
+- `addInvitation(inv: Invitation): Invitation[]` —— 添加（同 id 替换，`is_sample` 强制为 true），返回更新后的全部邀请。它不检查发布者是否已被屏蔽，显示前请用 `blockedPublisherIds` 过滤。
+- `setInvitationStatus(id: string, status: InvitationStatus, on: ISODate): Invitation | null` —— 改为 `pending` 时 `responded_on = null`，否则 `= on`；邀请不存在或状态非法返回 null。
+- `blockedPublisherIds(shareHandle: string): string[]` —— 该句柄（学生）屏蔽了的发布者 id（来自状态为 `blocked` 的邀请，去重）。
+- `clearInvitations(): void`。
+
+**全部清除**
+- `clearAll(): void` —— 清除本应用（当前版本）写入的所有键，含第二阶段新增的六个键。
 
 ---
 
@@ -323,12 +499,14 @@
 
 | 负责人 | 目录 / 文件 |
 |---|---|
-| 主导 | `lib/types.ts`、`lib/store.ts`、`CONTRACT.md`、`lib/eligibility/`、`lib/reachability/`、`lib/path/`、`data/profiles.json`、`package.json`、`package-lock.json`、配置文件（`tsconfig.json`、`next.config.ts`、`eslint.config.mjs`、`vitest.config.mts`）、`app/layout.tsx`、`app/page.tsx` |
-| 主导（接手 Charles 的任务） | `lib/joint/`、`app/organizer/`、`data/scenarios/` |
+| 主导 | `lib/types.ts`、`lib/store.ts`、`CONTRACT.md`、`lib/eligibility/`、`lib/reachability/`、`lib/path/`、`lib/gap/`（第二阶段新增）、`lib/planner/`（新增）、`lib/match/`（新增）、`lib/validation.ts`、`lib/tags.ts`（新增）、`lib/journal.ts`（新增）、`lib/format.ts`、`lib/` 根目录的共享测试（`lib/*.test.ts`，如 `lib/fairness.test.ts`、`lib/fairness-p2.test.ts`、`lib/store.test.ts`、`lib/demo-mainline.test.ts`）、`data/profiles.json`、`package.json`、`package-lock.json`、配置文件（`tsconfig.json`、`next.config.ts`、`eslint.config.mjs`、`vitest.config.mts`）、`app/layout.tsx`、`app/page.tsx` |
+| 主办方端与 Connect 负责人（目前由主导代管，之后可能交接） | `lib/joint/`、`app/organizer/`、`data/scenarios/`（不变）；`lib/connect/`（新增）、`app/connect/`（新增）、`data/connect/`（新增） |
 | 队友 A | `data/opportunities.json`、`app/quests/` |
-| 队友 B | `app/map/`、`app/passport/`、`components/rpg/`、`app/globals.css` |
+| 队友 B | `app/map/`、`app/passport/`、`app/journal/`（新增）、`components/rpg/`、`app/globals.css`、`app/tokens.css`、`app/base.css` |
 
 需要改别人目录里的东西：找对方，或在群里说明后由对方改。
+
+- **首页 `app/page.tsx`**：归主导；本阶段的首页改版交给队友 B 做，改之前在群里说一声即可。
 
 - **新增依赖**：先在群里说一声，由主导统一加到 `package.json` / `package-lock.json`，避免 lockfile 冲突。
 - **`app/layout.tsx`**：队友 B 做全站样式需要改时可以直接改，改之前在群里说一声。
@@ -337,9 +515,11 @@
 
 ## ④ 分支规则
 
-- 每人只在自己的分支提交：主导 `feat/core`、队友 A `feat/quests`、队友 B `feat/map`；`feat/joint` 原为 Charles 的分支，现由主导接手（用于 `lib/joint/`、`app/organizer/`、`data/scenarios/` 以及为此做的契约扩展）。
-- **不直接推 `main`**。合并顺序：`feat/core` → `feat/quests` → `feat/map` → `feat/joint`，由主导负责合并。
-- 提交前本地跑通 `npm run build` 和 `npm test`。
+- 第二阶段每人只在自己的分支提交（从最新的 `main` 切出）：主导 `feat/core-p2`、主办方端与 Connect 负责人 `feat/joint-p2`、队友 A `feat/quests-p2`、队友 B `feat/map-p2`。
+- **不直接推 `main`**。合并一律走 Pull Request，由主导检查后合并，合并方式选 **Create a merge commit**。
+- 开 PR 之前：先把最新的 `main` 合进自己的分支；本地跑通 `npm run build`、`npm test`、`npx tsc --noEmit`、`npm run lint` **四条**。
+- 提交信息里不加任何 AI 署名（`Co-Authored-By`、`Generated with …` 等）。
+- **一个工作目录只给一个 AI 会话用**：两个会话同时在同一个文件夹里切分支、开服务，会互相覆盖。要并行就各自克隆一份。
 
 ---
 
@@ -347,8 +527,15 @@
 
 - `data/opportunities.json`：每条机会必须**真实**，有 `official_url`（主办方官网）、`verified_on`（核实日期）、`verified_by`，**由人打开官网确认**。AI 给的机会信息不直接采用。
 - 每条官方要求都要有 `source_text`（官网原文）。看不清的要求用 `type: 'manual'`（结果为 unknown，提示向官方确认），不要猜。
-- 示例学生、示例主办方、模拟结果：数据里标 `is_sample: true`，界面上标「示例 / 模拟」。
-- 不把模拟结果说成真实影响；可达 ≠ 录取。
+- 示例学生、示例发布者、示例主办方、模拟结果：数据里标 `is_sample: true`。**界面文字统一用英文**：示例数据标 `Sample`，模拟结果标 `Simulated`，占位标 `Placeholder`。
+- 不把模拟结果说成真实影响；可达 ≠ 录取；本地示例 ≠ 真实连接。
+- **来源等级 `source_tier`**：`official`（由人打开主办方官网核实；`data/opportunities.json` 的真实机会都是这一级，缺省即按它处理）/ `trusted_aggregator`（来自可信的机会汇总站，仍需以主办方官网为准）/ `user_posted`（用户发布；本阶段只来自 Connect 的本地示例，发布者是标 `Sample` 的虚构账户）。界面上**用户发布的机会必须与官网核实的机会用不同标记**，不得显示为「已核实」，并且它**一定同时是示例**（`is_sample: true`，界面同时标 `Sample`）。
+- **示例档案**（`data/profiles.json`，现在 4 个，全部 `is_sample: true`，显示名带 `Sample`）：
+  - `sample-maya`：11 年级，加州城市；每周 4 小时、预算 20 美元；只有手机；有一条自报的 Python 证据；声明了低收入、第一代大学生等身份。
+  - `sample-leo`：10 年级，蒙大拿州乡村；没有交通工具（最近的城市单程两小时）；有笔记本与家庭网络；每周 10 小时、预算 40 美元（第二阶段补上）；年龄、国籍、身份标签没填（相关判断为 unknown）。
+  - `sample-ana`：12 年级，纽约州郊区；交通可靠、设备齐全；每周 12 小时、预算 200 美元；会 python 与 data_analysis，没有证据。
+  - `sample-noor`（第二阶段新增）：`grade: 13` = 本科第 1 年（大一），俄亥俄州郊区；交通有限（公交只在工作日运行）；有笔记本与手机；每周 5 小时、预算 30 美元；有一条自报的 Python 项目证据；身份为本科生、第一代大学生。用于查看面向本科生的机会。
+- **领域标签**：`Opportunity.fields` 与档案的 `interests` 用同一套标签，数据里推荐统一写成小写加下划线（如 `computer_science`）。目前 `data/opportunities.json` 的 `fields` 里还有连字符写法（如 `biomedical-research`）；比较时一律用 `lib/tags.ts` 的 `normalizeTag`（连字符、下划线、空格、大小写视为相同），所以写法不同不影响 `explainMatch` / `findAlternatives` 的结果。页面做领域筛选时也必须用 `normalizeTag`。
 - 测试用的虚构机会写在测试文件里，链接用 `example.com`，不要混进 `data/opportunities.json`。
 - 学生填写的内容只存浏览器 localStorage，无后端、无数据库。API key 只放 `.env`。
 - 不做排行榜、抽卡、签到；不用游戏进度锁住真实机会。
@@ -370,6 +557,8 @@ npm install        # 安装依赖
 npm run dev        # 本地开发，打开 http://localhost:3000
 npm test           # Vitest，运行 lib/**/*.test.ts
 npm run build      # 生产构建（提交前必须通过）
+npx tsc --noEmit   # 类型检查（开 PR 前必须通过）
+npm run lint       # ESLint（开 PR 前必须通过）
 ```
 
 ---
@@ -412,3 +601,18 @@ npm run build      # 生产构建（提交前必须通过）
   - 第 3 条第 8 款：写明 `loss_cap` 按（学生, 机会）对计，tradeoff 且 `loss_cap = 0` 不等同 protect。
   - 第 4 条：公平底线的分母保持原定义；新增「覆盖上界」说明（只用于说明文字与页面显示）。
 - 2026-11-17：**第 3 层已实现（状态更新，规则条文不变）**：`solveJoint` / `verifyPlan` 支持撤回已有 grant、权衡模式（`loss_cap`）与公平底线（`revocation`、`fairness` 检查）；新增 `compareBaselines`（`lib/joint/baselines.ts`，从 `lib/joint` 导出），A / B / C / joint 四行，说明书中的基线 D 未实现。`runWhatIf` 新增可选第三参数 `availableFloors`，`WhatIfInput` 新增 `fairnessFloorIds?`、`minRatioOverrides?`，视图新增模式说明、失去 / 收回汇总、公平底线结果与基线对比（只含人数与汇总）；`/organizer` 页面可切换两个演示场景。全部为模拟结果。
+- 2026-11-18：**第二阶段契约**。全部向后兼容（新类型、新的可选字段、新常量、新函数、新存储函数；现有字段与函数签名不改名、不删除、不改类型）：
+  - 新类型（「① 类型一览」第二阶段一节）：`SourceTier`、`MaterialKind`、`GapCategory` / `GapBasis` / `GapItem` / `GapAnalysis`、`AlternativeSuggestion`、`MatchReasonKind` / `MatchReason` / `MatchExplanation` / `MatchOptions`、`CrossPlanItem` / `MaterialReuse` / `WeeklyLoad` / `CrossPlan` / `CrossPlanOptions`、`JournalApplicationStatus` / `EligibilityConfirmation` / `JournalDecision` / `JournalEvent` / `JournalHistoryItem` / `JournalTask` / `MaterialStatus` / `Material` / `OutcomeFeedback` / `JournalEntry`、`PlanTrigger` / `PlanSnapshotInputs` / `PlanSnapshot`、`PublisherKind` / `SamplePublisher` / `ShareSettings` / `SharedProfileView` / `InvitationStatus` / `Invitation`；新常量 `SOURCE_TIERS`、`MATERIAL_KINDS`、`MATERIAL_STATUSES`、`GAP_CATEGORIES`、`MATCH_REASON_KINDS`、`JOURNAL_EVENTS`、`PLAN_TRIGGERS`。
+  - 新的可选字段：`Opportunity.source_tier?`、`Opportunity.posted_by?`；`PrepItem.material_kind?`、`PrepItem.reusable_across_opportunities?`。
+  - 四个新共享函数（示例版本，签名为最终版）：`analyzeGaps`（`lib/gap`）、`findAlternatives` 与 `explainMatch`（`lib/match`，`explainMatch` 的第三参数为 `MatchOptions`，可传 `grants`）、`planAcrossOpportunities`（`lib/planner`）；新增「第二阶段新函数：现在的示例版本做了什么、还没做什么」一节与页面必须遵守的约定。要点：`findAlternatives` 给了 `today` 时不返回截止已过的机会；`planAcrossOpportunities` 的 `weekly_load` 按天分摊（`WeeklyLoad.days`，`hours_available` 按该周落在计划窗口内的天数折算），`feasible_alone` 用同一口径（与 `Route.feasible_by_deadline` 在临界日可能不同，联合规划页以 `feasible_alone` 为准），出错的机会以 `insufficient_data` 留在 `items` 里，`CrossPlanItem.hours_saved_by_reuse` 写明复用少算的小时。
+  - Quest Journal：一个条目 = 一个档案 × 一个机会；申请、官方资格确认、录取决定、是否参与四项独立（`application` / `eligibility_confirmation` / `decision` / `participated`），变化用事件记录（`history`）；材料单独存放、条目用 `material_ids` 引用。纯函数 `applyJournalEvent` / `journalHeadline` / `isJournalEvent` 在新文件 `lib/journal.ts`。
+  - 领域标签：新文件 `lib/tags.ts`（`normalizeTag` / `normalizedTagSet` / `sharedTags`），标签比较一律用它；`sample-noor` 的 `interests` 改为下划线写法。
+  - `lib/store.ts` 新增档案编辑、证据编辑与准备项关联、Quest Journal（按档案隔离）、申请材料（单独存）、规划快照、用户发布的机会、分享设置（`share_handle`）、邀请（按 `share_handle`）的存储函数与 6 个新键；`clearAll` 也清除新键。`lib/validation.ts` 校验 `source_tier`、`posted_by`、`material_kind`、`reusable_across_opportunities`，并要求 `user_posted` 的机会 `is_sample: true`。
+  - 分享不暴露档案 id：`ShareSettings` 新增 `share_handle`；`SharedProfileView` 与 `Invitation` 用 `share_handle`（没有 `profile_id` 字段）。
+  - 公平性：`lib/fairness-p2.test.ts` 对照测试第二阶段四个函数；`lib/fairness.test.ts` 的静态守卫也检查 `lib/gap/`、`lib/match/`、`lib/planner/`、`lib/tags.ts`、`lib/journal.ts`。
+  - 目录归属：主导新增 `lib/gap/`、`lib/planner/`、`lib/match/`、`lib/validation.ts`、`lib/tags.ts`、`lib/journal.ts`、`lib/format.ts`、`lib/` 根目录的共享测试；「主导（接手 Charles 的任务）」改称「主办方端与 Connect 负责人」（目前由主导代管），新增 `lib/connect/`、`app/connect/`、`data/connect/`；队友 B 新增 `app/journal/`、`app/tokens.css`、`app/base.css`；首页改版交给队友 B。
+  - 分支规则：第二阶段分支 `feat/core-p2` / `feat/joint-p2` / `feat/quests-p2` / `feat/map-p2`；合并一律走 PR、以 merge commit 合并；开 PR 前合入最新 main 并跑通四条检查命令。
+  - 数据约定：`source_tier` 的取值与界面标记；领域标签推荐小写加下划线，比较用 `normalizeTag`；界面标记改为英文 `Sample` / `Simulated` / `Placeholder`。
+  - 「联合求解模型」第 9 条：运行中措施的徽标按界面实际文字写为 `Running`（规则不变）。
+  - **行为变化（只有这一处需要提醒）**：示例档案 `sample-leo` 补了 `budget_usd: 40`（此前没填，与预算相关的判断为 unknown / null），并新增第 4 个示例档案 `sample-noor`（大一学生）。**依赖「恰好 3 个示例档案」的代码（如写死数量、下标或遍历结果的断言）需要更新**。
+

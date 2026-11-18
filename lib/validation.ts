@@ -19,10 +19,12 @@ import type {
   DeviceType,
   EvidenceKind,
   EvidenceStatus,
+  MaterialKind,
   OpportunityCategory,
   OpportunityFormat,
   RequirementType,
   SkillLevel,
+  SourceTier,
   StudentStatus,
 } from './types';
 import { compareYMD, parseISODate } from './eligibility/dates';
@@ -99,6 +101,20 @@ export const EVIDENCE_STATUSES = [
 ] as const satisfies readonly EvidenceStatus[];
 
 export const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const satisfies readonly SkillLevel[];
+
+/** 第二阶段：机会来源等级（Opportunity.source_tier）。 */
+export const SOURCE_TIERS = ['official', 'trusted_aggregator', 'user_posted'] as const satisfies readonly SourceTier[];
+
+/** 第二阶段：申请材料种类（PrepItem.material_kind）。 */
+export const MATERIAL_KINDS = [
+  'resume',
+  'transcript',
+  'personal_statement',
+  'recommendation_letter',
+  'portfolio',
+  'essay',
+  'other',
+] as const satisfies readonly MaterialKind[];
 
 export const LOCALITIES = ['urban', 'suburban', 'rural'] as const;
 export const TRANSPORT_LEVELS = ['reliable', 'limited', 'none'] as const;
@@ -389,6 +405,10 @@ function validatePreparation(r: Reporter, value: unknown): void {
       r.add(`${path}.required_for_application`, 'true / false', p.required_for_application);
     }
     r.optStr(p, 'source_text', `${path}.source_text`);
+    if (p.material_kind != null && !includes(MATERIAL_KINDS, p.material_kind)) {
+      r.add(`${path}.material_kind`, `${oneOf(MATERIAL_KINDS)} (or null)`, p.material_kind);
+    }
+    r.optBool(p, 'reusable_across_opportunities', `${path}.reusable_across_opportunities`);
 
     const deps = p.depends_on;
     if (!Array.isArray(deps)) {
@@ -445,6 +465,14 @@ function validateOpportunityInto(r: Reporter, value: unknown): void {
   r.optStr(o, 'deadline_note');
   r.optBool(o, 'recurring_annually');
   if (o.is_sample !== undefined && typeof o.is_sample !== 'boolean') r.add('is_sample', 'true / false, or leave it out', o.is_sample);
+  if (o.source_tier !== undefined && !includes(SOURCE_TIERS, o.source_tier)) {
+    r.add('source_tier', `${oneOf(SOURCE_TIERS)}, or leave it out (= official)`, o.source_tier);
+  }
+  // user_posted 的机会是 Connect 的本地示例，没有经过官网核实，必须标为示例。
+  if (o.source_tier === 'user_posted' && o.is_sample !== true) {
+    r.add('is_sample', 'true when source_tier is "user_posted" (user-posted opportunities are local samples, not verified on an official site)', o.is_sample);
+  }
+  r.optStr(o, 'posted_by');
 
   // location
   const loc = o.location;
@@ -689,6 +717,8 @@ export const _enumsComplete: {
   evidenceKind: Covers<EvidenceKind, typeof EVIDENCE_KINDS>;
   evidenceStatus: Covers<EvidenceStatus, typeof EVIDENCE_STATUSES>;
   skill: Covers<SkillLevel, typeof SKILL_LEVELS>;
+  sourceTier: Covers<SourceTier, typeof SOURCE_TIERS>;
+  materialKind: Covers<MaterialKind, typeof MATERIAL_KINDS>;
 } = {
   category: true,
   format: true,
@@ -698,4 +728,6 @@ export const _enumsComplete: {
   evidenceKind: true,
   evidenceStatus: true,
   skill: true,
+  sourceTier: true,
+  materialKind: true,
 };

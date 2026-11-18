@@ -21,9 +21,21 @@ const STATUSES: StudentStatus[] = [
 ];
 
 describe('data/profiles.json', () => {
-  it('恰好 3 个示例档案，id 唯一', () => {
-    expect(profiles).toHaveLength(3);
-    expect(new Set(profiles.map((p) => p.id)).size).toBe(3);
+  it('恰好 4 个示例档案（第二阶段新增大一学生 sample-noor），id 唯一', () => {
+    expect(profiles).toHaveLength(4);
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(4);
+  });
+
+  it('sample-leo 已补预算；sample-noor 是大一学生（grade 13、本科、第一代）', () => {
+    const leo = profiles.find((p) => p.id === 'sample-leo');
+    expect(leo?.budget_usd).toBe(40);
+    // Leo 故意缺 citizenships / statuses，用来触发 unknown。
+    expect(leo?.citizenships).toBeUndefined();
+    expect(leo?.statuses).toBeUndefined();
+    const noor = profiles.find((p) => p.id === 'sample-noor');
+    expect(noor?.grade).toBe(13);
+    expect(noor?.statuses).toEqual(expect.arrayContaining(['undergraduate', 'first_generation']));
+    expect(noor?.transport?.level).toBe('limited');
   });
 
   it('全部 is_sample 且必填字段齐全', () => {

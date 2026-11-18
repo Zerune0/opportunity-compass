@@ -13,7 +13,7 @@
  *
  * 所有机会都是虚构的（example.com、is_sample: true），不是真实机会。
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -123,7 +123,7 @@ const OPP_IN_PERSON: Opportunity = {
 
 const OPPS: Opportunity[] = [OPP_OPEN, OPP_HARD, OPP_IN_PERSON];
 
-// ───────────────────────── 档案：3 个示例 + 3 个手写 ─────────────────────────
+// ───────────────────────── 档案：data/profiles.json 全部示例（第二阶段为 4 个）+ 3 个手写 ─────────────────────────
 
 const SAMPLE_PROFILES = profilesJson as unknown as StudentProfile[];
 
@@ -332,7 +332,9 @@ describe('反向对照：改确实应影响结果的字段，结果应当不同�
 // ───────────────────────── 4. 静态守卫：判断函数源码不读学校名 / 显示名 ─────────────────────────
 
 const REPO_ROOT = resolve(__dirname, '..');
-const ENGINE_DIRS = ['lib/eligibility', 'lib/reachability', 'lib/path'];
+const ENGINE_DIRS = ['lib/eligibility', 'lib/reachability', 'lib/path', 'lib/gap', 'lib/match', 'lib/planner'];
+/** 被判断函数引用的顶层源文件（不在上面的目录里），同样受守卫检查。 */
+const ENGINE_FILES = ['lib/tags.ts', 'lib/journal.ts'];
 const FORBIDDEN = ['school_name', 'display_name'];
 
 function listSourceFiles(dir: string): string[] {
@@ -372,11 +374,20 @@ function forbiddenUsages(fileName: string, source: string): string[] {
 }
 
 describe('静态守卫：判断函数源码不使用 school_name / display_name', () => {
-  const files = ENGINE_DIRS.flatMap((d) => listSourceFiles(join(REPO_ROOT, d)));
+  const files = [
+    ...ENGINE_DIRS.flatMap((d) => listSourceFiles(join(REPO_ROOT, d))),
+    ...ENGINE_FILES.map((f) => join(REPO_ROOT, f)),
+  ];
 
-  it('能找到三个引擎目录下的源文件', () => {
+  it('能找到每个引擎目录下的源文件', () => {
     for (const d of ENGINE_DIRS) {
       expect(files.some((f) => f.startsWith(join(REPO_ROOT, d))), d).toBe(true);
+    }
+  });
+
+  it('顶层引擎源文件都存在', () => {
+    for (const f of ENGINE_FILES) {
+      expect(existsSync(join(REPO_ROOT, f)), f).toBe(true);
     }
   });
 
