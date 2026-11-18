@@ -6,6 +6,8 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 帮助缺少资源、人脉和专业指导的学生发现真实机会，理解资格、准备差距与现实参与障碍，选择可执行的成长路线，并以技能证据和申请规划采取行动。
 
 ## Project status
+**Live demo:** https://opportunity-compass-six.vercel.app
+
 **Built for Bridge The Gap Hacks.** The four-day scope is defined in `CONTRACT.md`. This is an independent project; no ExamPilot code is included.
 
 - **Implemented (student-side engine):** four pure functions in `lib/` — `checkEligibility`, `analyzeReachability`, `planRoutes` and `diffRoutes` — with Vitest unit tests, including fairness control tests (`lib/fairness.test.ts`) showing results do not change when only the school name or display name changes.
@@ -15,7 +17,7 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 - **Opportunities:** `data/opportunities.json` currently holds 3 real opportunities, each with an official link, a verification date and the verifier's name. Anything the official page does not state is left as `null` and shown as "unknown"; it is not guessed.
 - **Still a placeholder:** the opportunity used in the two sample organizer scenarios is a clearly marked placeholder event, not a real opportunity.
 - **Known demo limits:** with the current 3 opportunities and 3 sample profiles, no combination evaluates to "reachable" (one lacks published weekly hours, the other two have unresolved barriers or unmet requirements), so the "barrier resolved by a grant" step is shown on the organizer page with sample data.
-- **Deployment:** not deployed yet. The app is a static-friendly Next.js build with no environment variables; see "Deploying" below.
+- **Live demo:** https://opportunity-compass-six.vercel.app (deployed on Vercel from `main`). The app is a static-friendly Next.js build with no environment variables; see "Deploying" below.
 
 All capabilities described below are product goals unless stated otherwise above.
 
