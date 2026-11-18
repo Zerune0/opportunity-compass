@@ -334,7 +334,7 @@ describe('反向对照：改确实应影响结果的字段，结果应当不同�
 const REPO_ROOT = resolve(__dirname, '..');
 const ENGINE_DIRS = ['lib/eligibility', 'lib/reachability', 'lib/path', 'lib/gap', 'lib/match', 'lib/planner'];
 /** 被判断函数引用的顶层源文件（不在上面的目录里），同样受守卫检查。 */
-const ENGINE_FILES = ['lib/tags.ts', 'lib/journal.ts'];
+const ENGINE_FILES = ['lib/tags.ts', 'lib/journal.ts', 'lib/requirement-timing.ts'];
 const FORBIDDEN = ['school_name', 'display_name'];
 
 function listSourceFiles(dir: string): string[] {
