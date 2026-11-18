@@ -13,7 +13,7 @@ export function ReplayHistory({ profile, opportunity, today }: {
   const [selected, setSelected] = useState<string>("");
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
+    const frame = window.setTimeout(() => {
       const history = loadPlanSnapshots(opportunity.id, profile.id);
       const previous = history.at(-1);
       const plan = planRoutes(profile, opportunity, { today });
@@ -40,7 +40,7 @@ export function ReplayHistory({ profile, opportunity, today }: {
         taken_on: today, plan, inputs, trigger, trigger_detail: detail,
       }));
     });
-    return () => cancelAnimationFrame(frame);
+    return () => window.clearTimeout(frame);
   }, [profile, opportunity, today]);
 
   const after = snapshots.find((snapshot) => snapshot.id === selected) ?? snapshots.at(-1);

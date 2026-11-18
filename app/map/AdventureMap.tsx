@@ -25,11 +25,11 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       setContext({ profile: loadProfile(), today, grants: loadGrants() });
       setClassic(new URLSearchParams(window.location.search).get("view") === "classic");
     }
-    const initialRead = window.requestAnimationFrame(refresh);
+    const initialRead = window.setTimeout(refresh);
     window.addEventListener("pageshow", refresh);
     window.addEventListener("storage", refresh);
     return () => {
-      window.cancelAnimationFrame(initialRead);
+      window.clearTimeout(initialRead);
       window.removeEventListener("pageshow", refresh);
       window.removeEventListener("storage", refresh);
     };

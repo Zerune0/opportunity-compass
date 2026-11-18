@@ -36,7 +36,7 @@ export function Journal({ opportunityId }: { opportunityId?: string }) {
   }
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
+    const frame = window.setTimeout(() => {
       refresh();
       const date = new Date();
       setToday(new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10));
@@ -44,7 +44,7 @@ export function Journal({ opportunityId }: { opportunityId?: string }) {
     window.addEventListener("pageshow", refresh);
     window.addEventListener("storage", refresh);
     return () => {
-      cancelAnimationFrame(frame);
+      window.clearTimeout(frame);
       window.removeEventListener("pageshow", refresh);
       window.removeEventListener("storage", refresh);
     };
