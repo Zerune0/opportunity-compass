@@ -147,7 +147,7 @@ function includes<T extends string>(list: readonly T[], v: unknown): v is T {
 
 /** 把实际值缩成一小段，放进问题说明里。 */
 function show(v: unknown): string {
-  if (v === undefined) return '未填';
+  if (v === undefined) return 'missing';
   if (typeof v === 'string') return v.length > 40 ? `"${v.slice(0, 40)}…"` : `"${v}"`;
   try {
     const s = JSON.stringify(v);
@@ -158,7 +158,7 @@ function show(v: unknown): string {
 }
 
 function oneOf(list: readonly string[]): string {
-  return `取值之一：${list.join(' / ')}`;
+  return `one of: ${list.join(' / ')}`;
 }
 
 /** 收集问题：每条 = `${subject}字段 ${path}：期望 ${expected}，实际 ${actual}`。 */
@@ -167,58 +167,58 @@ class Reporter {
   constructor(private readonly subject: string) {}
 
   add(path: string, expected: string, actual?: unknown, hasActual = true): void {
-    const tail = hasActual ? `，实际 ${show(actual)}` : '';
-    this.problems.push(`${this.subject}字段 ${path}：期望 ${expected}${tail}`);
+    const tail = hasActual ? `, got ${show(actual)}` : '';
+    this.problems.push(`${this.subject} field ${path}: expected ${expected}${tail}`);
   }
 
   /** 不带「实际值」的问题（如重复、成环）。 */
   note(path: string, text: string): void {
-    this.problems.push(`${this.subject}字段 ${path}：${text}`);
+    this.problems.push(`${this.subject} field ${path}: ${text}`);
   }
 
   // —— 常用检查 ——
   nonEmptyStr(o: Obj, key: string, path = key): void {
-    if (!isNonEmptyStr(o[key])) this.add(path, '非空字符串', o[key]);
+    if (!isNonEmptyStr(o[key])) this.add(path, 'a non-empty string', o[key]);
   }
 
   /** 可缺省 / null；给出时必须是字符串。 */
   optStr(o: Obj, key: string, path = key): void {
     const v = o[key];
-    if (v != null && typeof v !== 'string') this.add(path, '字符串或 null（可不填）', v);
+    if (v != null && typeof v !== 'string') this.add(path, 'a string or null (optional)', v);
   }
 
   optBool(o: Obj, key: string, path = key): void {
     const v = o[key];
-    if (v != null && typeof v !== 'boolean') this.add(path, 'true / false 或 null（可不填）', v);
+    if (v != null && typeof v !== 'boolean') this.add(path, 'true / false or null (optional)', v);
   }
 
   /** 可缺省 / null；给出时必须是非负有限数。 */
   optNonNeg(o: Obj, key: string, path = key): void {
     const v = o[key];
-    if (v != null && !isNonNegFinite(v)) this.add(path, '非负有限数或 null（可不填）', v);
+    if (v != null && !isNonNegFinite(v)) this.add(path, 'a non-negative finite number or null (optional)', v);
   }
 
   /** 必须有这个键，值为非负有限数或 null。 */
   reqNonNegOrNull(o: Obj, key: string, path = key): void {
     const v = o[key];
-    if (v === undefined) this.add(path, '必填：非负有限数，官网没写清时填 null', v);
-    else if (v !== null && !isNonNegFinite(v)) this.add(path, '非负有限数或 null', v);
+    if (v === undefined) this.add(path, 'required: a non-negative finite number; use null if the official site is not clear', v);
+    else if (v !== null && !isNonNegFinite(v)) this.add(path, 'a non-negative finite number or null', v);
   }
 
   optDate(o: Obj, key: string, path = key): void {
     const v = o[key];
-    if (v != null && !isStrictISODate(v)) this.add(path, '合法日期 YYYY-MM-DD 或 null（可不填）', v);
+    if (v != null && !isStrictISODate(v)) this.add(path, 'a valid date YYYY-MM-DD or null (optional)', v);
   }
 
   stringArray(o: Obj, key: string, path = key, nonEmptyItems = true): void {
     const v = o[key];
     if (!Array.isArray(v)) {
-      this.add(path, '字符串数组', v);
+      this.add(path, 'an array of strings', v);
       return;
     }
     v.forEach((item, i) => {
       if (nonEmptyItems ? !isNonEmptyStr(item) : typeof item !== 'string') {
-        this.add(`${path}[${i}]`, '非空字符串', item);
+        this.add(`${path}[${i}]`, 'a non-empty string', item);
       }
     });
   }
@@ -227,11 +227,11 @@ class Reporter {
     const v = o[key];
     if (v == null && !required) return;
     if (!Array.isArray(v) || (required && v.length === 0)) {
-      this.add(path, required ? '非空数组，元素为两位大写国家代码（如 "US"）' : '国家代码数组或 null（可不填）', v);
+      this.add(path, required ? 'a non-empty array of two-letter uppercase country codes (e.g. "US")' : 'an array of country codes or null (optional)', v);
       return;
     }
     v.forEach((c, i) => {
-      if (typeof c !== 'string' || !COUNTRY_RE.test(c)) this.add(`${path}[${i}]`, '两位大写国家代码（如 "US"）', c);
+      if (typeof c !== 'string' || !COUNTRY_RE.test(c)) this.add(`${path}[${i}]`, 'a two-letter uppercase country code (e.g. "US")', c);
     });
   }
 
@@ -239,7 +239,7 @@ class Reporter {
     const v = o[key];
     if (v == null && nullable) return;
     if (!Array.isArray(v)) {
-      this.add(path, nullable ? '数组或 null（可不填）' : '数组', v);
+      this.add(path, nullable ? 'an array or null (optional)' : 'an array', v);
       return;
     }
     v.forEach((item, i) => {
@@ -252,8 +252,8 @@ class Reporter {
 
 function opportunitySubject(value: unknown, index?: number): string {
   const id = isObj(value) && isNonEmptyStr(value.id) ? value.id : null;
-  if (id) return `机会「${id}」`;
-  return index === undefined ? '机会（id 缺失）' : `第 ${index + 1} 条机会（id 缺失）`;
+  if (id) return `Opportunity "${id}"`;
+  return index === undefined ? 'Opportunity (missing id)' : `Opportunity #${index + 1} (missing id)`;
 }
 
 function validateRequirementRule(r: Reporter, req: Obj, path: string): void {
@@ -262,7 +262,7 @@ function validateRequirementRule(r: Reporter, req: Obj, path: string): void {
       for (const k of ['min', 'max'] as const) {
         const v = req[k];
         if (v != null && !(Number.isInteger(v) && (v as number) >= GRADE_MIN && (v as number) <= GRADE_MAX)) {
-          r.add(`${path}.${k}`, `${GRADE_MIN}–${GRADE_MAX} 的整数年级或不填`, v);
+          r.add(`${path}.${k}`, `a whole-number grade from ${GRADE_MIN}–${GRADE_MAX}, or leave it out`, v);
         }
       }
       if (typeof req.min === 'number' && typeof req.max === 'number' && req.min > req.max) {
@@ -283,10 +283,10 @@ function validateRequirementRule(r: Reporter, req: Obj, path: string): void {
       r.countryArray(req, 'countries', `${path}.countries`, true);
       const states = req.states;
       if (states != null) {
-        if (!Array.isArray(states)) r.add(`${path}.states`, '字符串数组或不填', states);
+        if (!Array.isArray(states)) r.add(`${path}.states`, 'an array of strings, or leave it out', states);
         else
           states.forEach((s, i) => {
-            if (!isNonEmptyStr(s)) r.add(`${path}.states[${i}]`, '非空字符串（州 / 省代码）', s);
+            if (!isNonEmptyStr(s)) r.add(`${path}.states[${i}]`, 'a non-empty string (state / province code)', s);
           });
       }
       break;
@@ -297,7 +297,7 @@ function validateRequirementRule(r: Reporter, req: Obj, path: string): void {
     case 'status': {
       const anyOf = req.any_of;
       if (!Array.isArray(anyOf) || anyOf.length === 0) {
-        r.add(`${path}.any_of`, `非空数组，${oneOf(STUDENT_STATUSES)}`, anyOf);
+        r.add(`${path}.any_of`, `a non-empty array, ${oneOf(STUDENT_STATUSES)}`, anyOf);
       } else {
         r.enumArray(req, 'any_of', STUDENT_STATUSES, `${path}.any_of`);
       }
@@ -306,15 +306,15 @@ function validateRequirementRule(r: Reporter, req: Obj, path: string): void {
     case 'prerequisite_skill': {
       r.nonEmptyStr(req, 'skill', `${path}.skill`);
       const lv = req.min_level;
-      if (lv != null && !includes(SKILL_LEVELS, lv)) r.add(`${path}.min_level`, `${oneOf(SKILL_LEVELS)}（或不填）`, lv);
+      if (lv != null && !includes(SKILL_LEVELS, lv)) r.add(`${path}.min_level`, `${oneOf(SKILL_LEVELS)} (or leave it out)`, lv);
       break;
     }
     case 'portfolio': {
       const kind = req.evidence_kind;
       if (kind != null && !includes(EVIDENCE_KINDS, kind)) {
-        r.add(`${path}.evidence_kind`, `${oneOf(EVIDENCE_KINDS)}（或不填）`, kind);
+        r.add(`${path}.evidence_kind`, `${oneOf(EVIDENCE_KINDS)} (or leave it out)`, kind);
       }
-      if (req.skill != null && !isNonEmptyStr(req.skill)) r.add(`${path}.skill`, '非空字符串或不填', req.skill);
+      if (req.skill != null && !isNonEmptyStr(req.skill)) r.add(`${path}.skill`, 'a non-empty string, or leave it out', req.skill);
       break;
     }
     case 'manual':
@@ -325,7 +325,7 @@ function validateRequirementRule(r: Reporter, req: Obj, path: string): void {
 
 function validateRequirements(r: Reporter, value: unknown): void {
   if (!Array.isArray(value)) {
-    r.add('requirements', '数组（没有官方要求时填 []）', value);
+    r.add('requirements', 'an array (use [] if there are no official requirements)', value);
     return;
   }
   const seen = new Set<string>();
@@ -333,15 +333,15 @@ function validateRequirements(r: Reporter, value: unknown): void {
     const label = isObj(req) && isNonEmptyStr(req.id) ? req.id : String(i);
     const path = `requirements[${label}]`;
     if (!isObj(req)) {
-      r.add(path, '对象', req);
+      r.add(path, 'an object', req);
       return;
     }
-    if (!isNonEmptyStr(req.id)) r.add(`${path}.id`, '非空字符串（机会内唯一）', req.id);
-    else if (seen.has(req.id)) r.note(`${path}.id`, `id 重复（机会内必须唯一）："${req.id}"`);
+    if (!isNonEmptyStr(req.id)) r.add(`${path}.id`, 'a non-empty string (unique within the opportunity)', req.id);
+    else if (seen.has(req.id)) r.note(`${path}.id`, `duplicate id (must be unique within the opportunity): "${req.id}"`);
     else seen.add(req.id);
     r.nonEmptyStr(req, 'label', `${path}.label`);
-    if (typeof req.hard !== 'boolean') r.add(`${path}.hard`, 'true（硬性）/ false（偏好）', req.hard);
-    if (!isNonEmptyStr(req.source_text)) r.add(`${path}.source_text`, '非空的官网原文（逐字摘录）', req.source_text);
+    if (typeof req.hard !== 'boolean') r.add(`${path}.hard`, 'true (hard) / false (preference)', req.hard);
+    if (!isNonEmptyStr(req.source_text)) r.add(`${path}.source_text`, 'non-empty official text (quoted word for word)', req.source_text);
     if (!includes(REQUIREMENT_TYPES, req.type)) {
       r.add(`${path}.type`, oneOf(REQUIREMENT_TYPES), req.type);
       return;
@@ -352,7 +352,7 @@ function validateRequirements(r: Reporter, value: unknown): void {
 
 function validatePreparation(r: Reporter, value: unknown): void {
   if (!Array.isArray(value)) {
-    r.add('preparation', '数组（没有准备项时填 []）', value);
+    r.add('preparation', 'an array (use [] if there are no prep items)', value);
     return;
   }
   const ids = new Set<string>();
@@ -370,21 +370,21 @@ function validatePreparation(r: Reporter, value: unknown): void {
     const label = isObj(p) && isNonEmptyStr(p.id) ? p.id : String(i);
     const path = `preparation[${label}]`;
     if (!isObj(p)) {
-      r.add(path, '对象', p);
+      r.add(path, 'an object', p);
       return;
     }
-    if (!isNonEmptyStr(p.id)) r.add(`${path}.id`, '非空字符串（机会内唯一）', p.id);
+    if (!isNonEmptyStr(p.id)) r.add(`${path}.id`, 'a non-empty string (unique within the opportunity)', p.id);
     else if (duplicates.has(p.id) && !reported.has(p.id)) {
       reported.add(p.id);
-      r.note(`${path}.id`, `id 重复（机会内必须唯一）："${p.id}"`);
+      r.note(`${path}.id`, `duplicate id (must be unique within the opportunity): "${p.id}"`);
     }
     r.nonEmptyStr(p, 'title', `${path}.title`);
-    if (p.skill != null && !isNonEmptyStr(p.skill)) r.add(`${path}.skill`, '非空字符串（技能 slug）或 null', p.skill);
+    if (p.skill != null && !isNonEmptyStr(p.skill)) r.add(`${path}.skill`, 'a non-empty string (skill slug) or null', p.skill);
     if (p.evidence_kind != null && !includes(EVIDENCE_KINDS, p.evidence_kind)) {
-      r.add(`${path}.evidence_kind`, `${oneOf(EVIDENCE_KINDS)}（或 null）`, p.evidence_kind);
+      r.add(`${path}.evidence_kind`, `${oneOf(EVIDENCE_KINDS)} (or null)`, p.evidence_kind);
     }
-    if (!isNonNegFinite(p.estimated_hours)) r.add(`${path}.estimated_hours`, '非负有限数', p.estimated_hours);
-    if (!isNonNegFinite(p.estimated_cost_usd)) r.add(`${path}.estimated_cost_usd`, '非负有限数', p.estimated_cost_usd);
+    if (!isNonNegFinite(p.estimated_hours)) r.add(`${path}.estimated_hours`, 'a non-negative finite number', p.estimated_hours);
+    if (!isNonNegFinite(p.estimated_cost_usd)) r.add(`${path}.estimated_cost_usd`, 'a non-negative finite number', p.estimated_cost_usd);
     if (typeof p.required_for_application !== 'boolean') {
       r.add(`${path}.required_for_application`, 'true / false', p.required_for_application);
     }
@@ -392,14 +392,14 @@ function validatePreparation(r: Reporter, value: unknown): void {
 
     const deps = p.depends_on;
     if (!Array.isArray(deps)) {
-      r.add(`${path}.depends_on`, '准备项 id 数组（没有依赖时填 []）', deps);
+      r.add(`${path}.depends_on`, 'an array of prep item ids (use [] if there are no dependencies)', deps);
       return;
     }
     const valid: string[] = [];
     deps.forEach((d, j) => {
-      if (!isNonEmptyStr(d)) r.add(`${path}.depends_on[${j}]`, '准备项 id 字符串', d);
-      else if (d === p.id) r.note(`${path}.depends_on`, `不能依赖自己（"${d}"）`);
-      else if (!ids.has(d)) r.note(`${path}.depends_on`, `引用了不存在的准备项 "${d}"`);
+      if (!isNonEmptyStr(d)) r.add(`${path}.depends_on[${j}]`, 'a prep item id string', d);
+      else if (d === p.id) r.note(`${path}.depends_on`, `cannot depend on itself ("${d}")`);
+      else if (!ids.has(d)) r.note(`${path}.depends_on`, `refers to a prep item that does not exist: "${d}"`);
       else valid.push(d);
     });
     if (isNonEmptyStr(p.id) && !graph.has(p.id)) graph.set(p.id, valid);
@@ -421,57 +421,57 @@ function validatePreparation(r: Reporter, value: unknown): void {
     color.set(id, 2);
   };
   for (const id of graph.keys()) if ((color.get(id) ?? 0) === 0) visit(id);
-  for (const cyc of cycles) r.note('preparation.depends_on', `依赖成环：${cyc.join(' → ')}`);
+  for (const cyc of cycles) r.note('preparation.depends_on', `dependency loop: ${cyc.join(' → ')}`);
 }
 
 function validateOpportunityInto(r: Reporter, value: unknown): void {
   if (!isObj(value)) {
-    r.add('（整条）', '对象', value);
+    r.add('(whole entry)', 'an object', value);
     return;
   }
   const o = value;
-  if (!isNonEmptyStr(o.id)) r.add('id', '非空字符串（kebab-case，全局唯一）', o.id);
-  else if (!KEBAB_RE.test(o.id)) r.add('id', 'kebab-case（小写字母、数字，用连字符连接，如 nasa-sees-2027）', o.id);
+  if (!isNonEmptyStr(o.id)) r.add('id', 'a non-empty string (kebab-case, globally unique)', o.id);
+  else if (!KEBAB_RE.test(o.id)) r.add('id', 'kebab-case (lowercase letters and numbers joined by hyphens, e.g. nasa-sees-2027)', o.id);
   r.nonEmptyStr(o, 'title');
   r.nonEmptyStr(o, 'organizer');
   if (!includes(OPPORTUNITY_CATEGORIES, o.category)) r.add('category', oneOf(OPPORTUNITY_CATEGORIES), o.category);
   r.stringArray(o, 'fields');
-  if (typeof o.summary !== 'string') r.add('summary', '字符串', o.summary);
-  if (!isHttpUrl(o.official_url)) r.add('official_url', 'http(s) 开头的主办方官网链接', o.official_url);
-  if (!isStrictISODate(o.verified_on)) r.add('verified_on', '合法日期 YYYY-MM-DD', o.verified_on);
-  if (!isNonEmptyStr(o.verified_by)) r.add('verified_by', '非空字符串（核实人）', o.verified_by);
-  if (o.deadline === undefined) r.add('deadline', '必填：合法日期 YYYY-MM-DD，滚动录取 / 未写清时填 null', o.deadline);
-  else if (o.deadline !== null && !isStrictISODate(o.deadline)) r.add('deadline', '合法日期 YYYY-MM-DD 或 null', o.deadline);
+  if (typeof o.summary !== 'string') r.add('summary', 'a string', o.summary);
+  if (!isHttpUrl(o.official_url)) r.add('official_url', 'the organizer\'s official link, starting with http(s)', o.official_url);
+  if (!isStrictISODate(o.verified_on)) r.add('verified_on', 'a valid date YYYY-MM-DD', o.verified_on);
+  if (!isNonEmptyStr(o.verified_by)) r.add('verified_by', 'a non-empty string (who verified it)', o.verified_by);
+  if (o.deadline === undefined) r.add('deadline', 'required: a valid date YYYY-MM-DD; use null for rolling admission / when not clear', o.deadline);
+  else if (o.deadline !== null && !isStrictISODate(o.deadline)) r.add('deadline', 'a valid date YYYY-MM-DD or null', o.deadline);
   r.optStr(o, 'deadline_note');
   r.optBool(o, 'recurring_annually');
-  if (o.is_sample !== undefined && typeof o.is_sample !== 'boolean') r.add('is_sample', 'true / false 或不填', o.is_sample);
+  if (o.is_sample !== undefined && typeof o.is_sample !== 'boolean') r.add('is_sample', 'true / false, or leave it out', o.is_sample);
 
   // location
   const loc = o.location;
-  if (!isObj(loc)) r.add('location', '对象（至少含 format）', loc);
+  if (!isObj(loc)) r.add('location', 'an object (with at least format)', loc);
   else {
     if (!includes(OPPORTUNITY_FORMATS, loc.format)) r.add('location.format', oneOf(OPPORTUNITY_FORMATS), loc.format);
     if (loc.country != null && !(typeof loc.country === 'string' && COUNTRY_RE.test(loc.country))) {
-      r.add('location.country', '两位大写国家代码（如 "US"）或 null', loc.country);
+      r.add('location.country', 'a two-letter uppercase country code (e.g. "US") or null', loc.country);
     }
     for (const k of ['state', 'city', 'note']) r.optStr(loc, k, `location.${k}`);
   }
 
   // cost
   const cost = o.cost;
-  if (!isObj(cost)) r.add('cost', '对象（含 fee_usd、requires_travel_expense）', cost);
+  if (!isObj(cost)) r.add('cost', 'an object (with fee_usd, requires_travel_expense)', cost);
   else {
     r.reqNonNegOrNull(cost, 'fee_usd', 'cost.fee_usd');
     const t = cost.requires_travel_expense;
-    if (t === undefined) r.add('cost.requires_travel_expense', '必填：true / false，不清楚时填 null', t);
-    else if (t !== null && typeof t !== 'boolean') r.add('cost.requires_travel_expense', 'true / false 或 null', t);
+    if (t === undefined) r.add('cost.requires_travel_expense', 'required: true / false; use null if not clear', t);
+    else if (t !== null && typeof t !== 'boolean') r.add('cost.requires_travel_expense', 'true / false or null', t);
     r.optBool(cost, 'financial_aid_available', 'cost.financial_aid_available');
     r.optStr(cost, 'note', 'cost.note');
   }
 
   // time_commitment
   const tc = o.time_commitment;
-  if (!isObj(tc)) r.add('time_commitment', '对象（含 hours_per_week、total_weeks）', tc);
+  if (!isObj(tc)) r.add('time_commitment', 'an object (with hours_per_week, total_weeks)', tc);
   else {
     r.reqNonNegOrNull(tc, 'hours_per_week', 'time_commitment.hours_per_week');
     r.reqNonNegOrNull(tc, 'total_weeks', 'time_commitment.total_weeks');
@@ -494,7 +494,7 @@ export function validateOpportunity(value: unknown): string[] {
 
 /** 校验机会数组：逐条检查 + 跨条目检查（id 全局唯一）。不抛异常。 */
 export function validateOpportunities(value: unknown): string[] {
-  if (!Array.isArray(value)) return [`机会列表：期望数组，实际 ${show(value)}`];
+  if (!Array.isArray(value)) return [`Opportunity list: expected an array, got ${show(value)}`];
   const problems: string[] = [];
   const firstIndex = new Map<string, number>();
   value.forEach((opp, i) => {
@@ -504,7 +504,7 @@ export function validateOpportunities(value: unknown): string[] {
     if (isObj(opp) && isNonEmptyStr(opp.id)) {
       const prev = firstIndex.get(opp.id);
       if (prev !== undefined) {
-        problems.push(`机会「${opp.id}」字段 id：id 重复（第 ${prev + 1} 条与第 ${i + 1} 条相同，全局必须唯一）`);
+        problems.push(`Opportunity "${opp.id}" field id: duplicate id (#${prev + 1} and #${i + 1} are the same; ids must be globally unique)`);
       } else firstIndex.set(opp.id, i);
     }
   });
@@ -532,49 +532,49 @@ export function opportunityWarnings(opp: unknown): string[] {
   if (!isObj(opp)) return [];
   const subject = opportunitySubject(opp);
   const out: string[] = [];
-  const warn = (path: string, text: string) => out.push(`${subject}字段 ${path}：${text}`);
+  const warn = (path: string, text: string) => out.push(`${subject} field ${path}: ${text}`);
 
   if (Array.isArray(opp.fields)) {
-    if (opp.fields.length === 0) warn('fields', '为空，「同领域替代」提示将无法给出。');
+    if (opp.fields.length === 0) warn('fields', 'is empty, so the "Same-field alternatives" hint can\'t be shown.');
     for (const f of opp.fields) {
       if (typeof f === 'string' && f.includes('-')) {
-        warn('fields', `"${f}" 含连字符，约定用下划线（如 ${f.replace(/-/g, '_')}），否则与学生 interests 对不上。`);
+        warn('fields', `"${f}" has a hyphen; use underscores (e.g. ${f.replace(/-/g, '_')}), or it won't match student interests.`);
       }
     }
   }
   if (opp.recurring_annually == null) {
-    warn('recurring_annually', '没填，硬性不满足时「下一届」提示只能写「请向官方确认是否每年举办」。');
+    warn('recurring_annually', 'is missing, so when a hard requirement is not met the "next round" hint can only say "Confirm with the organizer whether it runs every year".');
   }
 
   const loc = isObj(opp.location) ? opp.location : null;
   const cost = isObj(opp.cost) ? opp.cost : null;
-  if (cost && cost.fee_usd === null) warn('cost.fee_usd', '为 null，可达性的费用判断会是「无法判断」。');
+  if (cost && cost.fee_usd === null) warn('cost.fee_usd', 'is null, so the reachability cost check will be "can\'t tell".');
   if (cost && cost.requires_travel_expense === null && loc && loc.format !== 'online') {
-    warn('cost.requires_travel_expense', '为 null（线下 / 混合机会），交通与差旅只能按学生交通条件判断，信息不全。');
+    warn('cost.requires_travel_expense', 'is null (in-person / hybrid opportunity), so transportation and travel can only be judged from the student\'s transportation; info is incomplete.');
   }
   const tc = isObj(opp.time_commitment) ? opp.time_commitment : null;
   if (tc && tc.hours_per_week === null) {
-    warn('time_commitment.hours_per_week', '为 null，可达性的「参与期每周时间」判断会是「无法判断」。');
+    warn('time_commitment.hours_per_week', 'is null, so the reachability "weekly hours during the program" check will be "can\'t tell".');
   }
   if (tc && isStrictISODate(tc.start_date) && isStrictISODate(tc.end_date)) {
     if (compareYMD(parseISODate(tc.start_date)!, parseISODate(tc.end_date)!) > 0) {
-      warn('time_commitment.start_date / end_date', `开始日期 ${tc.start_date} 晚于结束日期 ${tc.end_date}，请复查。`);
+      warn('time_commitment.start_date / end_date', `start date ${tc.start_date} is after end date ${tc.end_date}; please double-check.`);
     }
   }
   if (Array.isArray(opp.preparation) && opp.preparation.length === 0) {
-    warn('preparation', '为空，路线里只有固定步骤（如「提交申请」），没有可按证据跳过的准备项。');
+    warn('preparation', 'is empty, so routes only have fixed steps (like "Submit application") and no prep items that evidence can skip.');
   }
   if (opp.is_sample !== true && typeof opp.official_url === 'string' && isPlaceholderHost(opp.official_url)) {
-    warn('official_url', `真实机会（is_sample 不为 true）的链接指向占位域名：${opp.official_url}`);
+    warn('official_url', `a real opportunity (is_sample is not true) links to a placeholder domain: ${opp.official_url}`);
   }
   if (isStrictISODate(opp.verified_on) && isStrictISODate(opp.deadline)) {
     if (compareYMD(parseISODate(opp.verified_on)!, parseISODate(opp.deadline)!) > 0) {
-      warn('verified_on', `核实日期 ${opp.verified_on} 晚于截止日期 ${opp.deadline}：核实时已经截止，请确认是否换成下一届。`);
+      warn('verified_on', `verified date ${opp.verified_on} is after the deadline ${opp.deadline}: it had already closed when verified. Check whether to switch to the next round.`);
     }
   }
   if (tc && isStrictISODate(opp.deadline) && isStrictISODate(tc.start_date)) {
     if (compareYMD(parseISODate(opp.deadline)!, parseISODate(tc.start_date)!) > 0) {
-      warn('deadline', `截止日期 ${opp.deadline} 晚于活动开始日期 ${tc.start_date}，请复查。`);
+      warn('deadline', `deadline ${opp.deadline} is after the program start date ${tc.start_date}; please double-check.`);
     }
   }
   return out;
@@ -585,32 +585,32 @@ export function opportunityWarnings(opp: unknown): string[] {
 /** 校验单个学生档案。返回中文问题列表，空数组 = 合格。不抛异常。 */
 export function validateProfile(value: unknown): string[] {
   const id = isObj(value) && isNonEmptyStr(value.id) ? value.id : null;
-  const r = new Reporter(id ? `档案「${id}」` : '档案（id 缺失）');
+  const r = new Reporter(id ? `Profile "${id}"` : 'Profile (missing id)');
   if (!isObj(value)) {
-    r.add('（整条）', '对象', value);
+    r.add('(whole entry)', 'an object', value);
     return r.problems;
   }
   const p = value;
-  if (!isNonEmptyStr(p.id)) r.add('id', '非空字符串', p.id);
+  if (!isNonEmptyStr(p.id)) r.add('id', 'a non-empty string', p.id);
   if (typeof p.is_sample !== 'boolean') r.add('is_sample', 'true / false', p.is_sample);
   r.nonEmptyStr(p, 'display_name');
 
   if (p.grade != null && !(Number.isInteger(p.grade) && (p.grade as number) >= GRADE_MIN && (p.grade as number) <= GRADE_MAX)) {
-    r.add('grade', `${GRADE_MIN}–${GRADE_MAX} 的整数或 null（可不填）`, p.grade);
+    r.add('grade', `a whole number from ${GRADE_MIN}–${GRADE_MAX} or null (optional)`, p.grade);
   }
   r.optNonNeg(p, 'age');
 
   const region = p.region;
   if (region != null) {
-    if (!isObj(region)) r.add('region', '对象或 null（可不填）', region);
+    if (!isObj(region)) r.add('region', 'an object or null (optional)', region);
     else {
       if (!(typeof region.country === 'string' && COUNTRY_RE.test(region.country))) {
-        r.add('region.country', '两位大写国家代码（如 "US"）', region.country);
+        r.add('region.country', 'a two-letter uppercase country code (e.g. "US")', region.country);
       }
       r.optStr(region, 'state', 'region.state');
       r.optStr(region, 'city', 'region.city');
       if (region.locality != null && !includes(LOCALITIES, region.locality)) {
-        r.add('region.locality', `${oneOf(LOCALITIES)}（或 null）`, region.locality);
+        r.add('region.locality', `${oneOf(LOCALITIES)} (or null)`, region.locality);
       }
     }
   }
@@ -622,7 +622,7 @@ export function validateProfile(value: unknown): string[] {
 
   const tr = p.transport;
   if (tr != null) {
-    if (!isObj(tr)) r.add('transport', '对象或 null（可不填）', tr);
+    if (!isObj(tr)) r.add('transport', 'an object or null (optional)', tr);
     else {
       if (!includes(TRANSPORT_LEVELS, tr.level)) r.add('transport.level', oneOf(TRANSPORT_LEVELS), tr.level);
       r.optNonNeg(tr, 'max_one_way_minutes', 'transport.max_one_way_minutes');
@@ -633,11 +633,11 @@ export function validateProfile(value: unknown): string[] {
 
   const skills = p.skills;
   if (skills != null) {
-    if (!Array.isArray(skills)) r.add('skills', '数组或 null（可不填）', skills);
+    if (!Array.isArray(skills)) r.add('skills', 'an array or null (optional)', skills);
     else
       skills.forEach((s, i) => {
         if (!isObj(s)) {
-          r.add(`skills[${i}]`, '对象 { name, level }', s);
+          r.add(`skills[${i}]`, 'an object { name, level }', s);
           return;
         }
         r.nonEmptyStr(s, 'name', `skills[${i}].name`);
@@ -646,27 +646,27 @@ export function validateProfile(value: unknown): string[] {
   }
 
   const ev = p.evidence;
-  if (!Array.isArray(ev)) r.add('evidence', '数组（没有证据时填 []）', ev);
+  if (!Array.isArray(ev)) r.add('evidence', 'an array (use [] if there is no evidence)', ev);
   else {
     const seen = new Set<string>();
     ev.forEach((e, i) => {
       const label = isObj(e) && isNonEmptyStr(e.id) ? e.id : String(i);
       const path = `evidence[${label}]`;
       if (!isObj(e)) {
-        r.add(path, '对象', e);
+        r.add(path, 'an object', e);
         return;
       }
-      if (!isNonEmptyStr(e.id)) r.add(`${path}.id`, '非空字符串（档案内唯一）', e.id);
-      else if (seen.has(e.id)) r.note(`${path}.id`, `id 重复（档案内必须唯一）："${e.id}"`);
+      if (!isNonEmptyStr(e.id)) r.add(`${path}.id`, 'a non-empty string (unique within the profile)', e.id);
+      else if (seen.has(e.id)) r.note(`${path}.id`, `duplicate id (must be unique within the profile): "${e.id}"`);
       else seen.add(e.id);
       r.nonEmptyStr(e, 'title', `${path}.title`);
       if (!includes(EVIDENCE_KINDS, e.kind)) r.add(`${path}.kind`, oneOf(EVIDENCE_KINDS), e.kind);
       r.stringArray(e, 'skills', `${path}.skills`);
       if (e.prep_item_ids !== undefined) r.stringArray(e, 'prep_item_ids', `${path}.prep_item_ids`);
       if (!includes(EVIDENCE_STATUSES, e.status)) r.add(`${path}.status`, oneOf(EVIDENCE_STATUSES), e.status);
-      if (e.url != null && !isHttpUrl(e.url)) r.add(`${path}.url`, 'http(s) 链接或 null（可不填）', e.url);
+      if (e.url != null && !isHttpUrl(e.url)) r.add(`${path}.url`, 'an http(s) link or null (optional)', e.url);
       r.optStr(e, 'description', `${path}.description`);
-      if (!isStrictISODate(e.added_on)) r.add(`${path}.added_on`, '合法日期 YYYY-MM-DD', e.added_on);
+      if (!isStrictISODate(e.added_on)) r.add(`${path}.added_on`, 'a valid date YYYY-MM-DD', e.added_on);
     });
   }
 

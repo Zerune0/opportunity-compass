@@ -14,16 +14,19 @@ export default async function QuestDetails({ params }: { params: Promise<{ id: s
   const location = [opportunity.location.city, opportunity.location.state, opportunity.location.country]
     .filter(Boolean).join(", ");
   return (
-    <div lang="en" className="space-y-6">
-      <Link className="underline" href="/quests">Back to Quest Board</Link>
-      <header className="space-y-2">
-        {opportunity.is_sample && <p className="font-semibold">Sample opportunity</p>}
-        <h1 className="text-3xl font-bold">{opportunity.title}</h1>
-        <p>{opportunity.organizer}{location && ` · ${location}`}</p>
+    <div lang="en" className="rpg-stack rpg-stack--loose">
+      <p><Link href="/quests">Back to Quest Board</Link></p>
+      <header className="rpg-head crt">
+        {opportunity.is_sample && <p><span className="rpg-tag rpg-tag--warning">Sample opportunity</span></p>}
+        <h1>{opportunity.title}</h1>
+        <p className="rpg-muted">{opportunity.organizer}{location && `, ${location}`}</p>
         <p>{opportunity.summary}</p>
-        <p>Deadline {opportunity.deadline ?? "unconfirmed"}{opportunity.deadline_note && ` · ${opportunity.deadline_note}`}</p>
+        <dl>
+          <dt>Deadline</dt>
+          <dd>{opportunity.deadline ?? "unconfirmed"}{opportunity.deadline_note && <span className="rpg-muted"> ({opportunity.deadline_note})</span>}</dd>
+        </dl>
+        {!opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>Apply on the official site</a>}
       </header>
-      {!opportunity.is_sample && <a className="font-semibold underline" href={opportunity.official_url}>Apply on the official site</a>}
       <QuestAssessment opportunity={opportunity} />
     </div>
   );

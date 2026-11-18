@@ -46,7 +46,7 @@ function laptopGrant(student: string, opp: string | null = OPP): ResourceGrant {
     type: 'device',
     device: 'laptop',
     status: 'approved',
-    provider: '示例学校借用（模拟）',
+    provider: 'Sample school loan (simulated)',
     is_sample: true,
   };
 }
@@ -59,8 +59,8 @@ function expectConsistent(r: JointResult) {
   expect(r.N).toBe(r.G - r.L);
   expect(r.cost.total_usd).toBeCloseTo(r.cost.fixed_usd + r.cost.marginal_usd, 9);
   expect(r.cost.marginal_usd).toBeCloseTo(r.allocations.reduce((s, a) => s + a.cost_usd, 0), 9);
-  expect(r.notes.join('')).toContain('模拟');
-  expect(r.notes.join('')).toContain('不等于录取');
+  expect(r.notes.join('')).toContain('Simulated');
+  expect(r.notes.join('')).toContain('does not mean admitted');
   expect(r.notes.join('')).not.toContain('MOCK');
 }
 
@@ -72,7 +72,7 @@ describe('演示场景数据', () => {
     const opp = deviceLoanScenario.opportunities[0];
     expect(opp.is_sample).toBe(true);
     expect(opp.id).toBe('placeholder-inperson-event');
-    expect(opp.title).toContain('占位');
+    expect(opp.title).toContain('Placeholder');
     expect(opp.official_url).toContain('example.com');
   });
 
@@ -153,7 +153,7 @@ describe('只启用设备借用', () => {
     expect(r.alternative).toBeTruthy();
     const alt = r.alternative!;
     expect(alt.relaxed).toEqual(['required_intervention_ids']);
-    expect(alt.note).toContain('放松');
+    expect(alt.note).toContain('relaxes');
     expect(alt.note).toContain('$100');
     // 硬约束没有放松：替代方案成本 ≤ 预算，且通过只带硬约束的独立复核。
     expect(alt.cost.total_usd).toBeLessThanOrEqual(80);
@@ -193,13 +193,16 @@ describe('pending 措施与条件性结果', () => {
     expect(r.allocations.some((a) => a.intervention_id === SATELLITE)).toBe(false);
     expect(r.G).toBe(5);
     expect(r.cost.total_usd).toBe(200);
+    expect(r.notes).toContain(
+      '1 support measure is pending approval and is not counted in the main result; see conditional for the outcome if approved (not in effect yet).',
+    );
 
     const c = r.conditional!;
     expect(c).toBeTruthy();
     expect(c.status).toBe('OPTIMAL');
     expect(c.assumed_approved_intervention_ids).toEqual([SATELLITE]);
-    expect(c.note).toContain('如果');
-    expect(c.note).toContain('尚未生效');
+    expect(c.note).toContain('If these measures are approved');
+    expect(c.note).toContain('Not in effect yet');
     // 手算：设备借用给 5 名交通可靠的学生（$100 + 5 × $20）+ 卫星会场给 3 名缺交通的学生（$60 + 3 × $10）= $290，G = 8。
     expect(c.G).toBe(8);
     expect(c.cost).toEqual({ fixed_usd: 160, marginal_usd: 130, total_usd: 290 });
@@ -219,7 +222,7 @@ describe('pending 措施与条件性结果', () => {
     expect(r.status).toBe('INFEASIBLE');
     expect(r.selected_intervention_ids).toEqual([]);
     expect(r.alternative?.relaxed).toEqual(['required_intervention_ids']);
-    expect(r.alternative?.note).toContain('待审批');
+    expect(r.alternative?.note).toContain('pending approval');
     expect(r.alternative?.G).toBe(5);
     // 获批后：设备借用 5 人 $200 + 卫星会场固定 $60（笔记本名额已用完，缺交通的学生仍缺笔记本，无人可分）= $260。
     expect(r.conditional?.status).toBe('OPTIMAL');
@@ -275,7 +278,7 @@ describe('互斥与前置依赖', () => {
     const both = solveJoint(s, { required_intervention_ids: [ONLINE, SATELLITE] });
     expect(both.status).toBe('INFEASIBLE');
     expect(both.alternative?.relaxed).toEqual(['required_intervention_ids']);
-    expect(both.alternative?.note).toContain('互斥');
+    expect(both.alternative?.note).toContain('mutually exclusive');
     expect(both.alternative?.selected_intervention_ids).toEqual([SATELLITE]);
     expect(both.alternative?.selected_intervention_ids.includes(ONLINE)).toBe(false);
   });
@@ -325,7 +328,7 @@ describe('existing_grants 占容量、免成本', () => {
       students: [t],
       opportunities: [base],
       interventions: [
-        { id: 'loan', title: '示例借用', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 100, fixed_cost_usd: 0, capacity: 1 },
+        { id: 'loan', title: 'Sample loan', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 100, fixed_cost_usd: 0, capacity: 1 },
       ],
       existing_grants: [{ ...laptopGrant('t'), id: 'pending-t', intervention_id: 'loan', status: 'pending' }],
       opportunity_time_slots: undefined,
@@ -349,7 +352,7 @@ describe('容量口径：per_time_slot 与 total', () => {
     const mk = (id: string, min: number, max: number): Opportunity => ({
       ...clone(base),
       id,
-      title: `【示例 / 占位】线下工作坊 ${id}`,
+      title: `[Sample / Placeholder] In-person workshop ${id}`,
       requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min, max } : r)),
     });
     const s = withEnabledInterventions(
@@ -385,7 +388,7 @@ describe('容量口径：per_time_slot 与 total', () => {
     const s = withInterventionPatch(
       laptopOnly({
         ...deviceLoanScenario,
-        opportunities: [base, { ...clone(base), id: 'opp-twin', title: '【示例 / 占位】同日另一场' }],
+        opportunities: [base, { ...clone(base), id: 'opp-twin', title: '[Sample / Placeholder] Another session the same day' }],
         opportunity_time_slots: { [OPP]: 'day', 'opp-twin': 'day' },
       }),
       LAPTOP,
@@ -434,41 +437,41 @@ describe('全场景（全部措施）', () => {
 describe('UNSUPPORTED_INPUT', () => {
   const S = deviceLoanScenario;
   const cases: [string, Scenario, Parameters<typeof solveJoint>[1]][] = [
-    ['预算为负', withBudget(S, -1), {}],
-    ['预算非有限数', withBudget(S, Number.NaN), {}],
-    ['tradeoff 缺 loss_cap', S, { mode: 'tradeoff' }],
-    ['loss_cap 为负', S, { mode: 'tradeoff', loss_cap: -1 }],
-    ['min_gain 非有限数', S, { min_gain: Number.POSITIVE_INFINITY }],
-    ['max_search_nodes 为 0', S, { max_search_nodes: 0 }],
-    ['max_search_nodes 非整数', S, { max_search_nodes: 1.5 }],
-    ['学生 id 重复', { ...S, students: [...S.students, S.students[0]] }, {}],
-    ['机会 id 重复', { ...S, opportunities: [...S.opportunities, S.opportunities[0]] }, {}],
-    ['措施 id 重复', { ...S, interventions: [...S.interventions, S.interventions[0]] }, {}],
-    ['required 引用不存在的措施', S, { required_intervention_ids: ['nope'] }],
-    ['requires 引用自己', withInterventionPatch(S, LAPTOP, { requires: [LAPTOP] }), {}],
-    ['requires 引用不存在的措施', withInterventionPatch(S, LAPTOP, { requires: ['nope'] }), {}],
-    ['互斥引用不存在的措施', withInterventionPatch(S, LAPTOP, { mutually_exclusive_with: ['nope'] }), {}],
-    ['互斥引用自己', withInterventionPatch(S, LAPTOP, { mutually_exclusive_with: [LAPTOP] }), {}],
-    ['opportunity_ids 引用不存在的机会', withInterventionPatch(S, LAPTOP, { opportunity_ids: ['nope'] }), {}],
-    ['时段键引用不存在的机会', { ...S, opportunity_time_slots: { nope: 'x' } }, {}],
-    ['容量为负', withInterventionPatch(S, LAPTOP, { capacity: -1 }), {}],
-    ['人均成本非有限数', withInterventionPatch(S, LAPTOP, { unit_cost_usd: Number.NaN }), {}],
-    ['固定成本为负', withInterventionPatch(S, LAPTOP, { fixed_cost_usd: -5 }), {}],
-    ['评估日期不合法', { ...S, evaluation_date: '2026-02-30' }, {}],
-    ['评估日期格式不对', { ...S, evaluation_date: '2026/11/17' }, {}],
-    ['评估日期前后有空格', { ...S, evaluation_date: ' 2026-11-17' }, {}],
-    ['评估日期末尾有空格', { ...S, evaluation_date: '2026-11-17 ' }, {}],
-    ['时段标签不是字符串', { ...S, opportunity_time_slots: { [OPP]: 1 as unknown as string } }, {}],
-    ['时段标签为空字符串', { ...S, opportunity_time_slots: { [OPP]: '' } }, {}],
-    ['opportunity_time_slots 不是对象', { ...S, opportunity_time_slots: 'x' as unknown as Record<string, string> }, {}],
-    ['措施 amount_usd 为负', withInterventionPatch(S, SUBSIDY, { amount_usd: -25 }), {}],
-    ['措施 hours_per_week 非有限数', withInterventionPatch(S, LAPTOP, { hours_per_week: Number.POSITIVE_INFINITY }), {}],
-    ['已有 grant 的 hours_per_week 为负', { ...S, existing_grants: [{ ...laptopGrant('dl-s01'), type: 'time_support', hours_per_week: -3 }] }, {}],
-    ['已有 grant 的 amount_usd 非有限数', { ...S, existing_grants: [{ ...laptopGrant('dl-s01'), amount_usd: Number.NaN }] }, {}],
-    ['mode 不是 protect / tradeoff', S, { mode: 'aggressive' as 'protect' }],
-    ['students 不是数组', { ...S, students: null as unknown as Scenario['students'] }, {}],
+    ['negative budget', withBudget(S, -1), {}],
+    ['budget not finite', withBudget(S, Number.NaN), {}],
+    ['tradeoff without loss_cap', S, { mode: 'tradeoff' }],
+    ['negative loss_cap', S, { mode: 'tradeoff', loss_cap: -1 }],
+    ['min_gain not finite', S, { min_gain: Number.POSITIVE_INFINITY }],
+    ['max_search_nodes is 0', S, { max_search_nodes: 0 }],
+    ['max_search_nodes not an integer', S, { max_search_nodes: 1.5 }],
+    ['duplicate student id', { ...S, students: [...S.students, S.students[0]] }, {}],
+    ['duplicate opportunity id', { ...S, opportunities: [...S.opportunities, S.opportunities[0]] }, {}],
+    ['duplicate support measure id', { ...S, interventions: [...S.interventions, S.interventions[0]] }, {}],
+    ['required references a missing measure', S, { required_intervention_ids: ['nope'] }],
+    ['requires references itself', withInterventionPatch(S, LAPTOP, { requires: [LAPTOP] }), {}],
+    ['requires references a missing measure', withInterventionPatch(S, LAPTOP, { requires: ['nope'] }), {}],
+    ['mutual exclusion references a missing measure', withInterventionPatch(S, LAPTOP, { mutually_exclusive_with: ['nope'] }), {}],
+    ['mutual exclusion references itself', withInterventionPatch(S, LAPTOP, { mutually_exclusive_with: [LAPTOP] }), {}],
+    ['opportunity_ids references a missing opportunity', withInterventionPatch(S, LAPTOP, { opportunity_ids: ['nope'] }), {}],
+    ['time slot key references a missing opportunity', { ...S, opportunity_time_slots: { nope: 'x' } }, {}],
+    ['negative capacity', withInterventionPatch(S, LAPTOP, { capacity: -1 }), {}],
+    ['unit cost not finite', withInterventionPatch(S, LAPTOP, { unit_cost_usd: Number.NaN }), {}],
+    ['negative fixed cost', withInterventionPatch(S, LAPTOP, { fixed_cost_usd: -5 }), {}],
+    ['invalid evaluation date', { ...S, evaluation_date: '2026-02-30' }, {}],
+    ['wrong evaluation date format', { ...S, evaluation_date: '2026/11/17' }, {}],
+    ['evaluation date with leading space', { ...S, evaluation_date: ' 2026-11-17' }, {}],
+    ['evaluation date with trailing space', { ...S, evaluation_date: '2026-11-17 ' }, {}],
+    ['time slot label not a string', { ...S, opportunity_time_slots: { [OPP]: 1 as unknown as string } }, {}],
+    ['time slot label is an empty string', { ...S, opportunity_time_slots: { [OPP]: '' } }, {}],
+    ['opportunity_time_slots is not an object', { ...S, opportunity_time_slots: 'x' as unknown as Record<string, string> }, {}],
+    ['measure amount_usd negative', withInterventionPatch(S, SUBSIDY, { amount_usd: -25 }), {}],
+    ['measure hours_per_week not finite', withInterventionPatch(S, LAPTOP, { hours_per_week: Number.POSITIVE_INFINITY }), {}],
+    ['existing grant hours_per_week negative', { ...S, existing_grants: [{ ...laptopGrant('dl-s01'), type: 'time_support', hours_per_week: -3 }] }, {}],
+    ['existing grant amount_usd not finite', { ...S, existing_grants: [{ ...laptopGrant('dl-s01'), amount_usd: Number.NaN }] }, {}],
+    ['mode is not protect / tradeoff', S, { mode: 'aggressive' as 'protect' }],
+    ['students is not an array', { ...S, students: null as unknown as Scenario['students'] }, {}],
     [
-      '只算 existing grant 就超容量',
+      'existing grants alone exceed capacity',
       {
         ...S,
         existing_grants: S.students.slice(0, 6).map((s) => ({ ...laptopGrant(s.id), id: `g-${s.id}`, intervention_id: LAPTOP })),
@@ -515,14 +518,14 @@ describe('搜索上限', () => {
     for (const n of [1, 10, 50, 100, 500, 2000]) {
       const r = solveJoint(deviceLoanScenario, { max_search_nodes: n });
       expect(r.status).toBe('SEARCH_LIMIT_REACHED');
-      expect(r.notes.join('')).toContain('未证明最优');
+      expect(r.notes.join('')).toContain('optimality is not proven');
       expect(r.verification).toBeTruthy();
       if (r.selected_intervention_ids.length > 0 || r.allocations.length > 0) {
         expect(r.verification!.passed).toBe(true);
       } else {
         expect(r.cost.total_usd).toBe(0);
         expect(r.R1).toEqual(r.R0);
-        expect(r.notes.join('')).toContain('占位方案');
+        expect(r.notes.join('')).toContain('placeholder plan');
       }
       expect(r.cost.total_usd).toBeLessThanOrEqual(deviceLoanScenario.budget_usd);
     }
@@ -560,7 +563,7 @@ describe('确定性与纯函数', () => {
   it('公平性：只改学校名和显示名，结果不变', () => {
     const renamed: Scenario = {
       ...deviceLoanScenario,
-      students: deviceLoanScenario.students.map((s, k) => ({ ...s, school_name: `Other School ${9 - k}（虚构）`, display_name: `X${k}` })),
+      students: deviceLoanScenario.students.map((s, k) => ({ ...s, school_name: `Other School ${9 - k} (fictional)`, display_name: `X${k}` })),
     };
     const a = solveJoint(deviceLoanScenario);
     const b = solveJoint(renamed);
@@ -591,7 +594,7 @@ describe('scenarios 辅助函数', () => {
   it('withEnabledInterventions：依赖链按闭包移除（c 需要 b，b 需要 a，只勾 b、c → 都移除）', () => {
     const mk = (id: string, requires?: string[]): Intervention => ({
       id,
-      title: `示例措施 ${id}`,
+      title: `Sample support measure ${id}`,
       type: 'device',
       resolves: ['device'],
       device: 'laptop',
@@ -621,11 +624,11 @@ describe('scenarios 辅助函数', () => {
 describe('第 1 层评审修复', () => {
   it('M1(a) 复现：时段标签不是字符串 → UNSUPPORTED_INPUT（不再给出复核不通过的 OPTIMAL）', () => {
     const base = deviceLoanScenario.opportunities[0];
-    const o1: Opportunity = { ...clone(base), id: 'o1', title: '【示例 / 占位】o1', requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min: 9, max: 10 } : r)) };
-    const o2: Opportunity = { ...clone(base), id: 'o2', title: '【示例 / 占位】o2', requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min: 11, max: 12 } : r)) };
+    const o1: Opportunity = { ...clone(base), id: 'o1', title: '[Sample / Placeholder] o1', requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min: 9, max: 10 } : r)) };
+    const o2: Opportunity = { ...clone(base), id: 'o2', title: '[Sample / Placeholder] o2', requirements: base.requirements.map((r) => (r.type === 'grade' ? { ...r, min: 11, max: 12 } : r)) };
     const a = { ...clone(deviceLoanScenario.students[0]), id: 'a', grade: 10 };
     const b = { ...clone(deviceLoanScenario.students[0]), id: 'b', grade: 11 };
-    const loan: Intervention = { id: 'loan', title: '示例借用', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, capacity: 1, capacity_scope: 'per_time_slot' };
+    const loan: Intervention = { id: 'loan', title: 'Sample loan', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, capacity: 1, capacity_scope: 'per_time_slot' };
     const sc: Scenario = {
       ...deviceLoanScenario,
       students: [a, b],
@@ -635,7 +638,7 @@ describe('第 1 层评审修复', () => {
     };
     const r = solveJoint(sc);
     expect(r.status).toBe('UNSUPPORTED_INPUT');
-    expect(r.notes.join('')).toContain('时段标签');
+    expect(r.notes.join('')).toContain('time slot label');
     expect(verifyPlan(sc, { selected_intervention_ids: [], allocations: [] }).checks.find((c) => c.name === 'input_validity')?.passed).toBe(false);
     // 标签改成合法字符串后：两个时段各 1 个名额 → G = 2，OPTIMAL 且复核通过。
     const ok = solveJoint({ ...sc, opportunity_time_slots: { o1: 'AM', o2: 'PM' } });
@@ -660,7 +663,7 @@ describe('第 1 层评审修复', () => {
 
   it('S4 复现：免费且无作用的 time_support 不会被选中（选中措施数更少者优先）', () => {
     const base = deviceLoanScenario.opportunities[0];
-    const online: Opportunity = { ...clone(base), id: 'o-online', title: '【示例 / 占位】线上', location: { format: 'online' } };
+    const online: Opportunity = { ...clone(base), id: 'o-online', title: '[Sample / Placeholder] Online', location: { format: 'online' } };
     const stu = { ...clone(deviceLoanScenario.students[0]), id: 'x' };
     const sc: Scenario = {
       ...deviceLoanScenario,
@@ -668,8 +671,8 @@ describe('第 1 层评审修复', () => {
       opportunities: [online],
       opportunity_time_slots: undefined,
       interventions: [
-        { id: 'a', title: '示例时间支持', type: 'time_support', resolves: ['time'], hours_per_week: 0, unit_cost_usd: 0, fixed_cost_usd: 0, capacity: null },
-        { id: 'b', title: '示例笔记本借用', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, fixed_cost_usd: 0, capacity: null },
+        { id: 'a', title: 'Sample time support', type: 'time_support', resolves: ['time'], hours_per_week: 0, unit_cost_usd: 0, fixed_cost_usd: 0, capacity: null },
+        { id: 'b', title: 'Sample laptop loan', type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, fixed_cost_usd: 0, capacity: null },
       ],
     };
     const r = solveJoint(sc);
@@ -692,10 +695,10 @@ describe('第 1 层评审修复', () => {
 
   it('notes 写明名额并列按学生编号（模拟、不代表谁更需要）；conditional 不说「已生效」', () => {
     const r = solveJoint(deviceLoanScenario);
-    expect(r.notes.join('')).toContain('名额并列时按学生编号顺序分配（模拟），不代表谁更需要');
-    expect(r.conditional?.note).toContain('主结果（仅含已批准措施）');
-    expect(r.conditional?.note).not.toContain('当前已生效');
+    expect(r.notes.join('')).toContain('When capacity is tied, slots go in student id order (simulated). This does not represent who needs help more');
+    expect(r.conditional?.note).toContain('main result, which has approved measures only');
+    expect(r.conditional?.note).not.toMatch(/(currently|already|now) in effect/i);
     const req = solveJoint(deviceLoanScenario, { required_intervention_ids: [SATELLITE] });
-    expect(req.alternative?.note).not.toContain('已生效');
+    expect(req.alternative?.note).not.toMatch(/(currently|already|now) in effect/i);
   });
 });

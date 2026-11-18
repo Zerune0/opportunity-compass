@@ -43,25 +43,25 @@ import type {
 import { compareYMD, parseISODate, wholeYearsBetween } from './dates';
 
 const SKILL_RANK: Record<SkillLevel, number> = { beginner: 1, intermediate: 2, advanced: 3 };
-const SKILL_LEVEL_ZH: Record<SkillLevel, string> = { beginner: '入门', intermediate: '中级', advanced: '高级' };
+const SKILL_LEVEL_ZH: Record<SkillLevel, string> = { beginner: 'beginner', intermediate: 'intermediate', advanced: 'advanced' };
 
 export const EVIDENCE_STATUS_ZH: Record<EvidenceStatus, string> = {
-  self_reported: '自述',
-  evidence_attached: '已附链接 / 文件',
-  reviewed: '已有人审阅',
-  unverified: '无法核实',
+  self_reported: 'self-reported',
+  evidence_attached: 'link / file attached',
+  reviewed: 'reviewed by someone',
+  unverified: 'cannot be verified',
 };
 
 export const EVIDENCE_KIND_ZH: Record<EvidenceKind, string> = {
-  project: '项目',
-  portfolio: '作品集',
-  certificate: '证书',
-  competition_result: '比赛成绩',
-  work_experience: '工作经历',
-  volunteer_experience: '志愿经历',
-  course: '课程',
-  recommendation_letter: '推荐信',
-  other: '其他',
+  project: 'project',
+  portfolio: 'portfolio',
+  certificate: 'certificate',
+  competition_result: 'competition result',
+  work_experience: 'work experience',
+  volunteer_experience: 'volunteer experience',
+  course: 'course',
+  recommendation_letter: 'recommendation letter',
+  other: 'other',
 };
 
 interface Judgement {
@@ -74,9 +74,9 @@ interface Judgement {
 
 function rangeText(min: number | undefined, max: number | undefined, unit: string): string {
   if (min != null && max != null) return `${min}–${max} ${unit}`;
-  if (min != null) return `至少 ${min} ${unit}`;
-  if (max != null) return `不超过 ${max} ${unit}`;
-  return '不限';
+  if (min != null) return `at least ${min} ${unit}`;
+  if (max != null) return `at most ${max} ${unit}`;
+  return 'any';
 }
 
 function inRange(v: number, min: number | undefined, max: number | undefined): boolean {
@@ -88,7 +88,7 @@ function sameCode(a: string, b: string): boolean {
 }
 
 function fillProfileHint(fieldZh: string, source: string): string {
-  return `请先在档案里补充「${fieldZh}」；如果仍不确定，请对照官网原文「${source}」向官方确认。`;
+  return `Add your ${fieldZh} to your profile first. Still unsure? Confirm with the organizer using the official text: "${source}".`;
 }
 
 function evidenceHasSkill(e: EvidenceItem, skill: string): boolean {
@@ -96,19 +96,19 @@ function evidenceHasSkill(e: EvidenceItem, skill: string): boolean {
 }
 
 function judgeGrade(req: Extract<Requirement, { type: 'grade' }>, profile: StudentProfile): Judgement {
-  const range = rangeText(req.min, req.max, '年级');
+  const range = rangeText(req.min, req.max, '').trim();
   if (profile.grade == null) {
     return {
       status: 'unknown',
-      explanation: `这条要求年级为 ${range}，但档案里还没有填写年级，无法判断。`,
+      explanation: `This requires grade ${range}, but your profile has no grade yet, so we can't tell.`,
       used_profile_fields: ['grade'],
-      confirm: fillProfileHint('年级', req.source_text),
+      confirm: fillProfileHint('grade', req.source_text),
     };
   }
   const ok = inRange(profile.grade, req.min, req.max);
   return {
     status: ok ? 'satisfied' : 'not_satisfied',
-    explanation: `档案中的年级是 ${profile.grade}，要求为 ${range}，${ok ? '符合' : '不符合'}。`,
+    explanation: `Your profile says grade ${profile.grade}; required: grade ${range}. ${ok ? 'Meets it.' : 'Does not meet it.'}`,
     used_profile_fields: ['grade'],
   };
 }
@@ -119,52 +119,52 @@ function judgeAge(
   opp: Opportunity,
   options: EvalOptions | undefined,
 ): Judgement {
-  const range = rangeText(req.min, req.max, '岁');
+  const range = rangeText(req.min, req.max, 'years');
   const fields = ['age'];
   const age = profile.age;
   if (age == null) {
     return {
       status: 'unknown',
-      explanation: `这条要求年龄为 ${range}，但档案里还没有填写年龄，无法判断。`,
+      explanation: `This requires age ${range}, but your profile has no age yet, so we can't tell.`,
       used_profile_fields: fields,
-      confirm: fillProfileHint('年龄', req.source_text),
+      confirm: fillProfileHint('age', req.source_text),
     };
   }
 
   const refRaw = req.as_of ?? opp.deadline ?? null;
-  const refWhich = req.as_of != null ? '官方规定的计算日' : '截止日期';
+  const refWhich = req.as_of != null ? 'the official reference date' : 'the deadline';
   const judgeCurrent = (prefix: string): Judgement => {
     const ok = inRange(age, req.min, req.max);
     return {
       status: ok ? 'satisfied' : 'not_satisfied',
-      explanation: `${prefix}档案中的年龄是 ${age} 岁，要求为 ${range}，${ok ? '符合' : '不符合'}。`,
+      explanation: `${prefix}your profile says you are ${age}; required: ${range}. ${ok ? 'Meets it.' : 'Does not meet it.'}`,
       used_profile_fields: fields,
     };
   };
 
-  if (refRaw == null) return judgeCurrent('官方没有写按哪一天计算年龄，按你现在的年龄判断：');
+  if (refRaw == null) return judgeCurrent('The organizer does not say which date age is counted on, so we use your current age: ');
 
   const ref = parseISODate(refRaw);
   if (ref == null) {
     return {
       status: 'unknown',
-      explanation: `年龄要按${refWhich}（${refRaw}）计算，但这个日期格式无法识别，无法判断。`,
+      explanation: `Age is counted on ${refWhich} (${refRaw}), but that date format can't be read, so we can't tell.`,
       used_profile_fields: fields,
-      confirm: `请对照官网原文「${req.source_text}」向官方确认按哪一天计算年龄。`,
+      confirm: `Confirm with the organizer which date age is counted on, using the official text: "${req.source_text}".`,
     };
   }
   const today = parseISODate(options?.today);
   if (today == null) {
     return {
       status: 'unknown',
-      explanation: `年龄要按${refWhich}（${refRaw}）当天计算，但没有提供今天的日期，无法推算那天你几岁。`,
+      explanation: `Age is counted on ${refWhich} (${refRaw}), but today's date was not provided, so we can't work out your age on that day.`,
       used_profile_fields: fields,
-      confirm: `这一条依赖日期计算；请对照官网原文「${req.source_text}」向官方确认你在 ${refRaw} 是否符合年龄要求。`,
+      confirm: `This depends on a date calculation. Confirm with the organizer whether you meet the age rule on ${refRaw}, using the official text: "${req.source_text}".`,
     };
   }
   const cmp = compareYMD(ref, today);
   if (cmp === 0) {
-    return judgeCurrent(`年龄按${refWhich}（${refRaw}）计算，该日就是今天，`);
+    return judgeCurrent(`Age is counted on ${refWhich} (${refRaw}), which is today: `);
   }
 
   let candidates: number[];
@@ -177,29 +177,29 @@ function judgeAge(
     const { years, exact } = wholeYearsBetween(today, ref);
     candidates = exact ? [age + years] : [age + years, age + years + 1];
   }
-  const verbWill = cmp < 0 ? '是' : '将是';
+  const verbWill = cmp < 0 ? 'were' : 'will be';
   const oks = candidates.map((a) => inRange(a, req.min, req.max));
-  const candText = candidates.map((a) => `${a} 岁`).join('或');
+  const candText = candidates.map((a) => `${a}`).join(' or ');
   if (oks.every(Boolean)) {
     return {
       status: 'satisfied',
-      explanation: `年龄按${refWhich}（${refRaw}）计算：你那天${verbWill} ${candText}，要求为 ${range}，符合。`,
+      explanation: `Age is counted on ${refWhich} (${refRaw}): on that day you ${verbWill} ${candText} years old; required: ${range}. Meets it.`,
       used_profile_fields: fields,
     };
   }
   if (oks.every((o) => !o)) {
     return {
       status: 'not_satisfied',
-      explanation: `年龄按${refWhich}（${refRaw}）计算：你那天${verbWill} ${candText}，要求为 ${range}，不符合。`,
+      explanation: `Age is counted on ${refWhich} (${refRaw}): on that day you ${verbWill} ${candText} years old; required: ${range}. Does not meet it.`,
       used_profile_fields: fields,
     };
   }
-  const birthdayHint = cmp < 0 ? '取决于你的生日在那天之前还是之后' : '取决于你的生日是否在这之前';
+  const birthdayHint = cmp < 0 ? 'depending on whether your birthday falls before or after that day' : 'depending on whether your birthday comes before then';
   return {
     status: 'unknown',
-    explanation: `年龄按${refWhich}（${refRaw}）计算：你那天可能是 ${candText}，${birthdayHint}，要求为 ${range}，所以无法确定。`,
+    explanation: `Age is counted on ${refWhich} (${refRaw}): on that day you may be ${candText} years old, ${birthdayHint}; required: ${range}, so we can't be sure.`,
     used_profile_fields: fields,
-    confirm: `结果取决于你的生日；请对照官网原文「${req.source_text}」向官方确认按哪一天计算年龄、你是否符合。`,
+    confirm: `The result depends on your birthday. Confirm with the organizer which date age is counted on and whether you qualify, using the official text: "${req.source_text}".`,
   };
 }
 
@@ -209,16 +209,16 @@ function judgeRegion(req: Extract<Requirement, { type: 'region' }>, profile: Stu
   if (region == null || !region.country || region.country.trim() === '') {
     return {
       status: 'unknown',
-      explanation: `这条要求所在地为 ${countries}，但档案里还没有填写所在地区，无法判断。`,
+      explanation: `This requires living in ${countries}, but your profile has no location yet, so we can't tell.`,
       used_profile_fields: ['region'],
-      confirm: fillProfileHint('所在国家 / 地区', req.source_text),
+      confirm: fillProfileHint('country / region', req.source_text),
     };
   }
   const countryOk = req.countries.some((c) => sameCode(c, region.country));
   if (!countryOk) {
     return {
       status: 'not_satisfied',
-      explanation: `档案中的所在国家是 ${region.country}，要求为 ${countries}，不符合。`,
+      explanation: `Your profile says your country is ${region.country}; required: ${countries}. Does not meet it.`,
       used_profile_fields: ['region'],
     };
   }
@@ -226,7 +226,7 @@ function judgeRegion(req: Extract<Requirement, { type: 'region' }>, profile: Stu
   if (states.length === 0) {
     return {
       status: 'satisfied',
-      explanation: `档案中的所在国家是 ${region.country}，在要求范围（${countries}）内，符合。`,
+      explanation: `Your profile says your country is ${region.country}, which is in the required list (${countries}). Meets it.`,
       used_profile_fields: ['region'],
     };
   }
@@ -234,15 +234,15 @@ function judgeRegion(req: Extract<Requirement, { type: 'region' }>, profile: Stu
   if (state == null || state.trim() === '') {
     return {
       status: 'unknown',
-      explanation: `国家符合，但这条还要求州 / 省为 ${states.join(' / ')}，档案里没有填写州 / 省，无法判断。`,
+      explanation: `Your country matches, but this also requires state / province ${states.join(' / ')}, and your profile has no state / province, so we can't tell.`,
       used_profile_fields: ['region', 'region.state'],
-      confirm: fillProfileHint('所在州 / 省', req.source_text),
+      confirm: fillProfileHint('state / province', req.source_text),
     };
   }
   const stateOk = states.some((s) => sameCode(s, state));
   return {
     status: stateOk ? 'satisfied' : 'not_satisfied',
-    explanation: `档案中的所在地是 ${region.country} ${state}，要求州 / 省为 ${states.join(' / ')}，${stateOk ? '符合' : '不符合'}。`,
+    explanation: `Your profile says your location is ${region.country} ${state}; required state / province: ${states.join(' / ')}. ${stateOk ? 'Meets it.' : 'Does not meet it.'}`,
     used_profile_fields: ['region', 'region.state'],
   };
 }
@@ -253,16 +253,16 @@ function judgeCitizenship(req: Extract<Requirement, { type: 'citizenship' }>, pr
   if (cs == null) {
     return {
       status: 'unknown',
-      explanation: `这条要求是 ${countries} 的公民或合法居民，但档案里还没有填写国籍 / 居留身份，无法判断。`,
+      explanation: `This requires being a citizen or legal resident of ${countries}, but your profile has no citizenship / residency yet, so we can't tell.`,
       used_profile_fields: ['citizenships'],
-      confirm: fillProfileHint('国籍 / 合法居留身份', req.source_text),
+      confirm: fillProfileHint('citizenship / legal residency', req.source_text),
     };
   }
   const ok = cs.some((c) => req.countries.some((r) => sameCode(r, c)));
-  const mine = cs.length > 0 ? cs.join(' / ') : '（声明为无）';
+  const mine = cs.length > 0 ? cs.join(' / ') : '(none declared)';
   return {
     status: ok ? 'satisfied' : 'not_satisfied',
-    explanation: `档案中的国籍 / 居留身份是 ${mine}，要求为 ${countries}，${ok ? '符合' : '不符合'}。`,
+    explanation: `Your profile says your citizenship / residency is ${mine}; required: ${countries}. ${ok ? 'Meets it.' : 'Does not meet it.'}`,
     used_profile_fields: ['citizenships'],
   };
 }
@@ -273,35 +273,35 @@ function judgeStatus(req: Extract<Requirement, { type: 'status' }>, profile: Stu
   if (st == null) {
     return {
       status: 'unknown',
-      explanation: `这条要求身份为以下之一：${anyOf}，但档案里还没有填写身份信息，无法判断。`,
+      explanation: `This requires one of these statuses: ${anyOf}, but your profile has no status yet, so we can't tell.`,
       used_profile_fields: ['statuses'],
-      confirm: fillProfileHint('身份', req.source_text),
+      confirm: fillProfileHint('status', req.source_text),
     };
   }
   const hit = st.filter((s) => req.any_of.includes(s));
   if (hit.length > 0) {
     return {
       status: 'satisfied',
-      explanation: `档案中声明的身份包含 ${hit.join(' / ')}，符合要求（任一即可：${anyOf}）。`,
+      explanation: `Your profile lists ${hit.join(' / ')}, which meets the requirement (any one of: ${anyOf}).`,
       used_profile_fields: ['statuses'],
     };
   }
   return {
     status: 'not_satisfied',
-    explanation: `档案中声明的身份里没有要求的任一身份（${anyOf}）。如果你其实符合，请在档案里补上。`,
+    explanation: `Your profile does not list any of the required statuses (${anyOf}). If one does apply to you, add it to your profile.`,
     used_profile_fields: ['statuses'],
   };
 }
 
 function judgeSkill(req: Extract<Requirement, { type: 'prerequisite_skill' }>, profile: StudentProfile): Judgement {
   const minLevel: SkillLevel = req.min_level ?? 'beginner';
-  const need = `「${req.skill}」${SKILL_LEVEL_ZH[minLevel]}及以上`;
+  const need = `"${req.skill}" at ${SKILL_LEVEL_ZH[minLevel]} level or above`;
   const skills = profile.skills;
   const mine = skills?.find((s) => s.name.trim().toLowerCase() === req.skill.trim().toLowerCase());
   if (mine && SKILL_RANK[mine.level] >= SKILL_RANK[minLevel]) {
     return {
       status: 'satisfied',
-      explanation: `档案中「${req.skill}」自评为${SKILL_LEVEL_ZH[mine.level]}，要求 ${need}，符合。`,
+      explanation: `Your profile rates "${req.skill}" as ${SKILL_LEVEL_ZH[mine.level]}; required: ${need}. Meets it.`,
       used_profile_fields: ['skills'],
     };
   }
@@ -310,7 +310,7 @@ function judgeSkill(req: Extract<Requirement, { type: 'prerequisite_skill' }>, p
     if (ev) {
       return {
         status: 'satisfied',
-        explanation: `档案中的证据《${ev.title}》（${EVIDENCE_STATUS_ZH[ev.status]}）体现了「${req.skill}」，满足入门要求。`,
+        explanation: `Your evidence "${ev.title}" (${EVIDENCE_STATUS_ZH[ev.status]}) shows "${req.skill}", which meets the beginner requirement.`,
         used_profile_fields: ['skills', 'evidence'],
       };
     }
@@ -318,37 +318,37 @@ function judgeSkill(req: Extract<Requirement, { type: 'prerequisite_skill' }>, p
   if (skills == null) {
     return {
       status: 'unknown',
-      explanation: `这条要求 ${need}，但档案里还没有填写技能，也没有相关证据，无法判断。`,
+      explanation: `This requires ${need}, but your profile has no skills or related evidence yet, so we can't tell.`,
       used_profile_fields: ['skills', 'evidence'],
-      confirm: fillProfileHint('技能', req.source_text),
+      confirm: fillProfileHint('skills', req.source_text),
     };
   }
-  const now = mine ? `自评为${SKILL_LEVEL_ZH[mine.level]}` : '没有这项技能';
+  const now = mine ? `is rated ${SKILL_LEVEL_ZH[mine.level]}` : 'is not listed';
   return {
     status: 'not_satisfied',
-    explanation: `这条要求 ${need}，档案中「${req.skill}」${now}。如果你其实会，请在档案里补上。`,
+    explanation: `This requires ${need}; in your profile "${req.skill}" ${now}. If you do have this skill, add it to your profile.`,
     used_profile_fields: ['skills', 'evidence'],
   };
 }
 
 function judgePortfolio(req: Extract<Requirement, { type: 'portfolio' }>, profile: StudentProfile): Judgement {
   const parts: string[] = [];
-  if (req.evidence_kind) parts.push(`「${EVIDENCE_KIND_ZH[req.evidence_kind]}」类`);
-  if (req.skill) parts.push(`体现「${req.skill}」`);
-  const need = parts.length > 0 ? `${parts.join('、')}的作品 / 材料` : '作品 / 材料';
+  if (req.evidence_kind) parts.push(`evidence type: ${EVIDENCE_KIND_ZH[req.evidence_kind]}`);
+  if (req.skill) parts.push(`showing "${req.skill}"`);
+  const need = parts.length > 0 ? `work / materials (${parts.join(', ')})` : 'work / materials';
   const ev = profile.evidence.find(
     (e) => (!req.evidence_kind || e.kind === req.evidence_kind) && (!req.skill || evidenceHasSkill(e, req.skill)),
   );
   if (ev) {
     return {
       status: 'satisfied',
-      explanation: `这条要求${need}；档案中有《${ev.title}》（状态：${EVIDENCE_STATUS_ZH[ev.status]}），符合。注意：附链接不等于专业认证。`,
+      explanation: `This requires ${need}. Your profile has "${ev.title}" (status: ${EVIDENCE_STATUS_ZH[ev.status]}). Meets it. Note: an attached link is not a professional certification.`,
       used_profile_fields: ['evidence'],
     };
   }
   return {
     status: 'not_satisfied',
-    explanation: `这条要求${need}，档案中还没有符合的证据。如果你已有相关作品，请在档案里补上。`,
+    explanation: `This requires ${need}, and your profile has no matching evidence yet. If you already have related work, add it to your profile.`,
     used_profile_fields: ['evidence'],
   };
 }
@@ -372,9 +372,9 @@ function judge(req: Requirement, profile: StudentProfile, opp: Opportunity, opti
     case 'manual':
       return {
         status: 'unknown',
-        explanation: '这一条无法自动判断（例如需要面试、推荐或官方人工审核）。',
+        explanation: "This can't be checked automatically (for example, it needs an interview, a recommendation or a manual review by the organizer).",
         used_profile_fields: [],
-        confirm: `请对照官网原文「${req.source_text}」，自行判断或向官方确认。`,
+        confirm: `Confirm with the organizer (or check it yourself), using the official text: "${req.source_text}".`,
       };
   }
 }
@@ -403,7 +403,7 @@ export function checkEligibility(
       explanation: j.explanation,
       used_profile_fields: j.used_profile_fields,
       confirm_with_official:
-        j.status === 'unknown' ? (j.confirm ?? `请对照官网原文「${req.source_text}」向官方确认。`) : null,
+        j.status === 'unknown' ? (j.confirm ?? `Confirm with the organizer, using the official text: "${req.source_text}".`) : null,
     };
   });
 

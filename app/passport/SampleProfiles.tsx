@@ -13,13 +13,13 @@ const sampleProfiles = (profilesJson as unknown as StudentProfile[]).map((profil
   problems: validateProfile(profile),
 }));
 
-const notProvided = "not provided / 未填写";
+const notProvided = "not provided";
 
 function location(profile: StudentProfile) {
   const region = profile.region;
   if (!region) return notProvided;
   const parts = [region.country, region.state, region.locality].filter(Boolean);
-  return parts.length ? parts.join(" · ") : notProvided;
+  return parts.length ? parts.join(", ") : notProvided;
 }
 
 function devices(profile: StudentProfile) {
@@ -77,7 +77,7 @@ export function SampleProfiles({ profile, onChange }: {
       return;
     }
     onChange(copy);
-    setMessage(`Loaded sample profile / 示例档案: ${copy.display_name}.`);
+    setMessage(`Loaded sample profile: ${copy.display_name}.`);
   }
 
   function clear() {
@@ -112,7 +112,7 @@ export function SampleProfiles({ profile, onChange }: {
 
   const current = profile
     ? profile.is_sample
-      ? `a sample profile / 示例档案 “${profile.display_name}”`
+      ? `a sample profile “${profile.display_name}”`
       : "your own profile"
     : "";
   const originalSample = profile?.is_sample ? sampleProfiles.find(({ profile: sample }) => sample.id === profile.id)?.profile : undefined;
@@ -125,7 +125,7 @@ export function SampleProfiles({ profile, onChange }: {
 
   return (
     <section className="rpg-stack" aria-labelledby="sample-profiles-heading">
-      <h2 id="sample-profiles-heading">Sample profiles / 示例档案</h2>
+      <h2 id="sample-profiles-heading">Sample profiles</h2>
       <p>These are fictional sample students for the demo. Loading one replaces the profile saved in this browser.</p>
       {pending && (
         <QuestCard
@@ -151,7 +151,7 @@ export function SampleProfiles({ profile, onChange }: {
               ? <>This browser has {current} with {evidenceCount(profile.evidence.length)}. {evidenceWarning}This cannot be undone.</>
               : "There is no profile saved in this browser right now."}
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="rpg-row">
             <RpgButton onClick={confirm}>
               {pending.kind === "load" ? (profile ? `Replace with ${pending.profile.display_name}` : `Load ${pending.profile.display_name}`) : "Clear profile"}
             </RpgButton>
@@ -163,7 +163,7 @@ export function SampleProfiles({ profile, onChange }: {
         {sampleProfiles.map(({ profile: sample, problems }) => (
           <QuestCard key={sample.id} className="rpg-stack">
             <h3>{sample.display_name}</h3>
-            <StatusTag tone="warning">Sample / 示例</StatusTag>
+            <p><StatusTag tone="warning">Sample</StatusTag></p>
             <dl>
               <dt>Grade</dt><dd>{sample.grade ?? notProvided}</dd>
               <dt>Location</dt><dd>{location(sample)}</dd>
@@ -174,7 +174,7 @@ export function SampleProfiles({ profile, onChange }: {
             {problems.length > 0 ? (
               <div>
                 <p>This sample profile cannot be loaded:</p>
-                <ul>{problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>
+                <ul className="rpg-list">{problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>
               </div>
             ) : (
               <RpgButton

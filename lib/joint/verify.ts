@@ -57,7 +57,7 @@
 import { analyzeReachability } from '../reachability';
 import { checkEligibility } from '../eligibility';
 import { compareYMD, parseISODate } from '../eligibility/dates';
-import { fmt } from '../format';
+import { fmt, plural, pluralNoun } from '../format';
 import { STUDENT_STATUSES } from '../types';
 import type {
   Allocation,
@@ -125,13 +125,13 @@ function groupKey(i: string, s: string): string {
 }
 
 function q(id: unknown): string {
-  return `「${String(id)}」`;
+  return `"${String(id)}"`;
 }
 
 /** 列表展示：最多列 8 项，其余写「等 n 项」。 */
 function list(items: string[]): string {
-  if (items.length <= 8) return items.join('；');
-  return `${items.slice(0, 8).join('；')}；……等共 ${items.length} 项`;
+  if (items.length <= 8) return items.join('; ');
+  return `${items.slice(0, 8).join('; ')}; ... ${items.length} items in total`;
 }
 
 function money(n: number): string {
@@ -234,7 +234,7 @@ function allSlots(norm: JointNorm): string[] {
 }
 
 function slotName(slot: string): string {
-  return slot === 'D' ? '默认时段' : `时段「${slot.slice(2)}」`;
+  return slot === 'D' ? 'the default time slot' : `time slot "${slot.slice(2)}"`;
 }
 
 /**
@@ -375,30 +375,30 @@ export function createJointEvaluator(scenario: Scenario): JointEvaluator {
 /** 公平底线格式问题（契约第 6 条）；fairness_floors 为 null / undefined 时返回 []。 */
 function fairnessFloorProblems(floors: unknown): string[] {
   if (floors == null) return [];
-  if (!Array.isArray(floors)) return ['fairness_floors 不是数组'];
+  if (!Array.isArray(floors)) return ['fairness_floors is not an array'];
   const problems: string[] = [];
   const seen = new Set<string>();
   floors.forEach((f, k) => {
     const at = `fairness_floors[${k}]`;
     if (!isObj(f)) {
-      problems.push(`${at} 不是对象`);
+      problems.push(`${at} is not an object`);
       return;
     }
-    if (!isStr(f.id) || f.id === '') problems.push(`${at} 的 id 不是非空字符串`);
-    else if (seen.has(f.id)) problems.push(`fairness_floors 的 id ${q(f.id)} 重复`);
+    if (!isStr(f.id) || f.id === '') problems.push(`${at}: id is not a non-empty string`);
+    else if (seen.has(f.id)) problems.push(`fairness_floors id ${q(f.id)} is duplicated`);
     else seen.add(f.id);
     for (const field of ['label', 'basis'] as const) {
       const v = f[field];
-      if (!isStr(v) || v.trim() === '') problems.push(`${at} 的 ${field} 不是非空字符串（trim 后为空或不是字符串）`);
+      if (!isStr(v) || v.trim() === '') problems.push(`${at}: ${field} is not a non-empty string (empty after trim, or not a string)`);
     }
     const any = f.statuses_any_of;
-    if (!Array.isArray(any) || any.length === 0) problems.push(`${at} 的 statuses_any_of 不是非空数组`);
+    if (!Array.isArray(any) || any.length === 0) problems.push(`${at}: statuses_any_of is not a non-empty array`);
     else {
       const bad = any.filter((x) => !(STUDENT_STATUSES as readonly unknown[]).includes(x));
-      if (bad.length > 0) problems.push(`${at} 的 statuses_any_of 含不合法的取值：${bad.map(q).join('、')}`);
+      if (bad.length > 0) problems.push(`${at}: statuses_any_of has invalid values: ${bad.map(q).join(', ')}`);
     }
     if (!isFiniteNum(f.min_ratio) || f.min_ratio < 0 || f.min_ratio > 1) {
-      problems.push(`${at} 的 min_ratio 不是 0–1 的有限数（${String(f.min_ratio)}）`);
+      problems.push(`${at}: min_ratio is not a finite number from 0 to 1 (${String(f.min_ratio)})`);
     }
   });
   return problems;
@@ -407,46 +407,46 @@ function fairnessFloorProblems(floors: unknown): string[] {
 function inputValidity(scenario: Scenario, norm: JointNorm, options: VerifyOptions): VerifyCheck {
   const problems: string[] = [];
   const sc: Record<string, unknown> = isObj(scenario) ? (scenario as unknown as Record<string, unknown>) : {};
-  if (!isObj(scenario)) problems.push('scenario 不是对象');
-  if (!Array.isArray(sc.students)) problems.push('students 不是数组');
-  if (!Array.isArray(sc.opportunities)) problems.push('opportunities 不是数组');
-  if (!Array.isArray(sc.interventions)) problems.push('interventions 不是数组');
-  if (sc.existing_grants != null && !Array.isArray(sc.existing_grants)) problems.push('existing_grants 不是数组');
+  if (!isObj(scenario)) problems.push('scenario is not an object');
+  if (!Array.isArray(sc.students)) problems.push('students is not an array');
+  if (!Array.isArray(sc.opportunities)) problems.push('opportunities is not an array');
+  if (!Array.isArray(sc.interventions)) problems.push('interventions is not an array');
+  if (sc.existing_grants != null && !Array.isArray(sc.existing_grants)) problems.push('existing_grants is not an array');
   else {
     const badGrants = arr(sc.existing_grants).filter((g) => !isObj(g)).length;
-    if (badGrants > 0) problems.push(`existing_grants 中有 ${badGrants} 个条目不是对象`);
+    if (badGrants > 0) problems.push(`existing_grants has ${plural(badGrants, 'entry', 'entries')} that ${pluralNoun(badGrants, 'is', 'are')} not ${pluralNoun(badGrants, 'an object', 'objects')}`);
   }
   // existing grant 的 id：字符串且唯一（方案按 id 撤回）。
   {
     const ids = norm.existing.map((g) => g.id);
     const nonStr = ids.filter((id) => !isStr(id)).length;
-    if (nonStr > 0) problems.push(`existing_grants 中有 ${nonStr} 条 grant 的 id 不是字符串`);
+    if (nonStr > 0) problems.push(`existing_grants has ${plural(nonStr, 'grant')} whose id is not a string`);
     const strIds = ids.filter(isStr);
     const dup = [...new Set(strIds.filter((id, k) => strIds.indexOf(id) !== k))];
-    if (dup.length > 0) problems.push(`existing_grants 的 id 重复：${dup.map(q).join('、')}`);
+    if (dup.length > 0) problems.push(`Duplicate existing_grants ids: ${dup.map(q).join(', ')}`);
   }
   const slotsRaw = sc.opportunity_time_slots;
   if (slotsRaw != null && (!isObj(slotsRaw) || Array.isArray(slotsRaw))) {
-    problems.push('opportunity_time_slots 不是对象（机会 id → 时段标签）');
+    problems.push('opportunity_time_slots is not an object (opportunity id → time slot label)');
   }
 
-  if (!isNonNegFinite(sc.budget_usd)) problems.push(`budget_usd 为负或不是有限数（${String(sc.budget_usd)}）`);
+  if (!isNonNegFinite(sc.budget_usd)) problems.push(`budget_usd is negative or not a finite number (${String(sc.budget_usd)})`);
   // 严格 YYYY-MM-DD（前后不得有空格），且是合法日期。
   const ed = sc.evaluation_date;
   if (!isStr(ed) || !/^\d{4}-\d{2}-\d{2}$/.test(ed) || parseISODate(ed) == null) {
-    problems.push(`evaluation_date 不是合法的 YYYY-MM-DD（${JSON.stringify(ed)}）`);
+    problems.push(`evaluation_date is not a valid YYYY-MM-DD date (${JSON.stringify(ed)})`);
   }
 
   // options（值为 null 的字段视同未给）
   if (options.mode != null && options.mode !== 'protect' && options.mode !== 'tradeoff') {
-    problems.push(`mode 只能是 protect 或 tradeoff（${String(options.mode)}）`);
+    problems.push(`mode must be protect or tradeoff (${String(options.mode)})`);
   }
-  if (options.mode === 'tradeoff' && options.loss_cap == null) problems.push("mode 为 'tradeoff' 但没给 loss_cap");
+  if (options.mode === 'tradeoff' && options.loss_cap == null) problems.push("mode is 'tradeoff' but loss_cap is missing");
   if (options.loss_cap != null && !isNonNegFinite(options.loss_cap)) {
-    problems.push(`loss_cap 为负或不是有限数（${String(options.loss_cap)}）`);
+    problems.push(`loss_cap is negative or not a finite number (${String(options.loss_cap)})`);
   }
   if (options.min_gain != null && !isNonNegFinite(options.min_gain)) {
-    problems.push(`min_gain 为负或不是有限数（${String(options.min_gain)}）`);
+    problems.push(`min_gain is negative or not a finite number (${String(options.min_gain)})`);
   }
   problems.push(...fairnessFloorProblems(options.fairness_floors));
 
@@ -458,24 +458,24 @@ function inputValidity(scenario: Scenario, norm: JointNorm, options: VerifyOptio
     ['opportunities', rawIds(sc.opportunities)],
     ['interventions', rawIds(sc.interventions)],
   ] as const) {
-    if (raw.some((id) => !isStr(id))) problems.push(`${field} 中有缺少字符串 id 的条目`);
+    if (raw.some((id) => !isStr(id))) problems.push(`${field} has entries without a string id`);
     const d = [...new Set(dupes(raw.filter(isStr)))];
-    if (d.length > 0) problems.push(`${field} 的 id 重复：${d.map(q).join('、')}`);
+    if (d.length > 0) problems.push(`Duplicate ${field} ids: ${d.map(q).join(', ')}`);
   }
 
   // options 引用
   if (options.required_intervention_ids != null) {
-    if (!Array.isArray(options.required_intervention_ids)) problems.push('required_intervention_ids 不是数组');
+    if (!Array.isArray(options.required_intervention_ids)) problems.push('required_intervention_ids is not an array');
     else {
       const bad = options.required_intervention_ids.filter((id) => !norm.intById.has(id));
-      if (bad.length > 0) problems.push(`required_intervention_ids 引用了不存在的措施：${bad.map(q).join('、')}`);
+      if (bad.length > 0) problems.push(`required_intervention_ids references support measures that do not exist: ${bad.map(q).join(', ')}`);
     }
   }
   if (options.assume_approved_intervention_ids != null) {
-    if (!Array.isArray(options.assume_approved_intervention_ids)) problems.push('assume_approved_intervention_ids 不是数组');
+    if (!Array.isArray(options.assume_approved_intervention_ids)) problems.push('assume_approved_intervention_ids is not an array');
     else {
       const bad = options.assume_approved_intervention_ids.filter((id) => !norm.intById.has(id));
-      if (bad.length > 0) problems.push(`assume_approved_intervention_ids 引用了不存在的措施：${bad.map(q).join('、')}`);
+      if (bad.length > 0) problems.push(`assume_approved_intervention_ids references support measures that do not exist: ${bad.map(q).join(', ')}`);
     }
   }
 
@@ -485,52 +485,52 @@ function inputValidity(scenario: Scenario, norm: JointNorm, options: VerifyOptio
       const v = i[field];
       if (v == null) continue;
       if (!Array.isArray(v)) {
-        problems.push(`措施 ${q(i.id)} 的 ${field} 不是数组`);
+        problems.push(`Support measure ${q(i.id)}: ${field} is not an array`);
         continue;
       }
       for (const ref of v) {
-        if (ref === i.id) problems.push(`措施 ${q(i.id)} 的 ${field} 引用了自己`);
-        else if (!norm.intById.has(ref)) problems.push(`措施 ${q(i.id)} 的 ${field} 引用了不存在的措施 ${q(ref)}`);
+        if (ref === i.id) problems.push(`Support measure ${q(i.id)}: ${field} references itself`);
+        else if (!norm.intById.has(ref)) problems.push(`Support measure ${q(i.id)}: ${field} references a support measure that does not exist: ${q(ref)}`);
       }
     }
     if (i.opportunity_ids != null) {
-      if (!Array.isArray(i.opportunity_ids)) problems.push(`措施 ${q(i.id)} 的 opportunity_ids 不是数组`);
+      if (!Array.isArray(i.opportunity_ids)) problems.push(`Support measure ${q(i.id)}: opportunity_ids is not an array`);
       else {
         const bad = i.opportunity_ids.filter((o) => !norm.oppById.has(o));
-        if (bad.length > 0) problems.push(`措施 ${q(i.id)} 的 opportunity_ids 引用了不存在的机会：${bad.map(q).join('、')}`);
+        if (bad.length > 0) problems.push(`Support measure ${q(i.id)}: opportunity_ids references opportunities that do not exist: ${bad.map(q).join(', ')}`);
       }
     }
     if (i.capacity != null && !isNonNegFinite(i.capacity)) {
-      problems.push(`措施 ${q(i.id)} 的 capacity 为负或不是有限数（${String(i.capacity)}）`);
+      problems.push(`Support measure ${q(i.id)}: capacity is negative or not a finite number (${String(i.capacity)})`);
     }
     if (!isNonNegFinite(i.unit_cost_usd)) {
-      problems.push(`措施 ${q(i.id)} 的 unit_cost_usd 为负或不是有限数（${String(i.unit_cost_usd)}）`);
+      problems.push(`Support measure ${q(i.id)}: unit_cost_usd is negative or not a finite number (${String(i.unit_cost_usd)})`);
     }
     if (i.fixed_cost_usd !== undefined && !isNonNegFinite(i.fixed_cost_usd)) {
-      problems.push(`措施 ${q(i.id)} 的 fixed_cost_usd 为负或不是有限数（${String(i.fixed_cost_usd)}）`);
+      problems.push(`Support measure ${q(i.id)}: fixed_cost_usd is negative or not a finite number (${String(i.fixed_cost_usd)})`);
     }
     // 资源额度：null / 缺省 = 未给；给出时必须是非负有限数（保证 grant 只会帮助、不会让原本可达的变为不可达）。
     for (const field of ['amount_usd', 'hours_per_week'] as const) {
       const v = i[field];
-      if (v != null && !isNonNegFinite(v)) problems.push(`措施 ${q(i.id)} 的 ${field} 为负或不是有限数（${String(v)}）`);
+      if (v != null && !isNonNegFinite(v)) problems.push(`Support measure ${q(i.id)}: ${field} is negative or not a finite number (${String(v)})`);
     }
   }
   for (const g of norm.existing) {
     for (const field of ['amount_usd', 'hours_per_week'] as const) {
       const v = g[field];
-      if (v != null && !isNonNegFinite(v)) problems.push(`已有 grant ${q(g.id)} 的 ${field} 为负或不是有限数（${String(v)}）`);
+      if (v != null && !isNonNegFinite(v)) problems.push(`Existing grant ${q(g.id)}: ${field} is negative or not a finite number (${String(v)})`);
     }
   }
 
   // 时段表：键必须是场景内的机会，标签必须是非空字符串
   const badSlotKeys = Object.keys(norm.timeSlots).filter((k) => !norm.oppById.has(k));
-  if (badSlotKeys.length > 0) problems.push(`opportunity_time_slots 的键引用了不存在的机会：${badSlotKeys.map(q).join('、')}`);
+  if (badSlotKeys.length > 0) problems.push(`opportunity_time_slots has keys for opportunities that do not exist: ${badSlotKeys.map(q).join(', ')}`);
   const badLabels = Object.keys(norm.timeSlots).filter((k) => {
     const v = norm.timeSlots[k];
     return !isStr(v) || v === '';
   });
   if (badLabels.length > 0) {
-    problems.push(`opportunity_time_slots 中这些机会的时段标签不是非空字符串：${badLabels.map(q).join('、')}`);
+    problems.push(`opportunity_time_slots: these opportunities have a time slot label that is not a non-empty string: ${badLabels.map(q).join(', ')}`);
   }
 
   // 只算**全部** existing grant（不考虑任何撤回）就超过容量
@@ -538,17 +538,17 @@ function inputValidity(scenario: Scenario, norm: JointNorm, options: VerifyOptio
     if (i.capacity == null || !isNonNegFinite(i.capacity)) continue;
     for (const { slot, students } of occupancy(norm, norm.existing, i, [])) {
       if (students.size > i.capacity + EPS) {
-        const where = slot === 'total' ? '全场景' : slotName(slot);
+        const where = slot === 'total' ? 'the whole scenario' : slotName(slot);
         problems.push(
-          `只算已有 grant，措施 ${q(i.id)} 在${where}已占用 ${students.size} 名不同学生，超过容量 ${fmt(i.capacity)}（${[...students].map(q).join('、')}）`,
+          `Counting existing grants only, support measure ${q(i.id)} already serves ${plural(students.size, 'distinct student')} in ${where}, more than its capacity of ${fmt(i.capacity)} (${[...students].map(q).join(', ')})`,
         );
       }
     }
   }
 
   return problems.length === 0
-    ? check('input_validity', true, '场景与选项未命中 UNSUPPORTED_INPUT 的任何条件（max_search_nodes 不在复核范围内）。')
-    : check('input_validity', false, `输入不合法（等同 UNSUPPORTED_INPUT）：${list(problems)}。`);
+    ? check('input_validity', true, 'The scenario and options meet none of the UNSUPPORTED_INPUT conditions (max_search_nodes is not verified).')
+    : check('input_validity', false, `Invalid input (same as UNSUPPORTED_INPUT): ${list(problems)}.`);
 }
 
 // ───────────────────────────── 公平底线 ─────────────────────────────
@@ -603,8 +603,8 @@ function computeFairness(
 }
 
 function fairnessText(r: FairnessReport): string {
-  const ratio = r.ratio === null ? '不适用（分母为 0）' : fmt(Math.round(r.ratio * 1e4) / 1e4);
-  return `${q(r.floor_id)} ${r.covered_members}/${r.eligible_members} = ${ratio}，底线 ${String(r.min_ratio)}，${r.satisfied ? '满足' : '不满足'}`;
+  const ratio = r.ratio === null ? 'not applicable (denominator is 0)' : fmt(Math.round(r.ratio * 1e4) / 1e4);
+  return `${q(r.floor_id)} ${r.covered_members}/${r.eligible_members} = ${ratio}, floor ${String(r.min_ratio)}, ${r.satisfied ? 'met' : 'not met'}`;
 }
 
 // ───────────────────────────── verifyPlan ─────────────────────────────
@@ -686,16 +686,16 @@ export function verifyAndMeasure(
   // ── 1. approval ──
   {
     const problems: string[] = [];
-    if (!selectedIsArray) problems.push('selected_intervention_ids 不是数组');
+    if (!selectedIsArray) problems.push('selected_intervention_ids is not an array');
     const nonStr = selectedRaw.filter((x) => !isStr(x));
-    if (nonStr.length > 0) problems.push(`有 ${nonStr.length} 个非字符串的措施 id`);
+    if (nonStr.length > 0) problems.push(`${plural(nonStr.length, 'support measure id')} ${pluralNoun(nonStr.length, 'is not a string', 'are not strings')}`);
     const unknown = [...selectedSet].filter((id) => !norm.intById.has(id));
-    if (unknown.length > 0) problems.push(`不存在的措施：${unknown.map(q).join('、')}`);
+    if (unknown.length > 0) problems.push(`Support measures that do not exist: ${unknown.map(q).join(', ')}`);
     const dup = [...new Set(selectedStrs.filter((id, k) => selectedStrs.indexOf(id) !== k))];
-    if (dup.length > 0) problems.push(`重复选中：${dup.map(q).join('、')}`);
+    if (dup.length > 0) problems.push(`Selected more than once: ${dup.map(q).join(', ')}`);
     const pending = selectedExisting.filter((id) => !isApproved(norm.intById.get(id) as Intervention));
     if (pending.length > 0) {
-      problems.push(`选中了未批准（pending）且未在 assume_approved_intervention_ids 中列出的措施：${pending.map(q).join('、')}`);
+      problems.push(`Selected support measures that are pending approval and not listed in assume_approved_intervention_ids: ${pending.map(q).join(', ')}`);
     }
     const assumedUsed = selectedExisting.filter(
       (id) => (norm.intById.get(id) as Intervention).status === 'pending' && assumed.has(id),
@@ -705,11 +705,11 @@ export function verifyAndMeasure(
         ? check(
             'approval',
             true,
-            `选中 ${selectedExisting.length} 项措施（${selectedExisting.map(q).join('、') || '无'}），都存在、不重复、已批准` +
-              (assumedUsed.length > 0 ? `（其中 ${assumedUsed.map(q).join('、')} 为 pending，按 assume_approved 视为已批准）` : '') +
-              '。',
+            `Selected ${plural(selectedExisting.length, 'support measure')} (${selectedExisting.map(q).join(', ') || 'none'}); all exist, none repeated, all approved` +
+              (assumedUsed.length > 0 ? ` (${assumedUsed.map(q).join(', ')} pending, treated as approved via assume_approved)` : '') +
+              '.',
           )
-        : check('approval', false, `措施不合法：${list(problems)}。`),
+        : check('approval', false, `Invalid support measures: ${list(problems)}.`),
     );
   }
 
@@ -720,7 +720,7 @@ export function verifyAndMeasure(
       for (let b = a + 1; b < selectedExisting.length; b++) {
         const A = norm.intById.get(selectedExisting[a]) as Intervention;
         const B = norm.intById.get(selectedExisting[b]) as Intervention;
-        if (excl(A, B)) conflicts.push(`${q(A.id)} 与 ${q(B.id)}`);
+        if (excl(A, B)) conflicts.push(`${q(A.id)} and ${q(B.id)}`);
       }
     }
     // R1：与「有不可撤回已有 grant（学生不在场景内）」的场景内措施 k 互斥的措施不能被选中（两种模式都一样）。
@@ -737,23 +737,23 @@ export function verifyAndMeasure(
       for (const [k, gids] of [...lockedByInt.entries()].sort((a, b) => cmpStr(a[0], b[0]))) {
         if (k !== id && excl(A, norm.intById.get(k))) {
           blocked.push(
-            `${q(id)} 与 ${q(k)} 互斥，而 ${q(k)} 有不可撤回的已有 grant ${gids.map(q).join('、')}（学生不在场景内，损失无法评估，不能撤回）`,
+            `${q(id)} is mutually exclusive with ${q(k)}, and ${q(k)} has non-revocable existing grants ${gids.map(q).join(', ')} (the students are outside the scenario, so the loss cannot be evaluated and they cannot be revoked)`,
           );
         }
       }
     }
     const problems = [
-      ...(conflicts.length > 0 ? [`同时选中了互斥的措施：${list(conflicts)}`] : []),
-      ...(blocked.length > 0 ? [`选中了与有不可撤回已有 grant 的措施互斥的措施：${list(blocked)}`] : []),
+      ...(conflicts.length > 0 ? [`Mutually exclusive support measures selected together: ${list(conflicts)}`] : []),
+      ...(blocked.length > 0 ? [`Selected support measures that are mutually exclusive with a measure holding non-revocable existing grants: ${list(blocked)}`] : []),
     ];
     checks.push(
       problems.length === 0
         ? check(
             'mutual_exclusion',
             true,
-            '选中集合内没有互斥的两项（互斥按对称关系检查），也没有与「有不可撤回已有 grant 的措施」互斥的选中措施。',
+            'No two selected support measures are mutually exclusive (checked symmetrically), and none is mutually exclusive with a measure that holds non-revocable existing grants.',
           )
-        : check('mutual_exclusion', false, `${problems.join('；')}。`),
+        : check('mutual_exclusion', false, `${problems.join('; ')}.`),
     );
   }
 
@@ -763,13 +763,13 @@ export function verifyAndMeasure(
     for (const id of selectedExisting) {
       const i = norm.intById.get(id) as Intervention;
       for (const r of arr<unknown>(i.requires)) {
-        if (!isStr(r) || !selectedSet.has(r)) missing.push(`${q(id)} 需要 ${q(r)}`);
+        if (!isStr(r) || !selectedSet.has(r)) missing.push(`${q(id)} requires ${q(r)}`);
       }
     }
     checks.push(
       missing.length === 0
-        ? check('prerequisite', true, '每个选中措施的前置依赖（requires）都已选中。')
-        : check('prerequisite', false, `前置依赖缺失：${list(missing)}。`),
+        ? check('prerequisite', true, 'Every prerequisite (requires) of each selected support measure is selected.')
+        : check('prerequisite', false, `Missing prerequisites: ${list(missing)}.`),
     );
   }
 
@@ -788,37 +788,37 @@ export function verifyAndMeasure(
   {
     const problems: string[] = [];
     // a. 合法性
-    if (revokedGiven && !revokedIsArray) problems.push('revoked_grant_ids 不是数组');
+    if (revokedGiven && !revokedIsArray) problems.push('revoked_grant_ids is not an array');
     const existingIds = new Set(norm.existing.map((g) => g.id).filter(isStr));
     const seen = new Set<string>();
     const dup = new Set<string>();
     for (const x of revokedRaw) {
       if (!isStr(x)) {
-        problems.push(`非字符串的撤回 id（${String(x)}）`);
+        problems.push(`Revoked id is not a string (${String(x)})`);
         continue;
       }
       if (seen.has(x)) dup.add(x);
       seen.add(x);
-      if (!existingIds.has(x)) problems.push(`撤回的 grant ${q(x)} 不在 existing_grants 中`);
+      if (!existingIds.has(x)) problems.push(`Revoked grant ${q(x)} is not in existing_grants`);
       else if (!revocableById.has(x)) {
         const g = norm.existing.find((e) => e.id === x) as ResourceGrant;
         problems.push(
           isStr(g.intervention_id) && norm.intById.has(g.intervention_id)
-            ? `撤回的 grant ${q(x)} 不可撤回（学生 ${q(g.student_id)} 不在场景内，损失无法评估）`
-            : `撤回的 grant ${q(x)} 不可撤回（没有指向场景内措施的 intervention_id）`,
+            ? `Revoked grant ${q(x)} cannot be revoked (student ${q(g.student_id)} is outside the scenario, so the loss cannot be evaluated)`
+            : `Revoked grant ${q(x)} cannot be revoked (its intervention_id does not point to a support measure in the scenario)`,
         );
       }
     }
-    for (const d of dup) problems.push(`重复撤回 ${q(d)}`);
+    for (const d of dup) problems.push(`Revoked more than once: ${q(d)}`);
     // b. 强制撤回
     const missingForced: string[] = [];
     for (const g of norm.revocable) {
       const by = forcedBy(g);
       if (by !== null && !X.has(g.id)) {
-        missingForced.push(`${q(g.id)}（措施 ${q(g.intervention_id)} 与选中的 ${q(by)} 互斥）`);
+        missingForced.push(`${q(g.id)} (support measure ${q(g.intervention_id)} is mutually exclusive with selected ${q(by)})`);
       }
     }
-    if (missingForced.length > 0) problems.push(`该强制撤回而没撤回的 grant：${missingForced.join('、')}`);
+    if (missingForced.length > 0) problems.push(`Grants that must be revoked but were not: ${missingForced.join(', ')}`);
     // c. 撤回后不再补发同一 (措施, 学生)
     const revokedGroups = new Set(revocations.map((r) => groupKey(r.intervention_id, r.student_id)));
     const reissued = [
@@ -828,10 +828,10 @@ export function verifyAndMeasure(
           .map((a) => `(${a.intervention_id}, ${a.student_id})`),
       ),
     ];
-    if (reissued.length > 0) problems.push(`撤回后又分配的 (措施, 学生)：${reissued.join('、')}`);
+    if (reissued.length > 0) problems.push(`(support measure, student) allocated again after revocation: ${reissued.join(', ')}`);
     // d. protect 模式不允许任何撤回
     if (!tradeoff && revokedRaw.length > 0) {
-      problems.push(`protect 模式不动任何已有承诺，revoked_grant_ids 必须为空（实际 ${revokedRaw.length} 条）`);
+      problems.push(`protect mode never touches existing commitments, so revoked_grant_ids must be empty (got ${revokedRaw.length})`);
     }
     const forcedCount = revocations.filter((r) => r.forced_by !== null).length;
     checks.push(
@@ -840,40 +840,40 @@ export function verifyAndMeasure(
             'revocation',
             true,
             revocations.length === 0
-              ? '没有撤回已有 grant，也没有需要强制撤回的 grant。'
-              : `撤回 ${revocations.length} 条已有 grant（其中强制撤回 ${forcedCount} 条、自愿撤回 ${revocations.length - forcedCount} 条），都合法，撤回后没有再分配同一 (措施, 学生)。`,
+              ? 'No existing grants revoked, and none needs forced revocation.'
+              : `Revoked ${plural(revocations.length, 'existing grant')} (${forcedCount} forced, ${revocations.length - forcedCount} voluntary); all valid, and no (support measure, student) is allocated again after revocation.`,
           )
-        : check('revocation', false, `撤回不合法：${list(problems)}。`),
+        : check('revocation', false, `Invalid revocations: ${list(problems)}.`),
     );
   }
 
   // ── 4. allocation_validity ──
   {
     const problems: string[] = [];
-    if (!allocIsArray) problems.push('allocations 不是数组');
+    if (!allocIsArray) problems.push('allocations is not an array');
     const malformed = allocRaw.length - allocs.length;
-    if (malformed > 0) problems.push(`有 ${malformed} 条分配缺少字符串类型的 intervention_id / student_id / opportunity_id`);
+    if (malformed > 0) problems.push(`${plural(malformed, 'allocation')} ${pluralNoun(malformed, 'lacks', 'lack')} a string intervention_id / student_id / opportunity_id`);
     const seen = new Set<string>();
     const dupKeys = new Set<string>();
     for (const a of allocs) {
       const label = `(${a.intervention_id}, ${a.student_id}, ${a.opportunity_id})`;
       const i = norm.intById.get(a.intervention_id);
-      if (!i) problems.push(`${label} 引用了不存在的措施 ${q(a.intervention_id)}`);
-      else if (!selectedSet.has(a.intervention_id)) problems.push(`${label} 引用了未选中的措施 ${q(a.intervention_id)}`);
-      if (!norm.studentById.has(a.student_id)) problems.push(`${label} 引用了不存在的学生 ${q(a.student_id)}`);
-      if (!norm.oppById.has(a.opportunity_id)) problems.push(`${label} 引用了不存在的机会 ${q(a.opportunity_id)}`);
+      if (!i) problems.push(`${label} references a support measure that does not exist: ${q(a.intervention_id)}`);
+      else if (!selectedSet.has(a.intervention_id)) problems.push(`${label} references a support measure that is not selected: ${q(a.intervention_id)}`);
+      if (!norm.studentById.has(a.student_id)) problems.push(`${label} references a student that does not exist: ${q(a.student_id)}`);
+      if (!norm.oppById.has(a.opportunity_id)) problems.push(`${label} references an opportunity that does not exist: ${q(a.opportunity_id)}`);
       if (i && Array.isArray(i.opportunity_ids) && !i.opportunity_ids.includes(a.opportunity_id)) {
-        problems.push(`${label}：措施 ${q(i.id)} 的 opportunity_ids 不含机会 ${q(a.opportunity_id)}`);
+        problems.push(`${label}: opportunity_ids of support measure ${q(i.id)} does not include opportunity ${q(a.opportunity_id)}`);
       }
       const k = JSON.stringify([a.intervention_id, a.student_id, a.opportunity_id]);
       if (seen.has(k)) dupKeys.add(label);
       seen.add(k);
     }
-    for (const d of dupKeys) problems.push(`重复的分配 ${d}`);
+    for (const d of dupKeys) problems.push(`Duplicate allocation ${d}`);
     checks.push(
       problems.length === 0
-        ? check('allocation_validity', true, `${allocs.length} 条分配都引用了选中的措施、场景内的学生与机会，机会在措施适用范围内，没有重复。`)
-        : check('allocation_validity', false, `分配不合法：${list(problems)}。`),
+        ? check('allocation_validity', true, `${allocs.length === 1 ? 'The 1 allocation references' : `All ${allocs.length} allocations reference`} selected support measures and students and opportunities in the scenario, each opportunity is within the measure's scope, and none is repeated.`)
+        : check('allocation_validity', false, `Invalid allocations: ${list(problems)}.`),
     );
   }
 
@@ -884,22 +884,22 @@ export function verifyAndMeasure(
     for (const id of selectedExisting) {
       const i = norm.intById.get(id) as Intervention;
       if (i.capacity == null) {
-        notes.push(`${q(id)} 不限容量`);
+        notes.push(`${q(id)} has unlimited capacity`);
         continue;
       }
       const mine = allocs.filter((a) => a.intervention_id === id);
       for (const { slot, students } of occupancy(norm, ePrime, i, mine)) {
-        const where = slot === 'total' ? '全场景' : slotName(slot);
+        const where = slot === 'total' ? 'the whole scenario' : slotName(slot);
         const ok = isFiniteNum(i.capacity) && students.size <= i.capacity + EPS;
-        const text = `${q(id)} 在${where}服务 ${students.size} 名不同学生（含未撤回的已有 grant 占位），容量 ${String(i.capacity)}`;
+        const text = `${q(id)} serves ${plural(students.size, 'distinct student')} in ${where} (including slots held by unrevoked existing grants), capacity ${String(i.capacity)}`;
         if (ok) notes.push(text);
-        else problems.push(`${text}，超出（${[...students].sort(cmpStr).map(q).join('、')}）`);
+        else problems.push(`${text}, over capacity (${[...students].sort(cmpStr).map(q).join(', ')})`);
       }
     }
     checks.push(
       problems.length === 0
-        ? check('capacity', true, `容量都满足：${list(notes) || '没有选中的措施'}。`)
-        : check('capacity', false, `容量超出：${list(problems)}。`),
+        ? check('capacity', true, `All capacity limits met: ${list(notes) || 'no support measures selected'}.`)
+        : check('capacity', false, `Capacity exceeded: ${list(problems)}.`),
     );
   }
 
@@ -935,7 +935,7 @@ export function verifyAndMeasure(
     for (const a of allocRaw) {
       if (isObj(a) && !isNonNegFinite(a.cost_usd)) {
         problems.push(
-          `分配 (${String(a.intervention_id)}, ${String(a.student_id)}, ${String(a.opportunity_id)}) 的 cost_usd 为负或不是有限数（${String(a.cost_usd)}）`,
+          `Allocation (${String(a.intervention_id)}, ${String(a.student_id)}, ${String(a.opportunity_id)})  cost_usd is negative or not a finite number (${String(a.cost_usd)})`,
         );
       }
     }
@@ -944,21 +944,21 @@ export function verifyAndMeasure(
       const nums = g.costs.map((c) => (isFiniteNum(c) ? c : NaN));
       if (coveredByExisting(g.i.id, g.s)) {
         if (!nums.every((c) => approxEq(c, 0))) {
-          problems.push(`${label} 已由未撤回的 approved 已有 grant 覆盖，应全部记 0，实际记了 ${nums.map((c) => String(c)).join(' + ')}`);
+          problems.push(`${label} is already covered by an unrevoked approved existing grant, so every entry should be 0, but got ${nums.map((c) => String(c)).join(' + ')}`);
         }
         continue;
       }
       const unit = g.i.unit_cost_usd;
       if (!isFiniteNum(unit)) continue; // 已在 input_validity 报告
       if (approxEq(unit, 0)) {
-        if (!nums.every((c) => approxEq(c, 0))) problems.push(`${label} 单价为 0，应全部记 0，实际记了 ${nums.join(' + ')}`);
+        if (!nums.every((c) => approxEq(c, 0))) problems.push(`${label} has a unit cost of 0, so every entry should be 0, but got ${nums.join(' + ')}`);
         continue;
       }
       const full = nums.filter((c) => approxEq(c, unit)).length;
       const zero = nums.filter((c) => approxEq(c, 0)).length;
       if (!(full === 1 && zero === nums.length - 1)) {
         problems.push(
-          `${label} 共 ${nums.length} 条分配，应恰好一条记单价 ${money(unit)}、其余记 0，实际记了 ${nums.map((c) => String(c)).join(' + ')}`,
+          `${label} has ${nums.length} allocations; exactly one should carry the unit cost ${money(unit)} and the rest 0, but got ${nums.map((c) => String(c)).join(' + ')}`,
         );
       }
     }
@@ -967,10 +967,10 @@ export function verifyAndMeasure(
     if (p.cost !== undefined) {
       const c = isObj(p.cost) ? p.cost : {};
       if (!isFiniteNum(c.fixed_usd) || !approxEq(c.fixed_usd, fixedUsd)) {
-        problems.push(`cost.fixed_usd 记为 ${String(c.fixed_usd)}，应为选中措施固定成本之和（每项一次）${money(fixedUsd)}`);
+        problems.push(`cost.fixed_usd is ${String(c.fixed_usd)}, but should be the sum of fixed costs of selected support measures (once each), ${money(fixedUsd)}`);
       }
       if (!isFiniteNum(c.marginal_usd) || !approxEq(c.marginal_usd, reportedMarginal)) {
-        problems.push(`cost.marginal_usd 记为 ${String(c.marginal_usd)}，与各分配 cost_usd 之和 ${money(reportedMarginal)} 不一致`);
+        problems.push(`cost.marginal_usd is ${String(c.marginal_usd)}, which does not match the sum of allocation cost_usd, ${money(reportedMarginal)}`);
       }
       if (
         !isFiniteNum(c.total_usd) ||
@@ -978,18 +978,18 @@ export function verifyAndMeasure(
         !isFiniteNum(c.marginal_usd) ||
         !approxEq(c.total_usd, c.fixed_usd + c.marginal_usd)
       ) {
-        problems.push(`cost.total_usd 记为 ${String(c.total_usd)}，不等于 fixed_usd + marginal_usd`);
+        problems.push(`cost.total_usd is ${String(c.total_usd)}, which does not equal fixed_usd + marginal_usd`);
       }
     }
-    const tail = unknownInt > 0 ? `（另有 ${unknownInt} 条分配引用不存在的措施，无法核对单价，已在 allocation_validity 中报告）` : '';
+    const tail = unknownInt > 0 ? ` (${plural(unknownInt, 'more allocation')} ${pluralNoun(unknownInt, 'references', 'reference')} support measures that do not exist, so their unit cost cannot be checked; reported in allocation_validity)` : '';
     checks.push(
       problems.length === 0
         ? check(
             'cost_accounting',
             true,
-            `成本记账正确：固定成本 ${money(fixedUsd)}（${selectedExisting.length} 项各计一次），边际成本 ${money(marginalUsd)}（${groups.size} 个不同 (措施, 学生) 组，未撤回的 approved 已有 grant 覆盖的记 0），合计 ${money(totalUsd)}${tail}。`,
+            `Cost accounting is correct: fixed cost ${money(fixedUsd)} (${plural(selectedExisting.length, 'measure')}, once each), marginal cost ${money(marginalUsd)} (${groups.size} distinct (support measure, student) ${pluralNoun(groups.size, 'group')}; those covered by unrevoked approved existing grants count 0), total ${money(totalUsd)}${tail}.`,
           )
-        : check('cost_accounting', false, `成本记账不正确：${list(problems)}${tail}。`),
+        : check('cost_accounting', false, `Cost accounting is incorrect: ${list(problems)}${tail}.`),
     );
   }
 
@@ -998,14 +998,14 @@ export function verifyAndMeasure(
     const budget = isObj(scenario) ? (scenario as Scenario).budget_usd : undefined;
     const ok = isFiniteNum(budget) && leq(totalUsd, budget);
     const reported = fixedUsd + reportedMarginal;
-    const reportedNote = approxEq(reported, totalUsd) ? '' : `（plan 中各分配记的边际成本合计为 ${money(reportedMarginal)}，按记录算总成本 ${money(reported)}）`;
+    const reportedNote = approxEq(reported, totalUsd) ? '' : ` (the plan's allocations report a marginal cost total of ${money(reportedMarginal)}, so the reported total cost is ${money(reported)})`;
     checks.push(
       ok
-        ? check('budget', true, `重算总成本 ${money(totalUsd)} ≤ 预算 ${money(budget as number)}${reportedNote}。`)
+        ? check('budget', true, `Recomputed total cost ${money(totalUsd)} ≤ budget ${money(budget as number)}${reportedNote}.`)
         : check(
             'budget',
             false,
-            `重算总成本 ${money(totalUsd)}（固定 ${money(fixedUsd)} + 边际 ${money(marginalUsd)}）超过预算 ${String(budget)}${reportedNote}。`,
+            `Recomputed total cost ${money(totalUsd)} (fixed ${money(fixedUsd)} + marginal ${money(marginalUsd)}) exceeds the budget of ${String(budget)}${reportedNote}.`,
           ),
     );
   }
@@ -1057,23 +1057,23 @@ export function verifyAndMeasure(
   }
   const claimedOnly = crossPairs.length - gained.length;
   const scopeText =
-    `新增覆盖 ${G} 对` + (claimedOnly > 0 ? `，另有 plan 自带 R1 声称新增、但重算不可达的 ${claimedOnly} 对` : '');
+    `${plural(G, 'newly covered pair')}` + (claimedOnly > 0 ? `, plus ${plural(claimedOnly, 'pair')} the plan's own R1 claims as new but that ${pluralNoun(claimedOnly, 'is', 'are')} not reachable on recomputation` : '');
 
   // eligibility
   {
     const bad: string[] = [];
     for (const pr of crossPairs) {
       if (!norm.studentById.has(pr.student_id) || !norm.oppById.has(pr.opportunity_id)) {
-        bad.push(`${pairText(pr)} 引用了场景中不存在的学生或机会`);
+        bad.push(`${pairText(pr)} references a student or opportunity not in the scenario`);
         continue;
       }
       const overall = evaluator.eligibility(pr.student_id, pr.opportunity_id) ?? 'error';
-      if (overall !== 'eligible') bad.push(`${pairText(pr)} 资格为 ${overall}`);
+      if (overall !== 'eligible') bad.push(`${pairText(pr)} eligibility is ${overall}`);
     }
     checks.push(
       bad.length === 0
-        ? check('eligibility', true, `${scopeText}，资格都为 eligible（措施不能改变官方资格）。`)
-        : check('eligibility', false, `${scopeText}；其中资格不是 eligible 的：${list(bad)}。`),
+        ? check('eligibility', true, `${scopeText}; all have eligibility eligible (support measures cannot change official eligibility).`)
+        : check('eligibility', false, `${scopeText}; not eligible: ${list(bad)}.`),
     );
   }
 
@@ -1084,18 +1084,18 @@ export function verifyAndMeasure(
     for (const pr of crossPairs) {
       const o = norm.oppById.get(pr.opportunity_id);
       if (!o) {
-        bad.push(`${pairText(pr)} 引用了不存在的机会`);
+        bad.push(`${pairText(pr)} references an opportunity that does not exist`);
         continue;
       }
       if (o.deadline === null) continue;
       const d = parseISODate(o.deadline);
-      if (d == null || evalDay == null) bad.push(`${pairText(pr)} 截止日期 ${String(o.deadline)} 或评估日 ${norm.evaluationDate} 无法解析`);
-      else if (compareYMD(d, evalDay) < 0) bad.push(`${pairText(pr)} 截止日期 ${o.deadline} 早于评估日 ${norm.evaluationDate}`);
+      if (d == null || evalDay == null) bad.push(`${pairText(pr)}: deadline ${String(o.deadline)} or evaluation date ${norm.evaluationDate} cannot be parsed`);
+      else if (compareYMD(d, evalDay) < 0) bad.push(`${pairText(pr)}: deadline ${o.deadline} is before the evaluation date ${norm.evaluationDate}`);
     }
     checks.push(
       bad.length === 0
-        ? check('deadline', true, `${scopeText}，截止日期都为 null（滚动）或不早于评估日 ${norm.evaluationDate}。`)
-        : check('deadline', false, `${scopeText}；其中截止日期不合格的：${list(bad)}。`),
+        ? check('deadline', true, `${scopeText}; every deadline is null (rolling) or not before the evaluation date ${norm.evaluationDate}.`)
+        : check('deadline', false, `${scopeText}; deadline problems: ${list(bad)}.`),
     );
   }
 
@@ -1108,27 +1108,27 @@ export function verifyAndMeasure(
         ? evaluator.evaluate(pr.student_id, pr.opportunity_id, pairAllocs.get(pairKey(pr.student_id, pr.opportunity_id)) ?? [], X)
         : null;
       if (!res) {
-        bad.push(`${pairText(pr)} 无法评估（学生或机会不存在）`);
+        bad.push(`${pairText(pr)} cannot be evaluated (student or opportunity does not exist)`);
         continue;
       }
       const unresolved = res.barriers.filter((b) => !b.resolved).map((b) => b.type);
       const byAlloc = res.barriers.some((b) => b.resolved_by_grant_ids.some((id) => id.startsWith('alloc:')));
-      if (unresolved.length > 0) bad.push(`${pairText(pr)} 仍有未化解的障碍（${unresolved.join('、')}）`);
-      else if (!byAlloc) bad.push(`${pairText(pr)} 没有任何障碍是由方案合成的 alloc: grant 化解的`);
+      if (unresolved.length > 0) bad.push(`${pairText(pr)} still has unresolved barriers (${unresolved.join(', ')})`);
+      else if (!byAlloc) bad.push(`${pairText(pr)} has no barrier resolved by an alloc: grant synthesized from the plan`);
     }
     checks.push(
       bad.length === 0
-        ? check('barrier_resolution', true, `${scopeText}，带未撤回的已有 grant 与方案合成 grant 后障碍都已化解，且每对至少一条障碍由 alloc: grant 化解。`)
-        : check('barrier_resolution', false, `${scopeText}；其中不合格的：${list(bad)}。`),
+        ? check('barrier_resolution', true, `${scopeText}; with unrevoked existing grants and the plan's synthesized grants, all barriers are resolved, and each pair has at least one barrier resolved by an alloc: grant.`)
+        : check('barrier_resolution', false, `${scopeText}; failing: ${list(bad)}.`),
     );
   }
 
   // coverage_loss
   {
-    const lostText = lost.length > 0 ? `（失去覆盖的对：${list(lost.map(pairText))}）` : '';
+    const lostText = lost.length > 0 ? ` (pairs that lost coverage: ${list(lost.map(pairText))})` : '';
     if (tradeoff) {
       if (opts.loss_cap == null) {
-        checks.push(check('coverage_loss', false, `tradeoff 模式但没给 loss_cap，无法判定损失是否允许；L = ${L}${lostText}。`));
+        checks.push(check('coverage_loss', false, `tradeoff mode without loss_cap, so it cannot tell whether the loss is allowed; L = ${L}${lostText}.`));
       } else {
         const ok = isFiniteNum(opts.loss_cap) && leq(L, opts.loss_cap);
         checks.push(
@@ -1136,16 +1136,16 @@ export function verifyAndMeasure(
             'coverage_loss',
             ok,
             ok
-              ? `tradeoff 模式：损失 L = ${L} ≤ loss_cap = ${String(opts.loss_cap)}${lostText}。`
-              : `tradeoff 模式：损失 L = ${L} 超过 loss_cap = ${String(opts.loss_cap)}${lostText}。`,
+              ? `tradeoff mode: loss L = ${L} ≤ loss_cap = ${String(opts.loss_cap)}${lostText}.`
+              : `tradeoff mode: loss L = ${L} exceeds loss_cap = ${String(opts.loss_cap)}${lostText}.`,
           ),
         );
       }
     } else {
       checks.push(
         L === 0
-          ? check('coverage_loss', true, 'protect 模式：损失 L = 0，原有覆盖没有减少。')
-          : check('coverage_loss', false, `protect 模式要求 L = 0，实际 L = ${L}${lostText}。`),
+          ? check('coverage_loss', true, 'protect mode: loss L = 0; existing coverage did not drop.')
+          : check('coverage_loss', false, `protect mode requires L = 0, but L = ${L}${lostText}.`),
       );
     }
   }
@@ -1156,20 +1156,20 @@ export function verifyAndMeasure(
     const notes: string[] = [];
     if (opts.required_intervention_ids != null) {
       const req = arr<unknown>(opts.required_intervention_ids);
-      if (!Array.isArray(opts.required_intervention_ids)) problems.push('required_intervention_ids 不是数组');
+      if (!Array.isArray(opts.required_intervention_ids)) problems.push('required_intervention_ids is not an array');
       const miss = req.filter((id) => !isStr(id) || !selectedSet.has(id));
-      if (miss.length > 0) problems.push(`必须启用但未选中的措施：${miss.map(q).join('、')}`);
-      else notes.push(`必须启用的措施 ${req.map(q).join('、') || '（空列表）'} 都已选中`);
+      if (miss.length > 0) problems.push(`Required support measures not selected: ${miss.map(q).join(', ')}`);
+      else notes.push(`Required support measures ${req.map(q).join(', ') || '(empty list)'} are all selected`);
     }
     if (opts.min_gain != null) {
       const ok = isFiniteNum(opts.min_gain) && G >= opts.min_gain - EPS;
       if (ok) notes.push(`G = ${G} ≥ min_gain = ${String(opts.min_gain)}`);
-      else problems.push(`G = ${G} 未达到 min_gain = ${String(opts.min_gain)}`);
+      else problems.push(`G = ${G} is below min_gain = ${String(opts.min_gain)}`);
     }
     checks.push(
       problems.length === 0
-        ? check('organizer_requirements', true, `主办方软要求满足：${notes.join('；')}。`)
-        : check('organizer_requirements', false, `主办方软要求不满足：${list(problems)}。`),
+        ? check('organizer_requirements', true, `Organizer soft requirements met: ${notes.join('; ')}.`)
+        : check('organizer_requirements', false, `Organizer soft requirements not met: ${list(problems)}.`),
     );
   }
 
@@ -1177,23 +1177,23 @@ export function verifyAndMeasure(
   const fairnessComputed = computeFairness(evaluator, opts.fairness_floors, r1Keys);
   if (opts.fairness_floors != null) {
     if (!fairnessComputed) {
-      checks.push(check('fairness', false, 'fairness_floors 不是数组，无法计算公平底线。'));
+      checks.push(check('fairness', false, 'fairness_floors is not an array, so fairness floors cannot be computed.'));
     } else {
       const { reports, invalid } = fairnessComputed;
       const unmet = reports.filter((r) => !r.satisfied);
       const problems: string[] = [];
-      if (invalid.size > 0) problems.push(`底线格式不合法：${[...invalid].map((k) => `fairness_floors[${k}]`).join('、')}`);
-      if (unmet.length > 0) problems.push(`未达到的底线：${unmet.map(fairnessText).join('；')}`);
+      if (invalid.size > 0) problems.push(`Invalid floor format: ${[...invalid].map((k) => `fairness_floors[${k}]`).join(', ')}`);
+      if (unmet.length > 0) problems.push(`Floors not met: ${unmet.map(fairnessText).join('; ')}`);
       checks.push(
         problems.length === 0
           ? check(
               'fairness',
               true,
               reports.length === 0
-                ? '没有设定公平底线（空列表），直接通过。'
-                : `公平底线都满足（按学生计、分母为 0 不适用）：${reports.map(fairnessText).join('；')}。`,
+                ? 'No fairness floors set (empty list); passes.'
+                : `All fairness floors met (counted per student; not applicable when the denominator is 0): ${reports.map(fairnessText).join('; ')}.`,
             )
-          : check('fairness', false, `公平底线不满足：${list(problems)}。全部结果：${reports.map(fairnessText).join('；')}。`),
+          : check('fairness', false, `Fairness floors not met: ${list(problems)}. All results: ${reports.map(fairnessText).join('; ')}.`),
       );
     }
   }
@@ -1208,12 +1208,12 @@ export function verifyAndMeasure(
       (f) => p[f] !== undefined && (f !== 'fairness' || compareFairness),
     );
     const fairnessSkipped =
-      !compareFairness && p.fairness !== undefined ? '复核选项没给公平底线，未比较 plan 自带的 fairness。' : '';
+      !compareFairness && p.fairness !== undefined ? 'Verification options have no fairness floors, so the plan\'s own fairness was not compared. ' : '';
     const recomputed =
-      `${fairnessSkipped}重算：G = ${G}，L = ${L}，N = ${N}，|R0| = ${R0.length}，|R1| = ${R1.length}，成本 ${money(totalUsd)}（固定 ${money(fixedUsd)} + 边际 ${money(marginalUsd)}），` +
-      `撤回 ${revocations.length} 条，受损失影响 ${lost.length} 对`;
+      `${fairnessSkipped}Recomputed: G = ${G}, L = ${L}, N = ${N}, |R0| = ${R0.length}, |R1| = ${R1.length}, cost ${money(totalUsd)} (fixed ${money(fixedUsd)} + marginal ${money(marginalUsd)}), ` +
+      `${revocations.length} revoked, ${plural(lost.length, 'pair')} lost`;
     if (fields.length === 0) {
-      checks.push(check('metrics', true, `plan 未携带${p.fairness !== undefined ? '需比较的' : ''}指标，仅重算。${recomputed}。`));
+      checks.push(check('metrics', true, `The plan carries no metrics${p.fairness !== undefined ? ' to compare' : ''}; recomputed only. ${recomputed}.`));
     } else {
       const problems: string[] = [];
       const show = (k: string) => {
@@ -1223,24 +1223,24 @@ export function verifyAndMeasure(
       const cmpPairs = (name: 'R0' | 'R1' | 'lost_pairs', truth: CoveragePair[]) => {
         if (p[name] === undefined) return;
         if (!Array.isArray(p[name])) {
-          problems.push(`${name} 不是数组`);
+          problems.push(`${name} is not an array`);
           return;
         }
         const keys: string[] = [];
         for (const x of p[name] as unknown[]) {
           if (!isObj(x) || !isStr(x.student_id) || !isStr(x.opportunity_id)) {
-            problems.push(`${name} 中有格式不对的条目`);
+            problems.push(`${name} has malformed entries`);
             return;
           }
           keys.push(pairKey(x.student_id, x.opportunity_id));
         }
         const set = new Set(keys);
-        if (set.size !== keys.length) problems.push(`${name} 中有重复的对`);
+        if (set.size !== keys.length) problems.push(`${name} has duplicate pairs`);
         const truthKeys = new Set(truth.map((t) => pairKey(t.student_id, t.opportunity_id)));
         const extra = [...set].filter((k) => !truthKeys.has(k));
         const missing = [...truthKeys].filter((k) => !set.has(k));
-        if (extra.length > 0) problems.push(`${name} 多出了重算不可达 / 不属于该集合的对：${extra.map(show).join('、')}`);
-        if (missing.length > 0) problems.push(`${name} 缺少重算应包含的对：${missing.map(show).join('、')}`);
+        if (extra.length > 0) problems.push(`${name} has extra pairs that are unreachable on recomputation or do not belong to the set: ${extra.map(show).join(', ')}`);
+        if (missing.length > 0) problems.push(`${name} is missing pairs the recomputation includes: ${missing.map(show).join(', ')}`);
       };
       cmpPairs('R0', R0);
       cmpPairs('R1', R1);
@@ -1252,7 +1252,7 @@ export function verifyAndMeasure(
       ] as const) {
         if (p[name] === undefined) continue;
         if (!isFiniteNum(p[name]) || !approxEq(p[name] as number, truth)) {
-          problems.push(`${name} 自带 ${String(p[name])}，重算为 ${truth}`);
+          problems.push(`${name} reported ${String(p[name])}, recomputed ${truth}`);
         }
       }
       if (p.cost !== undefined) {
@@ -1263,68 +1263,68 @@ export function verifyAndMeasure(
           ['total_usd', totalUsd],
         ] as const) {
           if (!isFiniteNum(c[name]) || !approxEq(c[name] as number, truth)) {
-            problems.push(`cost.${name} 自带 ${String(c[name])}，重算为 ${money(truth)}`);
+            problems.push(`cost.${name} reported ${String(c[name])}, recomputed ${money(truth)}`);
           }
         }
       }
       if (p.revocations !== undefined) {
-        if (!Array.isArray(p.revocations)) problems.push('revocations 不是数组');
+        if (!Array.isArray(p.revocations)) problems.push('revocations is not an array');
         else {
           const truthById = new Map(revocations.map((r) => [r.grant_id, r]));
           const seen = new Set<string>();
           for (const x of p.revocations as unknown[]) {
             if (!isObj(x) || !isStr(x.grant_id)) {
-              problems.push('revocations 中有格式不对的条目');
+              problems.push('revocations has malformed entries');
               continue;
             }
             if (seen.has(x.grant_id)) {
-              problems.push(`revocations 中 grant_id ${q(x.grant_id)} 重复`);
+              problems.push(`revocations: grant_id ${q(x.grant_id)} is duplicated`);
               continue;
             }
             seen.add(x.grant_id);
             const t = truthById.get(x.grant_id);
             if (!t) {
-              problems.push(`revocations 多出了重算中没有撤回的 ${q(x.grant_id)}`);
+              problems.push(`revocations has extra ${q(x.grant_id)}, which the recomputation did not revoke`);
               continue;
             }
             for (const f of ['intervention_id', 'student_id', 'forced_by'] as const) {
-              if (x[f] !== t[f]) problems.push(`revocations 中 ${q(x.grant_id)} 的 ${f} 自带 ${String(x[f])}，重算为 ${String(t[f])}`);
+              if (x[f] !== t[f]) problems.push(`revocations: ${q(x.grant_id)} ${f} reported ${String(x[f])}, recomputed ${String(t[f])}`);
             }
           }
           const missing = revocations.filter((r) => !seen.has(r.grant_id)).map((r) => q(r.grant_id));
-          if (missing.length > 0) problems.push(`revocations 缺少重算中撤回的 ${missing.join('、')}`);
+          if (missing.length > 0) problems.push(`revocations is missing ${missing.join(', ')}, which the recomputation revoked`);
         }
       }
       if (p.fairness !== undefined && compareFairness) {
         if (fairness === null) {
-          problems.push('fairness_floors 不是数组，无法比较 plan 自带的 fairness');
+          problems.push('fairness_floors is not an array, so the plan\'s own fairness cannot be compared');
         } else if (!Array.isArray(p.fairness)) {
-          problems.push('fairness 不是数组');
+          problems.push('fairness is not an array');
         } else if (p.fairness.length !== fairness.length) {
-          problems.push(`fairness 自带 ${p.fairness.length} 条，重算 ${fairness.length} 条`);
+          problems.push(`fairness reported ${plural(p.fairness.length, 'entry', 'entries')}, recomputed ${fairness.length}`);
         } else {
           fairness.forEach((t, k) => {
             const x = (p.fairness as unknown[])[k];
             if (!isObj(x)) {
-              problems.push(`fairness[${k}] 格式不对`);
+              problems.push(`fairness[${k}] is malformed`);
               return;
             }
             for (const f of ['floor_id', 'eligible_members', 'covered_members', 'satisfied'] as const) {
-              if (x[f] !== t[f]) problems.push(`fairness[${k}].${f} 自带 ${String(x[f])}，重算为 ${String(t[f])}`);
+              if (x[f] !== t[f]) problems.push(`fairness[${k}].${f} reported ${String(x[f])}, recomputed ${String(t[f])}`);
             }
             const ratioOk =
               t.ratio === null ? x.ratio === null : isFiniteNum(x.ratio) && Math.abs(x.ratio - t.ratio) <= EPS;
-            if (!ratioOk) problems.push(`fairness[${k}].ratio 自带 ${String(x.ratio)}，重算为 ${String(t.ratio)}`);
+            if (!ratioOk) problems.push(`fairness[${k}].ratio reported ${String(x.ratio)}, recomputed ${String(t.ratio)}`);
             if (!isFiniteNum(x.min_ratio) || !(Math.abs(x.min_ratio - t.min_ratio) <= EPS)) {
-              problems.push(`fairness[${k}].min_ratio 自带 ${String(x.min_ratio)}，应为 ${String(t.min_ratio)}`);
+              problems.push(`fairness[${k}].min_ratio reported ${String(x.min_ratio)}, should be ${String(t.min_ratio)}`);
             }
           });
         }
       }
       checks.push(
         problems.length === 0
-          ? check('metrics', true, `plan 自带的 ${fields.join(' / ')} 与重算一致。${recomputed}。`)
-          : check('metrics', false, `plan 自带的指标与重算不一致：${list(problems)}。${recomputed}。`),
+          ? check('metrics', true, `The plan's own ${fields.join(' / ')} match the recomputation. ${recomputed}.`)
+          : check('metrics', false, `The plan's own metrics do not match the recomputation: ${list(problems)}. ${recomputed}.`),
       );
     }
   }

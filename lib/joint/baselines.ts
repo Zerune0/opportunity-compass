@@ -34,6 +34,7 @@ import type {
   VerifyResult,
 } from '../types';
 import { solveJoint } from './solve';
+import { plural } from '../format';
 import { createJointEvaluator, verifyAndMeasure } from './verify';
 import type { JointEvaluator, RecomputedMetrics } from './verify';
 
@@ -45,31 +46,31 @@ const pairKey = (s: string, o: string) => JSON.stringify([s, o]);
 const SOFT_CHECKS = new Set(['organizer_requirements', 'fairness']);
 
 export const BASELINE_LABELS = {
-  A_eligibility_only: '基础资格筛选',
-  B_student_side: '学生端约束规划器',
-  C_organizer_side: '机构端干预规划器',
-  joint: '联合求解',
+  A_eligibility_only: 'Eligibility filter only',
+  B_student_side: 'Student-side planner',
+  C_organizer_side: 'Organizer-side planner',
+  joint: 'Joint solver',
 } as const;
 
 export const BASELINE_DESCRIPTIONS = {
   A_eligibility_only:
-    '只判断学生是否满足官方资格条件，不安排行动，也不分配共享资源；它会把「符合资格」当作「能参加」，缺设备、交通等现实条件的学生也被算进去。',
+    'Only checks official eligibility. It plans no actions and allocates no shared resources, so it treats "eligible" as "able to attend" and counts students who lack a device, transport or other real-world conditions.',
   B_student_side:
-    '为每个学生单独规划需要哪些支持措施，能找到让这个学生走得通的组合；但每个学生都假设资源全归自己，不协调名额、预算与互斥关系。按规则它不会收回任何已有资源（与求解模式无关），所以在权衡模式下它与联合求解的差距，有一部分来自这一点。',
+    'Plans support measures for each student separately and can find a combination that works for that student, but assumes every resource belongs to that student alone and does not coordinate capacity, budget or mutual exclusions. By rule it never revokes an existing resource (in any mode), so part of its gap to the joint solver in trade-off mode comes from this.',
   C_organizer_side:
-    '按障碍类型分配措施的名额与预算，遵守名额和预算；但不联合计算学生的资格、准备路线和其他条件，化解一种障碍不等于学生就能参加。按规则它不会收回任何已有资源（与求解模式无关），所以在权衡模式下它与联合求解的差距，有一部分来自这一点。',
+    'Allocates measure capacity and budget by barrier type and respects capacity and budget, but does not jointly check eligibility, preparation routes or other conditions. Removing one barrier does not mean the student can attend. By rule it never revokes an existing resource (in any mode), so part of its gap to the joint solver in trade-off mode comes from this.',
   joint:
-    '同时考虑学生的资格、现实障碍与主办方的名额、预算、互斥、前置依赖和损失底线，在这些约束下求覆盖净变化最大的方案。',
+    'Considers student eligibility and real-world barriers together with the organizer\'s capacity, budget, mutual exclusions, prerequisites and loss cap, and finds the plan with the largest net change in coverage under those constraints.',
 } as const;
 
 export const BASELINE_NOTES = {
-  same_inputs: '所有行使用相同的场景、预算、名额、规则与复核器。',
-  d_missing: '说明书中的基线 D（充分协调的分离式规划器）未实现。',
-  simulation: '全部为模拟结果，基于示例数据，不代表真实影响；可达不等于录取。',
-  ordering: '基线的顺序规则（按编号升序、先到先得）是确定性的简化，不代表任何真实系统，也不代表谁更需要。',
-  search_limit: '联合求解达到搜索上限，未证明最优。',
-  infeasible: '联合求解在当前要求下无解，表中为空方案，放松后的替代方案见求解结果。',
-  unsupported: '输入不合法或内部复核未通过，未做基线对比。',
+  same_inputs: 'All rows use the same scenario, budget, capacity, rules and verifier.',
+  d_missing: 'Baseline D from the spec (a fully coordinated separate planner) is not implemented.',
+  simulation: 'All results are simulated from sample data. They do not represent real-world impact. Reachable does not mean admitted.',
+  ordering: 'The baselines\' ordering rule (ascending id, first come first served) is a deterministic simplification. It does not represent any real system or who needs help more.',
+  search_limit: 'The joint solver hit its search limit; optimality is not proven.',
+  infeasible: 'The joint solver found no solution under the current requirements. The table shows an empty plan; see the solver result for relaxed alternatives.',
+  unsupported: 'Invalid input or internal verification failed; no baseline comparison was run.',
 } as const;
 
 type Pair = { s: string; o: string };
@@ -198,7 +199,7 @@ function rowOf(
 }
 
 function truncationNote(kept: number, skipped: number): string {
-  return `按（学生编号, 机会编号）升序先到先得截断：保留 ${kept} 个对，跳过 ${skipped} 个对；这是模拟中的确定性规则，不代表谁更需要。`;
+  return `Truncated first come first served by ascending (student id, opportunity id): kept ${plural(kept, 'pair')}, skipped ${plural(skipped, 'pair')}. This is a deterministic rule in the simulation and does not represent who needs help more.`;
 }
 
 /** 先到先得截断：按 units 顺序逐个加入，加入后不可执行则跳过。 */

@@ -72,11 +72,11 @@ describe('requiredPrepClosure / 必需准备口径一致', () => {
     const plan = planRoutes(STUDENT, opp, TODAY);
     expect(plan.status).toBe('routes');
     if (plan.status !== 'routes') return;
-    const texts = plan.routes.flatMap((r) => r.warnings).filter((w) => w.includes('只做申请必需项'));
+    const texts = plan.routes.flatMap((r) => r.warnings).filter((w) => w.includes('Doing only the required items'));
     expect(texts.length).toBeGreaterThan(0);
-    for (const w of texts) expect(w).toContain(`需要 ${fmt(H)} 小时`);
+    for (const w of texts) expect(w).toContain(`needs ${fmt(H)} hours`);
     const r = analyzeReachability(STUDENT, opp, [], TODAY);
-    expect(r.barriers.find((b) => b.type === 'time')?.description).toContain(`约 ${fmt(H)} 小时`);
+    expect(r.barriers.find((b) => b.type === 'time')?.description).toContain(`about ${fmt(H)} hours`);
   });
 
   it('前置项已有证据覆盖 → 不计入，也不再往前追', () => {

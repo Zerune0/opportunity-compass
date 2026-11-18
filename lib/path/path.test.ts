@@ -174,7 +174,7 @@ describe('planRoutes：硬性资格不满足', () => {
     const unknownOpp = { ...OPP, recurring_annually: null };
     const r1 = planRoutes({ ...STUDENT, grade: 8 }, unknownOpp);
     if (r1.status !== 'blocked') throw new Error('expected blocked');
-    expect(r1.alternatives.find((a) => a.kind === 'next_cycle')?.text).toContain('是否每年举办请向官方确认');
+    expect(r1.alternatives.find((a) => a.kind === 'next_cycle')?.text).toContain('Confirm with the organizer whether it runs every year');
 
     const r2 = planRoutes({ ...STUDENT, grade: 8 }, { ...OPP, recurring_annually: false });
     if (r2.status !== 'blocked') throw new Error('expected blocked');
@@ -200,7 +200,7 @@ describe('planRoutes：硬性资格不满足', () => {
     expect(r.routes).toEqual([]);
     if (r.status !== 'blocked') return;
     expect(r.reasons[0]).toContain('A project sample is required.');
-    expect(r.reasons[0]).toContain('重新规划');
+    expect(r.reasons[0]).toContain('you can plan again');
   });
 });
 
@@ -212,7 +212,7 @@ describe('planRoutes：生成路线', () => {
     expect(r.status).toBe('routes');
     if (r.status !== 'routes') return;
     expect(r.routes.length).toBeGreaterThanOrEqual(2);
-    expect(r.warnings.some((w) => w.includes('9–12 年级') && w.includes('向官方确认'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('9–12 年级') && w.includes('Confirm with the organizer'))).toBe(true);
   });
 
   it('资格 eligible → 无资格提醒；三条路线顺序固定、id 与标题正确', () => {
@@ -229,7 +229,7 @@ describe('planRoutes：生成路线', () => {
     for (const x of r.routes) {
       expect(x.title).not.toMatch(/mock/i);
       expect(x.rationale.length).toBeGreaterThan(0);
-      expect(x.rationale).not.toContain('录取');
+      expect(x.rationale).not.toContain('admit');
     }
   });
 
@@ -281,7 +281,7 @@ describe('planRoutes：生成路线', () => {
     }
     const partner = route(r, 'community').steps[0];
     expect(partner).toMatchObject({ id: 'find-partner', prep_item_id: null, hours: 2, cost_usd: 0, depends_on: [] });
-    expect(partner.description).toContain('估算');
+    expect(partner.description).toContain('estimate');
   });
 
   it('准备项步骤 id = prep_item_id = PrepItem.id，依赖取自 PrepItem', () => {
@@ -299,16 +299,16 @@ describe('planRoutes：生成路线', () => {
 
   it('超出预算 → warning 写出超出金额', () => {
     const r = planRoutes({ ...STUDENT, budget_usd: 20 }, OPP, { today: TODAY });
-    for (const x of routesOf(r)) expect(x.warnings).toContain('超出预算 $15（这条路线约需 $35，档案预算 $20）。');
+    for (const x of routesOf(r)) expect(x.warnings).toContain('Over budget by $15 (this route needs about $35; your profile budget is $20).');
     const ok = planRoutes(STUDENT, OPP, { today: TODAY });
-    for (const x of routesOf(ok)) expect(x.warnings.some((w) => w.startsWith('超出预算'))).toBe(false);
+    for (const x of routesOf(ok)) expect(x.warnings.some((w) => w.startsWith('Over budget'))).toBe(false);
   });
 
   it('报名费未写清 → 不计入费用并提醒', () => {
     const r = planRoutes(STUDENT, { ...OPP, cost: { fee_usd: null, requires_travel_expense: false } }, { today: TODAY });
     for (const x of routesOf(r)) {
       expect(x.total_cost_usd).toBe(10);
-      expect(x.warnings.some((w) => w.includes('报名费官网未写清'))).toBe(true);
+      expect(x.warnings.some((w) => w.includes('The application fee is not clear on the official site'))).toBe(true);
     }
   });
 
@@ -325,23 +325,23 @@ describe('planRoutes：生成路线', () => {
     const tight = route(planRoutes({ ...STUDENT, hours_per_week_available: 2 }, OPP, { today: TODAY }), 'learning_first');
     expect(tight.feasible_by_deadline).toBe(false);
     // 只做必需项：项目 20 + 其前置 Python 15 + 陈述 6 + 推荐信 2 = 43
-    expect(tight.warnings.some((w) => w.includes('来不及') && w.includes('43 小时'))).toBe(true);
+    expect(tight.warnings.some((w) => w.includes('may not make it') && w.includes('43 hours'))).toBe(true);
 
     const passed = route(planRoutes(STUDENT, OPP, { today: '2027-04-01' }), 'learning_first');
     expect(passed.feasible_by_deadline).toBe(false);
-    expect(passed.warnings.some((w) => w.includes('已过'))).toBe(true);
+    expect(passed.warnings.some((w) => w.includes('has passed'))).toBe(true);
 
     const noToday = route(planRoutes(STUDENT, OPP), 'learning_first');
     expect(noToday.feasible_by_deadline).toBeNull();
-    expect(noToday.warnings.some((w) => w.includes('今天的日期'))).toBe(true);
+    expect(noToday.warnings.some((w) => w.includes("today's date"))).toBe(true);
 
     const noDeadline = route(planRoutes(STUDENT, { ...OPP, deadline: null }, { today: TODAY }), 'learning_first');
     expect(noDeadline.feasible_by_deadline).toBeNull();
-    expect(noDeadline.warnings.some((w) => w.includes('截止日期'))).toBe(true);
+    expect(noDeadline.warnings.some((w) => w.includes('gives no deadline'))).toBe(true);
 
     const noHours = route(planRoutes({ ...STUDENT, hours_per_week_available: null }, OPP, { today: TODAY }), 'learning_first');
     expect(noHours.feasible_by_deadline).toBeNull();
-    expect(noHours.warnings.some((w) => w.includes('每周可用小时'))).toBe(true);
+    expect(noHours.warnings.some((w) => w.includes('weekly available hours'))).toBe(true);
   });
 
   it('加一条作品证据：对应步骤被跳过、保留在列表、合计减少', () => {
@@ -350,7 +350,7 @@ describe('planRoutes：生成路线', () => {
     for (const type of ['learning_first', 'practice_first', 'community'] as const) {
       const step = route(after, type).steps.find((s) => s.id === 'prep-project')!;
       expect(step.skipped).toBe(true);
-      expect(step.skip_reason).toContain('《气候数据小项目（虚构）》');
+      expect(step.skip_reason).toContain('"气候数据小项目（虚构）"');
       expect(step.satisfied_by_evidence_ids).toEqual(['ev-project']);
       expect(step.hours).toBe(20);
       expect(route(after, type).total_hours).toBe(route(before, type).total_hours - 20);
@@ -398,10 +398,10 @@ describe('planRoutes：坏数据不抛错', () => {
     };
     const r = planRoutes(STUDENT, opp);
     if (r.status !== 'routes') throw new Error('expected routes');
-    expect(r.warnings.some((w) => w.includes('成环'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('in a loop'))).toBe(true);
     const lf = route(r, 'learning_first');
     expect(ids(lf)).toEqual(['free', 'p', 'q', 'submit-application']);
-    expect(lf.warnings.some((w) => w.includes('成环'))).toBe(true);
+    expect(lf.warnings.some((w) => w.includes('in a loop'))).toBe(true);
     expect(lf.total_hours).toBe(3);
   });
 
@@ -411,7 +411,7 @@ describe('planRoutes：坏数据不抛错', () => {
     expect(r.routes.map((x) => x.type)).toEqual(['learning_first', 'community']);
     expect(ids(route(r, 'learning_first'))).toEqual(['submit-application']);
     expect(ids(route(r, 'community'))).toEqual(['find-partner', 'submit-application']);
-    expect(r.warnings.some((w) => w.includes('没有列出准备项'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('lists no prep items'))).toBe(true);
   });
 });
 
@@ -463,10 +463,22 @@ describe('diffRoutes', () => {
     }
     const skipReason = d.reasons.find((r) => r.includes('做一个气候数据小项目'));
     expect(skipReason).toBeDefined();
-    expect(skipReason).toContain('《气候数据小项目（虚构）》');
-    expect(skipReason).toContain('20 小时');
+    expect(skipReason).toContain('"气候数据小项目（虚构）"');
+    expect(skipReason).toContain('20 hours');
+    expect(skipReason).toContain('The Learning first, Practice first and Community routes are each 20 hours shorter and cost $10 less.');
+    expect(skipReason).not.toContain('(s)');
     // 三条路线的同一变化合并成一句
     expect(d.reasons.filter((r) => r.includes('做一个气候数据小项目'))).toHaveLength(1);
+  });
+
+  it('只有一条路线跳过步骤时，原因用单数句式', () => {
+    const before = planRoutes(STUDENT, OPP, { today: TODAY });
+    const full = planRoutes({ ...STUDENT, evidence: [PROJECT_EVIDENCE] }, OPP, { today: TODAY });
+    if (before.status !== 'routes' || full.status !== 'routes') throw new Error('expected routes');
+    const after: PlanResult = { ...full, routes: full.routes.map((r) => (r.type === 'learning_first' ? r : before.routes.find((x) => x.type === r.type)!)) };
+    const d = diffRoutes(before, after);
+    const skipReason = d.reasons.find((r) => r.includes('做一个气候数据小项目'));
+    expect(skipReason).toContain('The Learning first route is 20 hours shorter and costs $10 less.');
   });
 
   it('删除证据 → 步骤不再跳过，说明原因', () => {
@@ -475,7 +487,10 @@ describe('diffRoutes', () => {
     const d = diffRoutes(withEv, without);
     expect(d.route_changes[0].unskipped_steps.map((s) => s.step_id)).toEqual(['prep-project']);
     expect(d.route_changes[0].hours_delta).toBe(20);
-    expect(d.reasons.some((r) => r.includes('不再被跳过'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes('is no longer skipped'))).toBe(true);
+    const unskip = d.reasons.find((r) => r.includes('is no longer skipped'));
+    expect(unskip).toContain('before, it was already covered by "气候数据小项目（虚构）";');
+    expect(unskip).toContain('The Learning first, Practice first and Community routes are each 20 hours longer and cost $10 more.');
   });
 
   it('无变化 → 全部 unchanged，只有一条「没有变化」', () => {
@@ -483,7 +498,7 @@ describe('diffRoutes', () => {
     const d = diffRoutes(p, planRoutes(STUDENT, OPP, { today: TODAY }));
     expect(d.status_change).toBeNull();
     expect(d.route_changes.every((c) => c.change === 'unchanged')).toBe(true);
-    expect(d.reasons).toEqual(['两次规划没有变化。']);
+    expect(d.reasons).toEqual(['Nothing changed between the two plans.']);
   });
 
   it('blocked → routes：状态变化并引用之前的阻断原因', () => {
@@ -494,7 +509,7 @@ describe('diffRoutes', () => {
     expect(d.route_changes.every((c) => c.change === 'added')).toBe(true);
     expect(d.route_changes.every((c) => c.hours_delta === null && c.hours_before === null)).toBe(true);
     expect(d.reasons[0]).toContain('9–12 年级');
-    expect(d.reasons[0]).toContain('3 条路线');
+    expect(d.reasons[0]).toContain('so here are 3 routes.');
   });
 
   it('routes → blocked：状态变化并引用现在的阻断原因', () => {
@@ -518,12 +533,12 @@ describe('diffRoutes', () => {
     const after = planRoutes(covered, OPP, { today: TODAY });
     const d = diffRoutes(before, after);
     expect(d.route_changes.find((c) => c.route_type === 'practice_first')?.change).toBe('removed');
-    expect(d.reasons.some((r) => r.includes('实践优先路线不再出现'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes('The Practice first route is gone'))).toBe(true);
     expect(d.reasons.some((r) => r.includes('个人作品集（虚构）'))).toBe(true);
 
     const back = diffRoutes(after, before);
     expect(back.route_changes.find((c) => c.route_type === 'practice_first')?.change).toBe('added');
-    expect(back.reasons.some((r) => r.includes('新出现实践优先路线'))).toBe(true);
+    expect(back.reasons.some((r) => r.includes('New Practice first route'))).toBe(true);
   });
 
   it('可用小时变化 → 是否来得及的变化有原因', () => {
@@ -532,14 +547,14 @@ describe('diffRoutes', () => {
     const d = diffRoutes(before, after);
     const lf = d.route_changes[0];
     expect(lf).toMatchObject({ change: 'changed', feasible_before: false, feasible_after: true, hours_delta: 0 });
-    expect(d.reasons.some((r) => r.includes('能否在截止日期前完成') && r.includes('每周可用小时'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes('finishing before the deadline changed') && r.includes('weekly hours'))).toBe(true);
   });
 
   it('比较对象不一致 → 不抛错并注明', () => {
     const a = planRoutes(STUDENT, OPP, { today: TODAY });
     const b = planRoutes({ ...STUDENT, id: 'other-student' }, NO_PRACTICE_OPP, { today: TODAY });
     const d = diffRoutes(a, b);
-    expect(d.reasons[0]).toContain('不是同一个');
+    expect(d.reasons[0]).toContain('the two plans are for a different');
     expect(d.route_changes.find((c) => c.route_type === 'practice_first')?.change).toBe('removed');
   });
 
@@ -548,7 +563,7 @@ describe('diffRoutes', () => {
     const d = diffRoutes(p, p);
     expect(d.status_change).toBeNull();
     expect(d.route_changes).toEqual([]);
-    expect(d.reasons).toEqual(['两次规划没有变化。']);
+    expect(d.reasons).toEqual(['Nothing changed between the two plans.']);
   });
 });
 
@@ -570,26 +585,26 @@ describe('M-a：截止日已过时与每周可用小时无关', () => {
     const r = planRoutes({ ...STUDENT, hours_per_week_available: hpw }, OPP, { today: '2027-04-01' });
     for (const x of routesOf(r)) {
       expect(x.feasible_by_deadline).toBe(false);
-      expect(x.warnings.some((w) => w.includes('截止日期 2027-03-01 已过'))).toBe(true);
-      expect(x.warnings.some((w) => w.includes('暂时无法判断'))).toBe(false);
+      expect(x.warnings.some((w) => w.includes('The deadline 2027-03-01 has passed'))).toBe(true);
+      expect(x.warnings.some((w) => w.includes("We can't tell yet"))).toBe(false);
     }
   });
 
   it('截止日当天（还剩 0 天）：按现有实现按 1 天的容量算，61 小时 → false，不算「已过」', () => {
     const lf = route(planRoutes(STUDENT, OPP, { today: '2027-03-01' }), 'learning_first');
     expect(lf.feasible_by_deadline).toBe(false);
-    expect(lf.warnings.some((w) => w.includes('还剩 0 天'))).toBe(true);
-    expect(lf.warnings.some((w) => w.includes('已过'))).toBe(false);
+    expect(lf.warnings.some((w) => w.includes('0 days left'))).toBe(true);
+    expect(lf.warnings.some((w) => w.includes('has passed'))).toBe(false);
   });
 
   it('deadline 或 today 格式无法识别 → null 并说明原因', () => {
     const badDeadline = route(planRoutes(STUDENT, { ...OPP, deadline: '2027/03/01' }, { today: TODAY }), 'learning_first');
     expect(badDeadline.feasible_by_deadline).toBeNull();
-    expect(badDeadline.warnings.some((w) => w.includes('截止日期格式无法识别'))).toBe(true);
+    expect(badDeadline.warnings.some((w) => w.includes("the deadline date format can't be read"))).toBe(true);
 
     const badToday = route(planRoutes(STUDENT, OPP, { today: '17-11-2026' }), 'learning_first');
     expect(badToday.feasible_by_deadline).toBeNull();
-    expect(badToday.warnings.some((w) => w.includes('今天的日期格式无法识别'))).toBe(true);
+    expect(badToday.warnings.some((w) => w.includes("today's date format can't be read"))).toBe(true);
   });
 });
 
@@ -599,7 +614,7 @@ describe('M-b：只做必需项的小时数不计已跳过必需项的前置', (
     for (const x of routesOf(r)) {
       // 学习优先 / 实践优先 41 小时、社区协作 43 小时 > 2 × 104 / 7 ≈ 29.7
       expect(x.feasible_by_deadline).toBe(false);
-      expect(x.warnings.some((w) => w.includes('只做申请必需项（含它们的前置步骤）需要 8 小时'))).toBe(true);
+      expect(x.warnings.some((w) => w.includes('Doing only the required items (and the steps they depend on) needs 8 hours'))).toBe(true);
     }
   });
 });
@@ -615,11 +630,11 @@ describe('建议 3 / 4：自依赖与成环', () => {
     };
     const r = planRoutes(STUDENT, opp);
     if (r.status !== 'routes') throw new Error('expected routes');
-    expect(r.warnings.some((w) => w.includes('步骤 X') && w.includes('把自己列为依赖'))).toBe(true);
-    expect(r.warnings.some((w) => w.includes('成环'))).toBe(false);
+    expect(r.warnings.some((w) => w.includes('步骤 X') && w.includes('lists itself as a dependency'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('in a loop'))).toBe(false);
     for (const x of r.routes) {
       expect(x.steps.find((s) => s.id === 'x')!.depends_on).toEqual([]);
-      expect(x.warnings.some((w) => w.includes('成环'))).toBe(false);
+      expect(x.warnings.some((w) => w.includes('in a loop'))).toBe(false);
       assertTopological(x);
     }
   });
@@ -637,7 +652,7 @@ describe('建议 3 / 4：自依赖与成环', () => {
     const opp: Opportunity = { ...OPP, preparation: order.map((id) => defs[id]) };
     const r = planRoutes(STUDENT, opp);
     if (r.status !== 'routes') throw new Error('expected routes');
-    expect(r.warnings.some((w) => w.includes('成环'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('in a loop'))).toBe(true);
     for (const x of r.routes) {
       const pos = new Map(x.steps.map((s, i) => [s.id, i]));
       expect(pos.get('u')!).toBeLessThan(pos.get('t')!);
@@ -652,35 +667,35 @@ describe('建议 3 / 4：自依赖与成环', () => {
 describe('建议 5：每周可用小时 / 预算数值无效', () => {
   it('每周可用小时没填 vs 填了 0 / 负数：文案不同', () => {
     const missing = route(planRoutes({ ...STUDENT, hours_per_week_available: null }, OPP, { today: TODAY }), 'learning_first');
-    expect(missing.warnings.some((w) => w.includes('还没有填每周可用小时数'))).toBe(true);
+    expect(missing.warnings.some((w) => w.includes('your profile has no weekly available hours yet'))).toBe(true);
 
     for (const bad of [0, -3]) {
       const r = planRoutes({ ...STUDENT, hours_per_week_available: bad }, OPP, { today: TODAY });
       if (r.status !== 'routes') throw new Error('expected routes');
-      expect(r.warnings.some((w) => w.includes('每周可用小时数无效（需大于 0）'))).toBe(true);
+      expect(r.warnings.some((w) => w.includes('weekly available hours in your profile are invalid (must be more than 0)'))).toBe(true);
       const lf = route(r, 'learning_first');
       expect(lf.feasible_by_deadline).toBeNull();
       expect(lf.estimated_weeks).toBeNull();
-      expect(lf.warnings.some((w) => w.includes('每周可用小时数无效（需大于 0）'))).toBe(true);
-      expect(lf.warnings.some((w) => w.includes('还没有填'))).toBe(false);
+      expect(lf.warnings.some((w) => w.includes('weekly available hours in your profile are invalid (must be more than 0)'))).toBe(true);
+      expect(lf.warnings.some((w) => w.includes('has no weekly available hours yet'))).toBe(false);
     }
   });
 
   it('预算为负数 → 不显示负预算、不产生超预算提醒，改为提醒预算无效', () => {
     const r = planRoutes({ ...STUDENT, budget_usd: -5 }, OPP, { today: TODAY });
     if (r.status !== 'routes') throw new Error('expected routes');
-    expect(r.warnings.some((w) => w.includes('预算数值无效'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('The budget in your profile is invalid'))).toBe(true);
     for (const x of r.routes) {
-      expect(x.warnings.some((w) => w.startsWith('超出预算'))).toBe(false);
+      expect(x.warnings.some((w) => w.startsWith('Over budget'))).toBe(false);
       expect(x.warnings.join('')).not.toContain('$-5');
     }
     // 没填预算 → 不提醒
     const none = planRoutes({ ...STUDENT, budget_usd: null }, OPP, { today: TODAY });
     if (none.status !== 'routes') throw new Error('expected routes');
-    expect(none.warnings.some((w) => w.includes('预算'))).toBe(false);
+    expect(none.warnings.some((w) => w.toLowerCase().includes('budget'))).toBe(false);
     // 预算 0 是有效值 → 正常比较
     for (const x of routesOf(planRoutes({ ...STUDENT, budget_usd: 0 }, OPP, { today: TODAY }))) {
-      expect(x.warnings.some((w) => w.startsWith('超出预算 $35'))).toBe(true);
+      expect(x.warnings.some((w) => w.startsWith('Over budget by $35'))).toBe(true);
     }
   });
 });
@@ -706,7 +721,7 @@ describe('建议 7：资格分支', () => {
     expect(r.status).toBe('routes');
     if (r.status !== 'routes') return;
     expect(r.routes.length).toBeGreaterThanOrEqual(2);
-    expect(r.warnings.some((w) => w.includes('加分项「优先 12 年级」'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('Bonus item "优先 12 年级"'))).toBe(true);
   });
 });
 
@@ -715,24 +730,24 @@ describe('diffRoutes：评审修复', () => {
     const unknownFee = planRoutes(STUDENT, { ...OPP, cost: { fee_usd: null, requires_travel_expense: false } }, { today: TODAY });
     const known = planRoutes(STUDENT, OPP, { today: TODAY });
     const d = diffRoutes(unknownFee, known);
-    expect(d.reasons.some((r) => r.includes('报名费从官网未写清变为 $25'))).toBe(true);
-    expect(d.reasons.join('')).not.toContain('从 $0 变为');
-    expect(d.reasons.filter((r) => r.includes('报名费'))).toHaveLength(1);
+    expect(d.reasons.some((r) => r.includes('application fee changed from not clear on the official site to $25'))).toBe(true);
+    expect(d.reasons.join('')).not.toContain('from $0 to');
+    expect(d.reasons.filter((r) => r.includes('application fee'))).toHaveLength(1);
 
     const back = diffRoutes(known, unknownFee);
-    expect(back.reasons.some((r) => r.includes('报名费从 $25 变为官网未写清'))).toBe(true);
-    expect(back.reasons.join('')).not.toContain('变为 $0');
+    expect(back.reasons.some((r) => r.includes('application fee changed from $25 to not clear on the official site'))).toBe(true);
+    expect(back.reasons.join('')).not.toContain('to $0');
 
     // 有数字 → 有数字：仍按金额说明
     const d2 = diffRoutes(known, planRoutes(STUDENT, { ...OPP, cost: { fee_usd: 40, requires_travel_expense: false } }, { today: TODAY }));
-    expect(d2.reasons.some((r) => r.includes('报名费从 $25 变为 $40'))).toBe(true);
+    expect(d2.reasons.some((r) => r.includes('application fee changed from $25 to $40'))).toBe(true);
   });
 
   it('报名费从未写清变为 $0 也能说明', () => {
     const unknownFee = planRoutes(STUDENT, { ...OPP, cost: { fee_usd: null, requires_travel_expense: false } }, { today: TODAY });
     const free = planRoutes(STUDENT, { ...OPP, cost: { fee_usd: 0, requires_travel_expense: false } }, { today: TODAY });
     const d = diffRoutes(unknownFee, free);
-    expect(d.reasons.some((r) => r.includes('报名费从官网未写清变为 $0'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes('application fee changed from not clear on the official site to $0'))).toBe(true);
   });
 
   it('blocked → blocked 只有替代提示变化 → 不说没有变化，说明 next_cycle 消失', () => {
@@ -740,14 +755,14 @@ describe('diffRoutes：评审修复', () => {
     const after = planRoutes({ ...STUDENT, grade: 8 }, { ...OPP, recurring_annually: false }, { today: TODAY });
     const d = diffRoutes(before, after);
     expect(d.status_change).toBeNull();
-    expect(d.reasons).not.toContain('两次规划没有变化。');
-    expect(d.reasons.some((r) => r.includes('关注下一届') && r.includes('不再出现'))).toBe(true);
+    expect(d.reasons).not.toContain('Nothing changed between the two plans.');
+    expect(d.reasons.some((r) => r.includes('Watch for the next round') && r.includes('is gone'))).toBe(true);
 
     const back = diffRoutes(after, before);
-    expect(back.reasons.some((r) => r.includes('新增替代提示「关注下一届」'))).toBe(true);
+    expect(back.reasons.some((r) => r.includes('New alternative "Watch for the next round"'))).toBe(true);
 
     const unknownRecurring = planRoutes({ ...STUDENT, grade: 8 }, { ...OPP, recurring_annually: null }, { today: TODAY });
-    expect(diffRoutes(before, unknownRecurring).reasons.some((r) => r.includes('替代提示「关注下一届」有更新'))).toBe(true);
+    expect(diffRoutes(before, unknownRecurring).reasons.some((r) => r.includes('Alternative "Watch for the next round" was updated'))).toBe(true);
   });
 
   it('blocked → blocked：新增 / 解除一条阻断', () => {
@@ -755,10 +770,10 @@ describe('diffRoutes：评审修复', () => {
     const two = planRoutes({ ...STUDENT, grade: 8, region: { country: 'CA' } }, OPP, { today: TODAY });
     const d = diffRoutes(one, two);
     expect(d.status_change).toBeNull();
-    expect(d.reasons.some((r) => r.startsWith('新增阻断') && r.includes('Applicants must reside in the United States.'))).toBe(true);
+    expect(d.reasons.some((r) => r.startsWith('New blocker') && r.includes('Applicants must reside in the United States.'))).toBe(true);
 
     const back = diffRoutes(two, one);
-    expect(back.reasons.some((r) => r.includes('「美国居民」已不再阻断'))).toBe(true);
+    expect(back.reasons.some((r) => r.includes('"美国居民" no longer blocks you'))).toBe(true);
   });
 
   it('对象键顺序不同 → unchanged、没有变化', () => {
@@ -767,7 +782,7 @@ describe('diffRoutes：评审修复', () => {
     expect(JSON.stringify(shuffled)).not.toBe(JSON.stringify(p));
     const d = diffRoutes(p, shuffled);
     expect(d.route_changes.every((c) => c.change === 'unchanged')).toBe(true);
-    expect(d.reasons).toEqual(['两次规划没有变化。']);
+    expect(d.reasons).toEqual(['Nothing changed between the two plans.']);
   });
 
   it('只有说明文字变化（截止日期改了但可行性不变）→ 中性原因，不说「档案信息有变化」', () => {
@@ -775,15 +790,15 @@ describe('diffRoutes：评审修复', () => {
     const after = planRoutes(STUDENT, { ...OPP, deadline: '2027-03-02' }, { today: TODAY });
     const d = diffRoutes(before, after);
     expect(d.route_changes.every((c) => c.change === 'changed')).toBe(true);
-    expect(d.reasons.some((r) => r.includes('说明或提醒有更新'))).toBe(true);
-    expect(d.reasons.join('')).not.toContain('档案信息有变化');
+    expect(d.reasons.some((r) => r.includes('the explanation or notes were updated'))).toBe(true);
+    expect(d.reasons.join('')).not.toContain('profile info changed');
   });
 
   it('只有提醒文字变化 → 列出具体的提醒变化', () => {
     const before = planRoutes({ ...STUDENT, hours_per_week_available: null }, OPP, { today: TODAY });
     const after = planRoutes({ ...STUDENT, hours_per_week_available: 0 }, OPP, { today: TODAY });
     const d = diffRoutes(before, after);
-    expect(d.reasons.some((r) => r.includes('学习优先') && r.includes('新的提醒') && r.includes('无效（需大于 0）'))).toBe(true);
-    expect(d.reasons.some((r) => r.includes('不再出现') && r.includes('还没有填'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes('Learning first') && r.includes('new note') && r.includes('invalid (must be more than 0)'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes('is gone') && r.includes('has no weekly available hours yet'))).toBe(true);
   });
 });

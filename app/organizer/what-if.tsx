@@ -18,6 +18,7 @@ import {
   WHATIF_LABELS,
 } from "@/lib/joint/whatif";
 import type { WhatIfBaselineRow, WhatIfFairnessRow, WhatIfView } from "@/lib/joint/whatif";
+import { plural, pluralNoun } from "@/lib/format";
 import type { FairnessFloor, Intervention, JointStatus, Scenario, SupportType } from "@/lib/types";
 
 /** 交给客户端的一个演示场景（已匿名化；底线为示例）。 */
@@ -32,11 +33,11 @@ export interface ClientScenarioEntry {
 type Mode = "protect" | "tradeoff";
 
 const TYPE_ZH: Record<SupportType, string> = {
-  device: "借用设备",
-  transport_subsidy: "交通补助",
-  fee_waiver: "费用减免",
-  time_support: "时间支持",
-  alternative_access: "替代参与方式",
+  device: "Device loan",
+  transport_subsidy: "Transport stipend",
+  fee_waiver: "Fee waiver",
+  time_support: "Time support",
+  alternative_access: "Alternative way to take part",
 };
 
 /** null / 非有限数 → 「—」（没有评估出来的数字不显示 $0）。 */
@@ -62,19 +63,19 @@ function exclusiveWith(scenario: Scenario, iv: Intervention): string[] {
 function relationText(scenario: Scenario, iv: Intervention): string {
   const parts: string[] = [];
   if (iv.requires && iv.requires.length > 0) {
-    parts.push(`需要同时纳入${iv.requires.map((r) => `「${titleOf(scenario, r)}」`).join("、")}`);
+    parts.push(`Requires ${iv.requires.map((r) => `"${titleOf(scenario, r)}"`).join(", ")}`);
   }
   const ex = exclusiveWith(scenario, iv);
-  if (ex.length > 0) parts.push(`与${ex.map((r) => `「${titleOf(scenario, r)}」`).join("、")}互斥，不能同时启用`);
-  return parts.length > 0 ? parts.join("；") + "。" : "没有依赖或互斥关系。";
+  if (ex.length > 0) parts.push(`Mutually exclusive with ${ex.map((r) => `"${titleOf(scenario, r)}"`).join(", ")}; cannot be enabled together`);
+  return parts.length > 0 ? parts.join("; ") + "." : "No prerequisites or mutual exclusions.";
 }
 
 /** 预算输入：空 → 提示填写；不是有限非负数 → 提示；否则返回数值。 */
 function parseBudget(text: string): { value: number | null; error: string | null } {
   const t = text.trim();
-  if (t === "") return { value: null, error: "请填写预算（0 或以上的美元数）。" };
+  if (t === "") return { value: null, error: "Please enter a budget (US dollars, 0 or more)." };
   const x = Number(t);
-  if (!Number.isFinite(x) || x < 0) return { value: null, error: "预算需要是 0 或以上的有效数字。" };
+  if (!Number.isFinite(x) || x < 0) return { value: null, error: "The budget must be a valid number, 0 or more." };
   return { value: x, error: null };
 }
 
@@ -84,7 +85,7 @@ function parseMinGain(text: string): { value: number | null; error: string | nul
   if (t === "") return { value: null, error: null };
   const x = Number(t);
   if (!Number.isFinite(x) || x < 0 || !Number.isInteger(x)) {
-    return { value: null, error: "最低新增目标需要是 0 或以上的整数；留空表示不设目标。" };
+    return { value: null, error: "The minimum new coverage target must be a whole number, 0 or more; leave it blank for no target." };
   }
   return { value: x, error: null };
 }
@@ -93,18 +94,18 @@ function parseMinGain(text: string): { value: number | null; error: string | nul
 function parseLossCap(mode: Mode, text: string): { value: number | null; error: string | null } {
   if (mode !== "tradeoff") return { value: null, error: null };
   const t = text.trim();
-  if (t === "") return { value: null, error: "权衡模式需要填写损失上限（0 或以上的整数）；未填写时不计算。" };
+  if (t === "") return { value: null, error: "Trade-off mode needs a loss cap (a whole number, 0 or more); nothing is computed until it is filled in." };
   const x = Number(t);
-  if (!Number.isFinite(x) || x < 0 || !Number.isInteger(x)) return { value: null, error: "损失上限需要是 0 或以上的整数。" };
+  if (!Number.isFinite(x) || x < 0 || !Number.isInteger(x)) return { value: null, error: "The loss cap must be a whole number, 0 or more." };
   return { value: x, error: null };
 }
 
 /** 底线比例（百分比文本）：0–100 的数字 → 0–1。 */
 function parsePercent(text: string): { value: number | null; error: string | null } {
   const t = text.trim();
-  if (t === "") return { value: null, error: "请填写最低比例（0 到 100）。" };
+  if (t === "") return { value: null, error: "Please enter a minimum ratio (0 to 100)." };
   const x = Number(t);
-  if (!Number.isFinite(x) || x < 0 || x > 100) return { value: null, error: "最低比例需要是 0 到 100 之间的数字。" };
+  if (!Number.isFinite(x) || x < 0 || x > 100) return { value: null, error: "The minimum ratio must be a number from 0 to 100." };
   return { value: x / 100, error: null };
 }
 
@@ -122,19 +123,19 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
   const selectId = useId();
   const descId = useId();
   const entry = entries.find((e) => e.id === scenarioId) ?? entries[0];
-  if (!entry) return <p>没有可用的示例场景。</p>;
+  if (!entry) return <p>No sample scenarios available.</p>;
   return (
     <div className="space-y-6">
       <header className="space-y-3">
-        <h1 className="text-2xl font-bold">主办方 What-if</h1>
+        <h1 className="text-2xl font-bold">Organizer What-if</h1>
         <div role="note" className="space-y-1 rounded border-2 border-amber-600 bg-amber-50 p-3 text-amber-950">
-          <p className="font-semibold">注意：{WHATIF_LABELS.simulation}</p>
+          <p className="font-semibold">Note: {WHATIF_LABELS.simulation}</p>
           <p className="font-semibold">{WHATIF_LABELS.sample}</p>
-          <p className="text-sm">{WHATIF_LABELS.reachable_not_admission}。页面只显示汇总人数，不显示任何学生的个人信息。</p>
+          <p className="text-sm">{WHATIF_LABELS.reachable_not_admission}. This page shows only aggregate counts, never any student&apos;s personal information.</p>
         </div>
         <div className="space-y-1">
           <label htmlFor={selectId} className="block font-medium">
-            演示场景（示例）
+            Demo scenario (Sample)
           </label>
           <select
             id={selectId}
@@ -150,7 +151,7 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
             ))}
           </select>
           <p id={descId} className="text-sm text-gray-700">
-            {entry.description} 切换场景时，下面的设置会恢复为该场景的默认值。
+            {entry.description} Switching scenarios resets the settings below to that scenario&apos;s defaults.
           </p>
         </div>
       </header>
@@ -181,7 +182,7 @@ function ScenarioWhatIf({ scenario, floors }: { scenario: Scenario; floors: Fair
   const percents = Object.fromEntries(floors.map((f) => [f.id, parsePercent(percentText[f.id] ?? "")]));
   const percentErrors = floors
     .filter((f) => floorOn.includes(f.id) && percents[f.id].error !== null)
-    .map((f) => `「${f.label}」：${percents[f.id].error}`);
+    .map((f) => `"${f.label}": ${percents[f.id].error}`);
   const inputError = budget.error ?? minGain.error ?? lossCap.error ?? (percentErrors.length > 0 ? percentErrors.join(" ") : null);
 
   // 只为勾选的底线传比例覆盖；用 JSON 字符串作依赖，避免每次渲染都重新计算。
@@ -251,16 +252,16 @@ function ScenarioWhatIf({ scenario, floors }: { scenario: Scenario; floors: Fair
   return (
     <div className="space-y-6">
       <dl className="grid gap-1 text-sm text-gray-700 sm:grid-cols-[auto_1fr] sm:gap-x-3">
-        <dt className="font-medium">场景</dt>
+        <dt className="font-medium">Scenario</dt>
         <dd className="break-words">
-          {scenario.title}（示例学生 {scenario.students.length} 名，评估日期 {scenario.evaluation_date}）
+          {scenario.title} ({scenario.students.length} sample students, evaluation date {scenario.evaluation_date})
         </dd>
-        <dt className="font-medium">机会</dt>
+        <dt className="font-medium">Opportunities</dt>
         <dd className="break-words">
           {scenario.opportunities.map((o) => (
             <span key={o.id} className="block">
               {o.title}
-              {(o.is_sample === true || o.title.includes("占位")) && (
+              {(o.is_sample === true || o.title.includes("Placeholder")) && (
                 <span className="ml-2 inline-block rounded border border-gray-500 px-1.5 text-xs text-gray-800">
                   {WHATIF_LABELS.placeholder_opportunity}
                 </span>
@@ -356,11 +357,11 @@ function Controls(props: {
   return (
     <section aria-labelledby="controls-heading" className="min-w-0 space-y-5">
       <h2 id="controls-heading" className="text-lg font-semibold">
-        方案设置
+        Plan settings
       </h2>
 
       <fieldset className="space-y-3">
-        <legend className="mb-2 font-medium">措施（示例）</legend>
+        <legend className="mb-2 font-medium">Support measures (Sample)</legend>
         <ul className="space-y-3">
           {scenario.interventions.map((iv) => {
             const isOn = enabled.includes(iv.id);
@@ -377,7 +378,7 @@ function Controls(props: {
                   <span className="min-w-0 break-words font-medium">{iv.title}</span>
                   <span className="flex shrink-0 flex-wrap gap-1">
                     {runningCount > 0 && (
-                      <span className="rounded border border-blue-800 px-1.5 text-xs text-blue-900">运行中</span>
+                      <span className="rounded border border-blue-800 px-1.5 text-xs text-blue-900">Running</span>
                     )}
                     <span
                       className={
@@ -385,22 +386,22 @@ function Controls(props: {
                         (pending ? "border-amber-700 text-amber-900" : "border-green-700 text-green-900")
                       }
                     >
-                      {pending ? "待审批" : "已批准"}
+                      {pending ? "Pending approval" : "Approved"}
                     </span>
                   </span>
                 </div>
                 <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm text-gray-700">
-                  <dt>类型</dt>
+                  <dt>Type</dt>
                   <dd>{TYPE_ZH[iv.type] ?? iv.type}</dd>
-                  <dt>固定成本</dt>
+                  <dt>Fixed cost</dt>
                   <dd>{usd(iv.fixed_cost_usd ?? 0)}</dd>
-                  <dt>人均成本</dt>
-                  <dd>{usd(iv.unit_cost_usd)} / 人</dd>
-                  <dt>名额</dt>
+                  <dt>Cost per student</dt>
+                  <dd>{usd(iv.unit_cost_usd)} / student</dd>
+                  <dt>Capacity</dt>
                   <dd>
                     {iv.capacity == null
-                      ? "不限"
-                      : `${iv.capacity} 人${iv.capacity_scope === "per_time_slot" ? "（每个时段）" : ""}`}
+                      ? "Unlimited"
+                      : `${plural(iv.capacity, "student")}${iv.capacity_scope === "per_time_slot" ? " (per time slot)" : ""}`}
                   </dd>
                 </dl>
                 <p className="mt-1 text-sm text-gray-600">{relationText(scenario, iv)}</p>
@@ -408,23 +409,23 @@ function Controls(props: {
                   <p className="mt-1 text-sm text-gray-700">
                     {runningView
                       ? runningView.note
-                      : `已有 ${runningCount} 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配。`}
-                    只有权衡模式才可能收回场景内学生的已有资源。
+                      : `${plural(runningCount, "resource")} already in use; cannot be removed from the plan. Unchecking only stops new allocations.`}
+                    {" "}Only trade-off mode can revoke existing resources from students in the scenario.
                   </p>
                 )}
                 {pending && (
-                  <p className="mt-1 text-sm text-amber-900">待审批：不计入当前结果，只出现在「如果获批」的条件性结果里。</p>
+                  <p className="mt-1 text-sm text-amber-900">Pending approval: not counted in the current result; only appears in the &quot;if approved&quot; conditional result.</p>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
                     <input
                       type="checkbox"
                       className="h-4 w-4"
-                      aria-label={`${runningCount > 0 ? "接受新分配" : "纳入方案"}：${iv.title}`}
+                      aria-label={`${runningCount > 0 ? "Accept new allocations" : "Include in plan"}: ${iv.title}`}
                       checked={isOn}
                       onChange={(e) => props.onToggleEnabled(iv.id, e.target.checked)}
                     />
-                    <span aria-hidden="true">{runningCount > 0 ? "接受新分配" : "纳入方案"}</span>
+                    <span aria-hidden="true">{runningCount > 0 ? "Accept new allocations" : "Include in plan"}</span>
                   </label>
                   <label
                     className={
@@ -436,21 +437,21 @@ function Controls(props: {
                       type="checkbox"
                       role="switch"
                       className="h-4 w-4"
-                      aria-label={`必须启用：${iv.title}`}
+                      aria-label={`Required: ${iv.title}`}
                       checked={isReq}
                       disabled={!isOn}
                       onChange={(e) => props.onToggleRequired(iv.id, e.target.checked)}
                     />
                     <span aria-hidden="true" className={isOn ? "" : "text-gray-600"}>
-                      必须启用
+                      Required
                     </span>
                   </label>
                 </div>
                 {isOn && missing.length > 0 && (
                   <div role="alert" className="mt-2 rounded border border-red-700 bg-red-50 p-2 text-sm text-red-900">
                     <p>
-                      需要同时纳入{missing.map((m) => `「${titleOf(scenario, m)}」`).join("、")}。
-                      {excluded ? "在纳入之前，本措施不参与求解。" : ""}
+                      Requires {missing.map((m) => `"${titleOf(scenario, m)}"`).join(", ")}.
+                      {excluded ? " Until it is included, this support measure is left out of the solve." : ""}
                     </p>
                     {toAdd.length > 0 && (
                       <button
@@ -458,7 +459,7 @@ function Controls(props: {
                         onClick={() => props.onAddRequires(iv)}
                         className="mt-1 rounded border border-red-800 px-2 py-0.5 hover:bg-red-100"
                       >
-                        一键纳入{toAdd.map((m) => `「${titleOf(scenario, m)}」`).join("、")}
+                        Include {toAdd.map((m) => `"${titleOf(scenario, m)}"`).join(", ")}
                       </button>
                     )}
                   </div>
@@ -471,7 +472,7 @@ function Controls(props: {
 
       <div className="space-y-2">
         <label htmlFor={budgetId} className="block font-medium">
-          预算（美元，示例）
+          Budget (USD, Sample)
         </label>
         <input
           id={budgetId}
@@ -493,7 +494,7 @@ function Controls(props: {
           </p>
         )}
         <label htmlFor={sliderId} className="sr-only">
-          预算滑块
+          Budget slider
         </label>
         <input
           id={sliderId}
@@ -505,19 +506,19 @@ function Controls(props: {
           onChange={(e) => props.onBudget(e.target.value)}
           aria-invalid={props.budgetError ? true : undefined}
           aria-describedby={props.budgetError ? budgetErrId : undefined}
-          aria-valuetext={props.budget !== null ? usd(props.budget) : "未填写或无效"}
+          aria-valuetext={props.budget !== null ? usd(props.budget) : "missing or invalid"}
           className="w-full"
         />
         <p className="flex justify-between text-xs text-gray-600">
           <span>$0</span>
-          <span>场景预算 {usd(scenario.budget_usd)}</span>
+          <span>Scenario budget {usd(scenario.budget_usd)}</span>
           <span>{usd(budgetMax)}</span>
         </p>
       </div>
 
       <div className="space-y-1">
         <label htmlFor={minGainId} className="block font-medium">
-          最低新增目标（可选）
+          Minimum new coverage target (optional)
         </label>
         <input
           id={minGainId}
@@ -525,7 +526,7 @@ function Controls(props: {
           inputMode="numeric"
           min={0}
           step={1}
-          placeholder="不设"
+          placeholder="None"
           value={props.minGainText}
           onChange={(e) => props.onMinGain(e.target.value)}
           aria-invalid={props.minGainError ? true : undefined}
@@ -540,12 +541,12 @@ function Controls(props: {
           </p>
         )}
         <p id={minGainHintId} className="text-xs text-gray-600">
-          要求方案至少新增这么多可达的（学生, 机会）对；留空表示不设目标。达不到时会显示「做不到」及替代方案。
+          The plan must make at least this many (student, opportunity) pairs newly reachable; leave blank for no target. If it cannot, you will see &quot;Not achievable&quot; and an alternative.
         </p>
       </div>
 
       <fieldset className="space-y-2">
-        <legend className="mb-1 font-medium">求解模式</legend>
+        <legend className="mb-1 font-medium">Solver mode</legend>
         {(["protect", "tradeoff"] as const).map((m) => (
           <label key={m} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
             <input
@@ -564,7 +565,7 @@ function Controls(props: {
         {props.mode === "tradeoff" && (
           <div className="space-y-1 pl-2">
             <label htmlFor={lossCapId} className="block font-medium">
-              损失上限（必填）
+              Loss cap (required)
             </label>
             <input
               id={lossCapId}
@@ -574,7 +575,7 @@ function Controls(props: {
               step={1}
               required
               aria-required="true"
-              placeholder="例如 3"
+              placeholder="e.g. 3"
               value={props.lossCapText}
               onChange={(e) => props.onLossCap(e.target.value)}
               aria-invalid={props.lossCapError ? true : undefined}
@@ -589,10 +590,10 @@ function Controls(props: {
               </p>
             )}
             <p id={lossCapHintId} className="text-xs text-gray-600">
-              单位是（学生, 机会）组合：最多允许多少个原本可达的组合在新方案下不再可达（0 或以上的整数）。同一名学生失去两个机会算 2。
-              上限为 0 也不等同保护模式：仍允许收回待审批承诺（不计入损失）和不造成损失的收回。
+              Counted in (student, opportunity) pairs: the most previously reachable pairs allowed to become unreachable under the new plan (a whole number, 0 or more). One student losing two opportunities counts as 2.
+              A cap of 0 is still not the same as protected mode: it still allows revoking pending-approval commitments (not counted as losses) and revocations that cause no loss.
               {view?.loss && view.mode === "tradeoff"
-                ? ` 当前结果失去 ${view.loss.lost_pairs} 个组合，涉及 ${view.loss.affected_students} 名学生（其中 ${view.loss.affected_students_still_reachable} 名在方案后仍有其他可达的机会）。`
+                ? ` The current result loses ${plural(view.loss.lost_pairs, "pair")}, involving ${plural(view.loss.affected_students, "student")} (${view.loss.affected_students_still_reachable} of them still ${pluralNoun(view.loss.affected_students_still_reachable, "has", "have")} another reachable opportunity after the plan).`
                 : ""}
             </p>
           </div>
@@ -601,9 +602,9 @@ function Controls(props: {
 
       {props.floors.length > 0 && (
         <fieldset className="space-y-3">
-          <legend className="mb-1 font-medium">公平底线（示例，可选）</legend>
+          <legend className="mb-1 font-medium">Fairness floors (Sample, optional)</legend>
           <p className="text-xs text-gray-600">
-            只按学生自己声明的身份标签分组；分母只算至少对一个机会符合官方资格的该群体学生，按人计。
+            Groups use only status labels students report themselves; the denominator counts only group members officially eligible for at least one opportunity, counted per student.
           </p>
           <ul className="space-y-3">
             {props.floors.map((f, k) => {
@@ -619,7 +620,7 @@ function Controls(props: {
                       <input
                         type="checkbox"
                         className="h-4 w-4"
-                        aria-label={`设置公平底线：${f.label}`}
+                        aria-label={`Set fairness floor: ${f.label}`}
                         aria-describedby={basisId}
                         checked={on}
                         onChange={(e) => props.onToggleFloor(f.id, e.target.checked)}
@@ -628,14 +629,14 @@ function Controls(props: {
                         {f.label}
                       </span>
                     </label>
-                    <span className="shrink-0 rounded border border-gray-500 px-1.5 text-xs text-gray-800">示例</span>
+                    <span className="shrink-0 rounded border border-gray-500 px-1.5 text-xs text-gray-800">Sample</span>
                   </div>
                   <p id={basisId} className="mt-1 text-sm text-gray-700">
-                    依据：{f.basis}
+                    Basis: {f.basis}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <label htmlFor={inputId} className="text-sm">
-                      最低覆盖比例（%）
+                      Minimum coverage ratio (%)
                     </label>
                     <input
                       id={inputId}
@@ -645,7 +646,7 @@ function Controls(props: {
                       max={100}
                       step={5}
                       disabled={!on}
-                      aria-label={`最低覆盖比例（%）：${f.label}`}
+                      aria-label={`Minimum coverage ratio (%): ${f.label}`}
                       value={props.percentText[f.id] ?? ""}
                       onChange={(e) => props.onPercent(f.id, e.target.value)}
                       aria-invalid={err ? true : undefined}
@@ -672,7 +673,7 @@ function Controls(props: {
         onClick={props.onReset}
         className="rounded border border-gray-400 px-3 py-1.5 hover:border-gray-700"
       >
-        恢复默认
+        Reset to defaults
       </button>
     </section>
   );
@@ -693,7 +694,7 @@ function BigNumber({ label, value, hint }: { label: string; value: string; hint:
 function ResultsHeading() {
   return (
     <h2 id="results-heading" className="text-lg font-semibold">
-      模拟结果 <span className="text-sm font-normal text-gray-600">（不代表真实影响）</span>
+      Simulated results <span className="inline-block text-sm font-normal text-gray-600">(they do not represent real-world impact)</span>
     </h2>
   );
 }
@@ -703,7 +704,7 @@ function InvalidInput({ message }: { message: string | null }) {
     <section aria-labelledby="results-heading" className="min-w-0 space-y-5">
       <ResultsHeading />
       <div aria-live="polite" className="rounded border-2 border-gray-700 bg-gray-100 p-3 text-gray-900">
-        <p className="font-semibold">设置不完整或不合法，暂不计算。请按提示修正左侧的设置后查看模拟结果。</p>
+        <p className="font-semibold">Settings are incomplete or invalid, so nothing is computed yet. Fix the settings on the left as prompted to see simulated results.</p>
         {message && <p className="mt-1 text-sm">{message}</p>}
       </div>
     </section>
@@ -717,13 +718,13 @@ function Results({ view }: { view: WhatIfView }) {
 
       {/* 读屏播报只放「求解状态 + 三个数」这一小段，不包住整个结果区。 */}
       <p aria-live="polite" aria-atomic="true" className="sr-only">
-        求解状态：{view.status_label}。新增可达 G {num(view.G)}，失去可达 L {num(view.L)}，净变化 N {signed(view.N)}。
+        Solver status: {view.status_label}. Newly reachable G {num(view.G)}, lost L {num(view.L)}, net change N {signed(view.N)}.
       </p>
 
       <div className={"rounded border-2 p-3 " + STATUS_STYLE[view.status]}>
         <p className="font-semibold">
-          求解状态：{view.status_label}
-          <span className="ml-2 text-xs font-normal">（{view.status}）</span>
+          Solver status: {view.status_label}
+          <span className="ml-2 text-xs font-normal">({view.status})</span>
         </p>
         <p className="mt-1 text-sm">{view.status_explanation}</p>
         {view.status === "UNSUPPORTED_INPUT" && (
@@ -738,50 +739,50 @@ function Results({ view }: { view: WhatIfView }) {
       </div>
 
       <p className="text-sm text-gray-700">
-        当前模式：<span className="font-medium">{view.mode_label}</span>
-        {view.mode === "tradeoff" && view.loss_cap !== null ? `（损失上限 ${view.loss_cap}）` : ""}。{view.mode_explanation}
+        Current mode: <span className="font-medium">{view.mode_label}</span>
+        {view.mode === "tradeoff" && view.loss_cap !== null ? ` (loss cap ${view.loss_cap})` : ""}. {view.mode_explanation}
       </p>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <BigNumber label="新增可达 G" value={num(view.G)} hint="方案后新变为可达的（学生, 机会）对" />
-        <BigNumber label="失去可达 L" value={num(view.L)} hint="原本可达、方案后不可达的对" />
-        <BigNumber label="净变化 N" value={signed(view.N)} hint="N = G − L" />
+        <BigNumber label="Newly reachable G" value={num(view.G)} hint="(student, opportunity) pairs that become reachable after the plan" />
+        <BigNumber label="Lost L" value={num(view.L)} hint="Pairs reachable before but not after the plan" />
+        <BigNumber label="Net change N" value={signed(view.N)} hint="N = G − L" />
       </div>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-gray-700">原本可达</dt>
-        <dd>{view.R0_count !== null ? `${view.R0_count} 个（学生, 机会）对` : "—"}</dd>
-        <dt className="text-gray-700">方案后可达</dt>
-        <dd>{view.R1_count !== null ? `${view.R1_count} 个（学生, 机会）对` : "—"}</dd>
-        <dt className="text-gray-700">总成本</dt>
+        <dt className="text-gray-700">Reachable before</dt>
+        <dd>{view.R0_count !== null ? `${view.R0_count} (student, opportunity) ${pluralNoun(view.R0_count, "pair")}` : "—"}</dd>
+        <dt className="text-gray-700">Reachable after the plan</dt>
+        <dd>{view.R1_count !== null ? `${view.R1_count} (student, opportunity) ${pluralNoun(view.R1_count, "pair")}` : "—"}</dd>
+        <dt className="text-gray-700">Total cost</dt>
         <dd>
           {view.cost.total_usd !== null
-            ? `${usd(view.cost.total_usd)}（固定 ${usd(view.cost.fixed_usd)} + 按人 ${usd(view.cost.per_student_usd)}）`
-            : "—（未评估）"}
+            ? `${usd(view.cost.total_usd)} (fixed ${usd(view.cost.fixed_usd)} + per student ${usd(view.cost.per_student_usd)})`
+            : "— (not evaluated)"}
         </dd>
-        <dt className="text-gray-700">预算</dt>
+        <dt className="text-gray-700">Budget</dt>
         <dd>
-          {usd(view.cost.budget_usd)}，余额 {view.cost.remaining_usd !== null ? usd(view.cost.remaining_usd) : "—"}
+          {usd(view.cost.budget_usd)}, remaining {view.cost.remaining_usd !== null ? usd(view.cost.remaining_usd) : "—"}
         </dd>
       </dl>
 
       {view.loss && <LossBlock view={view} />}
 
-      {view.fairness.length > 0 && <FairnessTable rows={view.fairness} caption="公平底线结果（当前结果，模拟）" />}
+      {view.fairness.length > 0 && <FairnessTable rows={view.fairness} caption="Fairness floor results (current result, Simulated)" />}
 
       {view.alternative && (
         <div className="rounded border-2 border-red-700 p-3">
-          <h3 className="font-semibold">做不到原要求 · 替代方案（不是当前结果）</h3>
+          <h3 className="font-semibold">Original requirements not achievable · Alternative (not the current result)</h3>
           <p className="mt-1 text-sm">
-            放松了：<strong>{view.alternative.relaxed.join("、")}</strong>。硬约束（批准、互斥、前置依赖、名额、预算、失去可达不超过允许范围）没有放松。
+            Relaxed: <strong>{view.alternative.relaxed.join(", ")}</strong>. Hard constraints (approval, mutual exclusion, prerequisites, capacity, budget, lost pairs within the allowed limit) are not relaxed.
           </p>
           <p className="mt-1 text-sm">
-            替代方案：新增可达 {view.alternative.G}，失去可达 {view.alternative.L}，净变化 {signed(view.alternative.N)}；总成本{" "}
-            {usd(view.alternative.cost.total_usd)}（固定 {usd(view.alternative.cost.fixed_usd)} + 按人{" "}
-            {usd(view.alternative.cost.per_student_usd)}）。
+            Alternative: newly reachable {view.alternative.G}, lost {view.alternative.L}, net change {signed(view.alternative.N)}; total cost{" "}
+            {usd(view.alternative.cost.total_usd)} (fixed {usd(view.alternative.cost.fixed_usd)} + per student{" "}
+            {usd(view.alternative.cost.per_student_usd)}).{" "}
             {view.alternative.selected.length > 0
-              ? `启用：${view.alternative.selected.map((s) => s.title).join("、")}。`
-              : "不启用任何措施。"}
+              ? `Enables: ${view.alternative.selected.map((s) => s.title).join(", ")}.`
+              : "No support measures enabled."}
           </p>
           {view.alternative.loss_text && <p className="mt-1 text-sm font-medium">{view.alternative.loss_text}</p>}
           {view.alternative.fairness.length > 0 && (
@@ -799,15 +800,15 @@ function Results({ view }: { view: WhatIfView }) {
       )}
 
       <div>
-        <h3 className="font-semibold">选中的措施与名额使用</h3>
+        <h3 className="font-semibold">Selected support measures and capacity use</h3>
         {view.selected.length === 0 ? (
-          <p className="text-sm text-gray-700">当前结果不启用任何措施。</p>
+          <p className="text-sm text-gray-700">The current result enables no support measures.</p>
         ) : (
           <ul className="mt-1 space-y-1 text-sm">
             {view.selected.map((s) => (
               <li key={s.id} className="break-words">
-                <span className="font-medium">{s.title}</span>：服务 {s.students_served} 人，小计 {usd(s.subtotal_usd)}（固定{" "}
-                {usd(s.fixed_usd)} + 按人 {usd(s.per_student_usd)}）
+                <span className="font-medium">{s.title}</span>: serves {plural(s.students_served, "student")}, subtotal {usd(s.subtotal_usd)} (fixed{" "}
+                {usd(s.fixed_usd)} + per student {usd(s.per_student_usd)})
               </li>
             ))}
           </ul>
@@ -817,15 +818,15 @@ function Results({ view }: { view: WhatIfView }) {
             {view.capacity_usage.map((c) => (
               <li key={c.id} className="break-words">
                 {c.title}
-                {c.status_note}
+                {c.status_note ? ` ${c.status_note}` : ""}
                 {c.deactivated
                   ? ""
-                  : `：${
+                  : `: ${
                       c.unlimited
-                        ? "名额不限"
+                        ? "Unlimited capacity"
                         : c.slots
-                            .map((sl) => `${sl.scope_label} 已用 ${sl.used} / ${sl.capacity}${sl.full ? "（已满）" : ""}`)
-                            .join("；")
+                            .map((sl) => `${sl.scope_label} used ${sl.used} / ${sl.capacity}${sl.full ? " (full)" : ""}`)
+                            .join("; ")
                     }`}
               </li>
             ))}
@@ -835,17 +836,17 @@ function Results({ view }: { view: WhatIfView }) {
 
       <div className="rounded border border-gray-300 p-3">
         <h3 className="font-semibold">
-          独立复核：{view.verification.passed ? "通过" : "不通过"}
+          Independent verification: {view.verification.passed ? "Passed" : "Failed"}
         </h3>
-        <p className="text-sm text-gray-700">由独立的验证器重新计算并检查当前结果，不依赖求解器自己的判断。</p>
+        <p className="text-sm text-gray-700">A separate verifier recomputes and checks the current result without relying on the solver&apos;s own judgment.</p>
         {view.verification.note && <p className="mt-1 text-sm text-gray-700">{view.verification.note}</p>}
         <details className="mt-2">
-          <summary className="cursor-pointer text-sm">逐项检查（{view.verification.checks.length} 项）</summary>
+          <summary className="cursor-pointer text-sm">Check by check ({view.verification.checks.length} checks)</summary>
           <ul className="mt-2 space-y-1 text-sm">
             {view.verification.checks.map((c) => (
               <li key={c.name} className="break-words">
                 <span className="font-medium">
-                  {c.passed ? "通过" : "不通过"} · {c.label}
+                  {c.passed ? "Passed" : "Failed"} · {c.label}
                 </span>
                 <span className="block text-gray-600">{c.detail}</span>
               </li>
@@ -856,16 +857,16 @@ function Results({ view }: { view: WhatIfView }) {
 
       {view.conditional && (
         <div className="rounded border-2 border-dashed border-amber-700 p-3">
-          <h3 className="font-semibold">条件性结果：如果待审批的措施获批（目前尚未生效）</h3>
+          <h3 className="font-semibold">Conditional result: if the pending-approval measures are approved (not in effect yet)</h3>
           <p className="mt-1 text-sm">
-            假设获批：{view.conditional.assumed_approved.join("、")}。求解状态：{view.conditional.status_label}。
+            Assumed approved: {view.conditional.assumed_approved.join(", ")}. Solver status: {view.conditional.status_label}.
           </p>
           <p className="mt-1 text-sm">
-            则新增可达 {view.conditional.G}，失去可达 {view.conditional.L}，净变化 {signed(view.conditional.N)}；总成本{" "}
-            {usd(view.conditional.cost.total_usd)}。与当前结果相比：净变化 {signed(view.conditional.delta.N)}，成本{" "}
+            Then newly reachable {view.conditional.G}, lost {view.conditional.L}, net change {signed(view.conditional.N)}; total cost{" "}
+            {usd(view.conditional.cost.total_usd)}. Compared with the current result: net change {signed(view.conditional.delta.N)}, cost{" "}
             {view.conditional.delta.total_usd >= 0 ? "+" : "−"}
-            {usd(Math.abs(view.conditional.delta.total_usd))}。
-            {view.conditional.selected.length > 0 && `会启用：${view.conditional.selected.map((s) => s.title).join("、")}。`}
+            {usd(Math.abs(view.conditional.delta.total_usd))}.{" "}
+            {view.conditional.selected.length > 0 && `Would enable: ${view.conditional.selected.map((s) => s.title).join(", ")}.`}
           </p>
           {view.conditional.loss_text && <p className="mt-1 text-sm font-medium">{view.conditional.loss_text}</p>}
           {view.conditional.fairness.length > 0 && (
@@ -876,14 +877,14 @@ function Results({ view }: { view: WhatIfView }) {
             </ul>
           )}
           <p className="mt-1 text-sm text-gray-700">
-            对这一条件性方案的独立复核：{view.conditional.verification_passed ? "通过" : "不通过"}。{view.conditional.note}
+            Independent verification of this conditional plan: {view.conditional.verification_passed ? "Passed" : "Failed"}. {view.conditional.note}
           </p>
         </div>
       )}
 
       {view.uncovered && (
         <div>
-          <h3 className="font-semibold">仍未覆盖</h3>
+          <h3 className="font-semibold">Still not covered</h3>
           <p className="text-sm">{view.uncovered.summary}</p>
           {view.uncovered.reasons.length > 0 && (
             <ul className="mt-1 list-disc pl-5 text-sm">
@@ -892,7 +893,7 @@ function Results({ view }: { view: WhatIfView }) {
               ))}
             </ul>
           )}
-          <p className="mt-1 text-xs text-gray-600">按（学生, 机会）对计，人数按学生去重、只作补充；一个对可能同时缺多项条件，一名学生可能有多个对，因此各项之和可能大于总数。原因是按措施类型做的说明，仅供参考。</p>
+          <p className="mt-1 text-xs text-gray-600">Counted in (student, opportunity) pairs; student counts are de-duplicated and only supplementary. A pair can lack several conditions and a student can have several pairs, so the items can add up to more than the total. Reasons are explained by support measure type, for reference only.</p>
         </div>
       )}
 
@@ -900,7 +901,7 @@ function Results({ view }: { view: WhatIfView }) {
 
       {(view.excluded.length > 0 || view.ignored_required.length > 0) && (
         <div className="rounded border border-red-700 p-3 text-sm text-red-900">
-          <h3 className="font-semibold">没有参与求解的设置</h3>
+          <h3 className="font-semibold">Settings left out of the solve</h3>
           <ul className="mt-1 list-disc pl-5">
             {view.excluded.map((e) => (
               <li key={e.id}>{e.reason}</li>
@@ -913,7 +914,7 @@ function Results({ view }: { view: WhatIfView }) {
       )}
 
       <div className="rounded border border-gray-300 p-3">
-        <h3 className="font-semibold">假设与不确定性</h3>
+        <h3 className="font-semibold">Assumptions and uncertainty</h3>
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-gray-700">
           {view.assumptions.map((a) => (
             <li key={a}>{a}</li>
@@ -921,7 +922,7 @@ function Results({ view }: { view: WhatIfView }) {
         </ul>
         {view.status !== "UNSUPPORTED_INPUT" && (
           <details className="mt-2">
-            <summary className="cursor-pointer text-sm">求解器说明</summary>
+            <summary className="cursor-pointer text-sm">Solver notes</summary>
             <ul className="mt-1 list-disc pl-5 text-sm text-gray-600">
               {view.solver_notes.map((n) => (
                 <li key={n} className="break-words">
@@ -944,7 +945,7 @@ function LossBlock({ view }: { view: WhatIfView }) {
   if (view.mode === "protect") {
     return (
       <div className="rounded border border-gray-300 p-3 text-sm">
-        <h3 className="font-semibold">失去可达 L</h3>
+        <h3 className="font-semibold">Lost L</h3>
         <p className="mt-1">{loss.protect_note}</p>
       </div>
     );
@@ -953,12 +954,12 @@ function LossBlock({ view }: { view: WhatIfView }) {
   return (
     <div className={"rounded p-3 text-sm " + (hasLoss ? "border-2 border-red-700 bg-red-50 text-red-950" : "border border-gray-300")}>
       <h3 className="font-semibold">
-        失去可达 L：{hasLoss ? `有失去（${loss.lost_pairs} 个对）` : "没有失去"}
+        Lost L: {hasLoss ? `${plural(loss.lost_pairs, "pair")} lost` : "nothing lost"}
       </h3>
       {loss.headline && <p className="mt-1 font-semibold">{loss.headline}</p>}
       {hasLoss && loss.summary && (
         <p className="mt-1">
-          {loss.summary}（只给人数，不列出具体学生。）
+          {loss.summary} (Counts only; no individual students are listed.)
         </p>
       )}
       {loss.groups.length > 0 && (
@@ -971,19 +972,19 @@ function LossBlock({ view }: { view: WhatIfView }) {
       {rev && rev.total > 0 ? (
         <div className="mt-2">
           <p className="font-medium">
-            收回的已有资源：共 {rev.total} 条（因互斥必须收回 {rev.forced} 条，自愿收回 {rev.voluntary} 条）
+            Existing resources revoked: {rev.total} in total ({rev.forced} forced by mutual exclusion, {rev.voluntary} voluntary)
           </p>
-          {rev.pending > 0 && <p className="mt-0.5">其中撤回待审批承诺 {rev.pending} 条（不计入损失，只腾出名额）。</p>}
+          {rev.pending > 0 && <p className="mt-0.5">Of these, {rev.pending} were pending-approval commitments (not counted as losses; they only free capacity).</p>}
           <ul className="mt-1 list-disc pl-5">
             {rev.items.map((it) => (
               <li key={it.title + it.reason}>
-                「{it.title}」{it.count} 条：{it.reason}
+                &quot;{it.title}&quot; ({it.count}): {it.reason}
               </li>
             ))}
           </ul>
         </div>
       ) : (
-        <p className="mt-1">本方案没有收回任何已有资源。</p>
+        <p className="mt-1">This plan revokes no existing resources.</p>
       )}
     </div>
   );
@@ -997,18 +998,18 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
         className="mt-1 max-w-full overflow-x-auto"
         tabIndex={0}
         role="region"
-        aria-label={`${caption}（可横向滚动）`}
+        aria-label={`${caption} (scrolls horizontally)`}
       >
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-gray-400 text-left">
-              <th scope="col" className="py-1 pr-3 font-medium">群体（示例）</th>
-              <th scope="col" className="py-1 pr-3 text-right font-medium">符合资格（分母）</th>
-              <th scope="col" className="py-1 pr-3 text-right font-medium">已覆盖（分子）</th>
-              <th scope="col" className="py-1 pr-3 text-right font-medium">比例</th>
-              <th scope="col" className="py-1 pr-3 text-right font-medium">要求至少</th>
-              <th scope="col" className="py-1 pr-3 text-right font-medium">当前措施下最多可覆盖</th>
-              <th scope="col" className="py-1 font-medium">结果</th>
+              <th scope="col" className="py-1 pr-3 font-medium">Group (Sample)</th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">Eligible (denominator)</th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">Covered (numerator)</th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">Ratio</th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">Required at least</th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">Max coverable with current measures</th>
+              <th scope="col" className="py-1 font-medium">Result</th>
             </tr>
           </thead>
           <tbody>
@@ -1016,17 +1017,17 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
               <tr key={r.floor_id} className="border-b border-gray-200 align-top">
                 <th scope="row" className="py-1 pr-3 text-left font-normal">
                   <span className="font-medium">{r.label}</span>
-                  <span className="block text-xs text-gray-600">依据：{r.basis}</span>
+                  <span className="block text-xs text-gray-600">Basis: {r.basis}</span>
                 </th>
-                <td className="py-1 pr-3 text-right tabular-nums">{r.eligible_members} 人</td>
-                <td className="py-1 pr-3 text-right tabular-nums">{r.covered_members} 人</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{plural(r.eligible_members, "student")}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{plural(r.covered_members, "student")}</td>
                 <td className="py-1 pr-3 text-right tabular-nums">{r.ratio_percent === null ? "—" : `${r.ratio_percent}%`}</td>
                 <td className="py-1 pr-3 text-right tabular-nums">{r.min_ratio_percent}%</td>
                 <td className="py-1 pr-3 text-right tabular-nums">
                   {r.max_coverable === null ? "—" : `${r.max_coverable} / ${r.eligible_members}`}
                 </td>
                 <td className="py-1 font-medium">
-                  {r.not_applicable ? "不适用（分母为 0）" : r.satisfied ? "满足" : "不满足"}
+                  {r.not_applicable ? "Not applicable (denominator is 0)" : r.satisfied ? "Met" : "Not met"}
                 </td>
               </tr>
             ))}
@@ -1039,13 +1040,13 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
             .filter((r) => r.bound_text)
             .map((r) => (
               <li key={r.floor_id}>
-                {r.label}：{r.bound_text}
+                {r.label}: {r.bound_text}
               </li>
             ))}
         </ul>
       )}
       <p className="mt-1 text-xs text-gray-600">
-        按人计：一名学生至少有一个可达的机会即算覆盖；一个学生属于多个群体时在每个群体里各算一次。「最多可覆盖」是不考虑名额与预算的上界。
+        Counted per student: a student is covered with at least one reachable opportunity; a student in several groups counts once in each group. &quot;Max coverable&quot; is an upper bound that ignores capacity and budget.
       </p>
     </div>
   );
@@ -1069,7 +1070,7 @@ function BaselineRowView({ r }: { r: WhatIfBaselineRow }) {
         {r.label}
       </th>
       <td className="py-1 pr-3 text-right tabular-nums">{r.claimed_reachable}</td>
-      <td className="py-1 pr-3">{r.executable ? "通过" : "不通过"}</td>
+      <td className="py-1 pr-3">{r.executable ? "Passed" : "Failed"}</td>
       {r.verified ? (
         <>
           <td className="py-1 pr-3 text-right tabular-nums">{r.verified.R1_count}</td>
@@ -1077,12 +1078,12 @@ function BaselineRowView({ r }: { r: WhatIfBaselineRow }) {
         </>
       ) : (
         <td colSpan={5} className="py-1 pr-3 font-medium text-red-900">
-          不可执行（未通过：{r.failed_checks.join("、")}），不显示原方案的数字
+          Not executable (failed: {r.failed_checks.join(", ")}); the original plan&apos;s numbers are not shown
         </td>
       )}
       <td className="py-1 pr-3 tabular-nums">
         {r.repaired
-          ? `可达 ${r.repaired.R1_count} / 新增 ${r.repaired.G} / 失去 ${r.repaired.L} / 净 ${signed(r.repaired.N)} / ${usd(r.repaired.total_usd)}`
+          ? `reachable ${r.repaired.R1_count} / new ${r.repaired.G} / lost ${r.repaired.L} / net ${signed(r.repaired.N)} / ${usd(r.repaired.total_usd)}`
           : "—"}
       </td>
       <td className="py-1">{r.soft_label}</td>
@@ -1094,32 +1095,32 @@ function BaselinesTable({ view }: { view: WhatIfView }) {
   const b = view.baselines!;
   return (
     <div className="rounded border border-gray-300 p-3">
-      <h3 className="font-semibold">基线对比（模拟）</h3>
+      <h3 className="font-semibold">Baseline comparison (Simulated)</h3>
       <p className="text-sm text-gray-700">
-        同一场景、同一预算与名额、同一套规则，用同一个独立验证器复核每种做法给出的方案。「声称」是该做法自己以为可达的对数；「复核后」是验证器重新计算的结果。声称可达与复核后可达是同一口径，都包含原本就可达的对；新增 / 失去 / 净变化是相对原本可达的变化。
+        Same scenario, same budget and capacity, same rules: one independent verifier checks the plan from each approach. &quot;Claimed&quot; is how many pairs the approach thinks are reachable; &quot;verified&quot; is the verifier&apos;s recomputed result. Claimed and verified reachable are counted the same way and both include pairs that were already reachable; new / lost / net change are relative to what was reachable before.
       </p>
       {b.rows.length === 0 ? (
-        <p className="mt-2 text-sm">没有做基线对比（见下方说明）。</p>
+        <p className="mt-2 text-sm">No baseline comparison was run (see the notes below).</p>
       ) : (
         <div
           className="mt-2 max-w-full overflow-x-auto"
           tabIndex={0}
           role="region"
-          aria-label="基线对比表（可横向滚动）"
+          aria-label="Baseline comparison table (scrolls horizontally)"
         >
           <table className="min-w-[52rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-gray-400 text-left">
-                <th scope="col" className="py-1 pr-3 font-medium">做法</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">声称可达（对）</th>
-                <th scope="col" className="py-1 pr-3 font-medium">可执行性复核</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">复核后可达（对）</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">新增 G</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">失去 L</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">净变化 N</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">成本</th>
-                <th scope="col" className="py-1 pr-3 font-medium">先到先得截断后（可达 / 新增 / 失去 / 净 / 成本）</th>
-                <th scope="col" className="py-1 font-medium">满足主办方要求</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Approach</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">Claimed reachable (pairs)</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Executable check</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">Verified reachable (pairs)</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">New G</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">Lost L</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">Net change N</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">Cost</th>
+                <th scope="col" className="py-1 pr-3 font-medium">After first-come-first-served truncation (reachable / new / lost / net / cost)</th>
+                <th scope="col" className="py-1 font-medium">Meets organizer requirements</th>
               </tr>
             </thead>
             <tbody>

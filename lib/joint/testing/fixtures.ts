@@ -13,11 +13,11 @@ export const EVAL_DATE = '2026-11-17';
 export function makeOpp(id: string, overrides: Partial<Opportunity> = {}): Opportunity {
   return {
     id,
-    title: `虚构测试机会 ${id}（示例，非真实）`,
-    organizer: 'Example Org（虚构）',
+    title: `Fictional test opportunity ${id} (sample, not real)`,
+    organizer: 'Example Org (fictional)',
     category: 'summer_program',
     fields: ['computer_science'],
-    summary: '仅用于单元测试的虚构机会（示例）。',
+    summary: 'Fictional opportunity for unit tests only (sample).',
     official_url: `https://example.com/${id}`,
     verified_on: EVAL_DATE,
     verified_by: 'test-fixture',
@@ -32,7 +32,7 @@ export function makeOpp(id: string, overrides: Partial<Opportunity> = {}): Oppor
         type: 'grade',
         min: 9,
         max: 12,
-        label: '9–12 年级',
+        label: 'Grades 9–12',
         hard: true,
         source_text: 'Open to students in grades 9-12. (fictional example)',
       },
@@ -47,7 +47,7 @@ export function makeStudent(id: string, overrides: Partial<StudentProfile> = {})
   return {
     id,
     is_sample: true,
-    display_name: `示例学生 ${id}`,
+    display_name: `Sample student ${id}`,
     grade: 10,
     age: 15,
     region: { country: 'US', state: 'CA' },
@@ -66,7 +66,7 @@ export function makeStudent(id: string, overrides: Partial<StudentProfile> = {})
 export function makeIntervention(id: string, overrides: Partial<Intervention> = {}): Intervention {
   return {
     id,
-    title: `示例措施 ${id}`,
+    title: `Sample support measure ${id}`,
     type: 'device',
     resolves: ['device'],
     device: 'laptop',
@@ -80,7 +80,7 @@ export function makeIntervention(id: string, overrides: Partial<Intervention> = 
 export function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
   return {
     id: 'test-scenario',
-    title: '示例场景（模拟）',
+    title: 'Sample scenario (simulated)',
     is_sample: true,
     evaluation_date: EVAL_DATE,
     students: [],

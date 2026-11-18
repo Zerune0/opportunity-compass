@@ -1,43 +1,41 @@
 import type { Metadata } from "next";
+import { Bungee, Chivo, Silkscreen } from "next/font/google";
 import Link from "next/link";
+import { SiteNav } from "@/components/rpg";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Opportunity Compass",
   description:
-    "帮助缺少资源和人脉的学生发现真实机会、看懂资格与现实障碍、选择走得通的成长路线。",
+    "Helps students without resources or connections find real opportunities, understand eligibility and real-world barriers, and pick a growth route that works.",
 };
 
+const bungee = Bungee({ weight: "400", subsets: ["latin"], variable: "--font-bungee", display: "swap" });
+const chivo = Chivo({ weight: ["400", "700", "900"], subsets: ["latin"], variable: "--font-chivo", display: "swap" });
+const silkscreen = Silkscreen({ weight: "700", subsets: ["latin"], variable: "--font-silkscreen", display: "swap" });
+
 const navItems = [
-  { href: "/quests", label: "机会 Quests" },
-  { href: "/map", label: "成长地图 Map" },
-  { href: "/passport", label: "技能护照 Passport" },
-  { href: "/organizer", label: "主办方 Organizer" },
+  { href: "/quests", label: "Quests" },
+  { href: "/map", label: "Map" },
+  { href: "/passport", label: "Passport" },
+  { href: "/organizer", label: "Organizer" },
 ];
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
-      <body className="min-h-screen bg-white text-gray-900 antialiased">
-        <header className="border-b border-gray-200">
-          <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-            <Link href="/" className="font-semibold">
+    <html lang="en" className={`${bungee.variable} ${chivo.variable} ${silkscreen.variable}`}>
+      <body className="min-h-screen antialiased">
+        <header className="shell-bar crt">
+          <nav className="shell-bar__inner" aria-label="Main navigation">
+            <Link href="/" className="shell-mark">
               Opportunity Compass
             </Link>
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                {item.label}
-              </Link>
-            ))}
+            <SiteNav items={navItems} />
           </nav>
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        <main className="shell-main">{children}</main>
       </body>
     </html>
   );

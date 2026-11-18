@@ -152,9 +152,9 @@ export function exhaustiveBest(scenario: Scenario, options: VerifyOptions = {}):
   if (!emptyCheck.result.checks.find((c) => c.name === 'input_validity')?.passed) return infeasible;
 
   const ints = [...norm.intById.values()].sort((a, b) => cmpStr(a.id, b.id));
-  if (ints.length > 16) throw new Error('exhaustiveBest：措施过多，超出穷举适用范围');
+  if (ints.length > 16) throw new Error('exhaustiveBest: too many support measures for exhaustive search');
   const revIds = revocableIds(ev);
-  if (revIds.length > 6) throw new Error('exhaustiveBest：可撤回 grant 过多，超出穷举适用范围');
+  if (revIds.length > 6) throw new Error('exhaustiveBest: too many revocable grants for exhaustive search');
   const studentIds = [...norm.studentById.keys()];
   const oppIds = [...norm.oppById.keys()];
   const unitCost = (id: string) => norm.intById.get(id)?.unit_cost_usd ?? 0;
@@ -357,7 +357,7 @@ export function naiveBest(scenario: Scenario, options: VerifyOptions = {}): Naiv
     triplesTotal > NAIVE_LIMITS.triples ||
     triplesTotal + revIds.length > NAIVE_LIMITS.triplesPlusRevocable
   ) {
-    throw new Error('naiveBest：场景超出朴素枚举的适用范围');
+    throw new Error('naiveBest: scenario is too large for naive enumeration');
   }
   const unitCost = (id: string) => norm.intById.get(id)?.unit_cost_usd ?? 0;
 

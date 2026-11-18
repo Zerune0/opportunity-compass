@@ -163,12 +163,12 @@ export function findStudentInfoInInterventions(scenario: Scenario): string[] {
   const tokens: { token: string; what: string }[] = [];
   for (const s of students) {
     if (s == null || typeof s !== 'object') continue;
-    if (typeof s.id === 'string' && s.id) tokens.push({ token: s.id, what: '学生 id' });
+    if (typeof s.id === 'string' && s.id) tokens.push({ token: s.id, what: 'student id' });
     if (typeof s.display_name === 'string' && s.display_name.length >= MIN_NAME_TOKEN_LENGTH) {
-      tokens.push({ token: s.display_name, what: '学生显示名' });
+      tokens.push({ token: s.display_name, what: 'student display name' });
     }
     if (typeof s.school_name === 'string' && s.school_name.length >= MIN_NAME_TOKEN_LENGTH) {
-      tokens.push({ token: s.school_name, what: '学校名' });
+      tokens.push({ token: s.school_name, what: 'school name' });
     }
   }
   for (const iv of ivs) {
@@ -177,7 +177,7 @@ export function findStudentInfoInInterventions(scenario: Scenario): string[] {
       const value = iv[field];
       if (typeof value !== 'string') continue;
       for (const t of tokens) {
-        if (value.includes(t.token)) problems.push(`措施 ${field}「${value}」包含${t.what}「${t.token}」`);
+        if (value.includes(t.token)) problems.push(`Support measure ${field} "${value}" contains ${t.what} "${t.token}"`);
       }
     }
   }
@@ -186,7 +186,7 @@ export function findStudentInfoInInterventions(scenario: Scenario): string[] {
 
 // ───────────────────────────── 客户端匿名化 ─────────────────────────────
 
-const GENERIC_EVIDENCE_TITLE = '示例证据';
+const GENERIC_EVIDENCE_TITLE = 'Sample evidence';
 
 /**
  * 把场景交给浏览器前做的匿名化（纯函数，不修改输入）：
@@ -225,7 +225,7 @@ export function anonymizeScenarioForClient(scenario: Scenario): Scenario {
     const out: StudentProfile = {
       id: newId,
       is_sample: s.is_sample,
-      display_name: `示例学生 ${i + 1}`,
+      display_name: `Sample student ${i + 1}`,
       evidence: (s.evidence ?? []).map((e, k) => anonymizeEvidence(e, containsOriginal(e.id) ? `${newId}-ev${k + 1}` : e.id)),
     };
     const has = (key: keyof StudentProfile) => Object.prototype.hasOwnProperty.call(s, key);

@@ -65,23 +65,23 @@ function opp(id: string, minGrade = 9, maxGrade = 12): Opportunity {
   return {
     ...clone(baseOpp),
     id,
-    title: `【示例 / 占位】${id}`,
+    title: `[Sample / Placeholder] ${id}`,
     requirements: baseOpp.requirements.map((r) => (r.type === 'grade' ? { ...r, min: minGrade, max: maxGrade } : r)),
   };
 }
 function student(id: string, grade = 10): StudentProfile {
-  return { ...clone(baseStudent), id, grade, display_name: `示例学生 ${id}` };
+  return { ...clone(baseStudent), id, grade, display_name: `Sample student ${id}` };
 }
 function loan(id: string, patch: Partial<Intervention> = {}): Intervention {
-  return { id, title: `示例借用 ${id}`, type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, fixed_cost_usd: 0, capacity: null, ...patch };
+  return { id, title: `Sample loan ${id}`, type: 'device', resolves: ['device'], device: 'laptop', unit_cost_usd: 10, fixed_cost_usd: 0, capacity: null, ...patch };
 }
 function laptopGrant(id: string, s: string, o: string, iv: string | null, status: 'approved' | 'pending' = 'approved'): ResourceGrant {
-  return { id, student_id: s, opportunity_id: o, intervention_id: iv, type: 'device', device: 'laptop', status, provider: '示例（模拟）', is_sample: true };
+  return { id, student_id: s, opportunity_id: o, intervention_id: iv, type: 'device', device: 'laptop', status, provider: 'Sample (simulated)', is_sample: true };
 }
 function mini(p: Partial<Scenario>): Scenario {
   return {
     id: 'mini',
-    title: '示例 / 模拟小场景',
+    title: 'Sample / simulated small scenario',
     is_sample: true,
     evaluation_date: deviceLoanScenario.evaluation_date,
     budget_usd: 1000,
@@ -103,7 +103,7 @@ describe('venue-tradeoff 场景数据', () => {
     expect(s.opportunities.map((o) => o.id)).toEqual([WD, WE]);
     for (const o of s.opportunities) {
       expect(o.is_sample).toBe(true);
-      expect(o.title).toContain('占位');
+      expect(o.title).toContain('Placeholder');
       expect(o.official_url).toContain('example.com');
     }
     expect(validateOpportunities(s.opportunities)).toEqual([]);
@@ -146,8 +146,8 @@ describe('venue-tradeoff：保护模式不动已有承诺', () => {
     expect(r.R1).toEqual(r.R0);
     const alt = r.alternative!;
     expect(alt.relaxed).toEqual(['required_intervention_ids']);
-    expect(alt.note).toContain('互斥');
-    expect(alt.note).toContain('保护模式');
+    expect(alt.note).toContain('mutually exclusive');
+    expect(alt.note).toContain('protected mode');
     expect(alt.note).toContain(SHUTTLE);
     expect(alt.revoked_grant_ids).toEqual([]);
     expect(alt.G).toBe(2);
@@ -164,7 +164,7 @@ describe('venue-tradeoff：保护模式不动已有承诺', () => {
       [venueTradeoffScenario, {}],
       [venueTradeoffScenario, { min_gain: 6 }],
       [venueTradeoffScenario, { required_intervention_ids: [SATELLITE, SHUTTLE] }],
-      [venueTradeoffScenario, { fairness_floors: [{ id: 'f', label: '低收入学生', basis: '示例依据', statuses_any_of: ['low_income'], min_ratio: 0.5 }] }],
+      [venueTradeoffScenario, { fairness_floors: [{ id: 'f', label: 'Low-income students', basis: 'Sample basis', statuses_any_of: ['low_income'], min_ratio: 0.5 }] }],
       [pendingSat, {}],
       [{ ...venueTradeoffScenario, budget_usd: 10_000 }, {}],
     ];
@@ -233,7 +233,7 @@ describe('venue-tradeoff：权衡分析模式', () => {
     expect(asProtect.passed).toBe(false);
     expect(asProtect.checks.find((c) => c.name === 'revocation')?.passed).toBe(false);
     expect(asProtect.checks.find((c) => c.name === 'coverage_loss')?.passed).toBe(false);
-    expect(r.notes.join('')).toContain('强制撤回 3 条');
+    expect(r.notes.join('')).toContain('(3 forced)');
   });
 
   it('loss_cap = 10：与 loss_cap = 3 相同（没有更好的方案）', () => {
@@ -516,7 +516,7 @@ describe('场景外学生的已有 grant（不可撤回，R1）', () => {
       const r = solveJoint(base(2), opts);
       expect(r.status).toBe('INFEASIBLE');
       expect(r.alternative?.relaxed).toEqual(['required_intervention_ids']);
-      expect(r.alternative?.note).toContain('「new」与「old」发给场景外学生的已有承诺互斥，无法评估其损失，不能启用');
+      expect(r.alternative?.note).toContain('"new" conflicts with existing commitments from "old" to students outside the scenario. Their loss cannot be evaluated, so it cannot be enabled');
     }
   });
 
@@ -577,22 +577,22 @@ describe('权衡模式的说明文字与 loss_cap = 0', () => {
     const r = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 2, required_intervention_ids: [SATELLITE] });
     expect(r.status).toBe('INFEASIBLE');
     expect(r.alternative?.note).toContain(
-      `启用「${SATELLITE}」必须撤回 3 条已有资源，至少损失 3 个原本可达的（学生, 机会）对，超过损失上限 2`,
+      `Enabling "${SATELLITE}" requires revoking 3 existing resources and loses at least 3 previously reachable (student, opportunity) pairs, more than the loss cap of 2`,
     );
     // loss_cap 3 时可行，不出现这句。
     const ok = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 3, required_intervention_ids: [SATELLITE] });
     expect(ok.status).toBe('OPTIMAL');
-    expect(ok.notes.join('')).not.toContain('超过损失上限');
+    expect(ok.notes.join('')).not.toContain('more than the loss cap');
   });
 
   it('S3：「损失来自撤回已有 grant」只在 L > 0 时出现', () => {
     const none = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 2 });
     expect(none.L).toBe(0);
-    expect(none.notes.join('')).not.toContain('损失来自撤回');
-    expect(none.notes.some((n) => n.includes('本方案没有损失'))).toBe(true);
+    expect(none.notes.join('')).not.toContain('Losses come from revoking');
+    expect(none.notes.some((n) => n.includes('This plan has no losses'))).toBe(true);
     const some = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 3 });
     expect(some.L).toBe(3);
-    expect(some.notes.some((n) => n.includes('损失来自撤回已有 grant'))).toBe(true);
+    expect(some.notes.some((n) => n.includes('Losses come from revoking existing grants'))).toBe(true);
   });
 
   it('R4：tradeoff 且 loss_cap = 0 不等同 protect——可以撤回 pending 的 grant 腾出名额（L = 0）', () => {

@@ -69,7 +69,7 @@ describe('analyzeReachability — 基本', () => {
     expect(r.barriers).toEqual([]);
     expect(r.missing_info).toEqual([]);
     expect(r.reachable).toBe(true);
-    expect(r.summary).toContain('可达不等于录取');
+    expect(r.summary).toContain('Reachable does not mean admitted');
     expect(r.summary).not.toMatch(/MOCK/i);
   });
 
@@ -83,7 +83,7 @@ describe('analyzeReachability — 基本', () => {
   it('资格 unknown、无障碍 → null', () => {
     const r = analyzeReachability({ ...GOOD, grade: null }, makeOpp(), [], TODAY);
     expect(r.reachable).toBeNull();
-    expect(r.summary).toContain('资格待确认');
+    expect(r.summary).toContain('eligibility to confirm with the organizer');
   });
 
   it('确定性：同输入两次 toEqual', () => {
@@ -249,8 +249,8 @@ describe('analyzeReachability — cost', () => {
       expect(cost).toBeDefined();
       expect(cost!.resolved).toBe(false);
       expect(cost!.shortfall).toBe(50);
-      expect(cost!.description).toContain('至少还差 $50');
-      expect(cost!.description).toContain('实际可能更多');
+      expect(cost!.description).toContain('short at least $50');
+      expect(cost!.description).toContain('real cost may be higher');
       expect(r.missing_info).toContain('opportunity.cost.fee_usd');
       expect(r.reachable).toBe(false);
     });
@@ -261,7 +261,7 @@ describe('analyzeReachability — cost', () => {
       const r1 = analyzeReachability(p, unknownFee, [grant({ id: 'w', type: 'fee_waiver', amount_usd: 20 })], TODAY);
       const c1 = r1.barriers.find((b) => b.type === 'cost');
       expect(c1?.resolved).toBe(false);
-      expect(c1?.description).toContain('至少还差 $30');
+      expect(c1?.description).toContain('short at least $30');
       expect(r1.reachable).toBe(false);
       // 30 + 50 ≥ 80 → 下限没超，只记缺失 → null
       const r2 = analyzeReachability(p, unknownFee, [grant({ id: 'w', type: 'fee_waiver', amount_usd: 50 })], TODAY);
@@ -314,8 +314,8 @@ describe('analyzeReachability — transport', () => {
     const r = analyzeReachability({ ...GOOD, transport: { level: 'limited' } }, travel, [], TODAY);
     const t = r.barriers.filter((b) => b.type === 'transport');
     expect(t).toHaveLength(1);
-    expect(t[0].description).toContain('自费差旅');
-    expect(t[0].description).toContain('有限');
+    expect(t[0].description).toContain('pay for your own travel');
+    expect(t[0].description).toContain('transportation is limited');
   });
 
   it('hybrid 形式也检查交通：none / limited → 障碍；reliable 且无需自费差旅 → 无障碍', () => {
@@ -325,7 +325,7 @@ describe('analyzeReachability — transport', () => {
     expect(none.reachable).toBe(false);
     const limited = analyzeReachability({ ...GOOD, transport: { level: 'limited' } }, hybrid, [], TODAY);
     expect(limited.barriers.map((b) => b.type)).toEqual(['transport']);
-    expect(limited.barriers[0].description).toContain('有限');
+    expect(limited.barriers[0].description).toContain('transportation is limited');
     const ok = analyzeReachability(GOOD, hybrid, [], TODAY);
     expect(ok.barriers).toEqual([]);
     expect(ok.reachable).toBe(true);
@@ -457,7 +457,7 @@ describe('analyzeReachability — time', () => {
 
   it('已过截止日期 → 障碍，任何 grant 都不能化解', () => {
     const r = analyzeReachability(GOOD, prepOpp, [grant({ id: 't', type: 'time_support', hours_per_week: 100 })], { today: '2026-12-05' });
-    const past = r.barriers.find((b) => b.description.includes('已过截止日期'));
+    const past = r.barriers.find((b) => b.description.includes('has passed'));
     expect(past).toBeDefined();
     expect(past!.resolved).toBe(false);
     expect(past!.shortfall).toBeNull();
@@ -480,7 +480,7 @@ describe('analyzeReachability — time', () => {
     const r = analyzeReachability(GOOD, opp, []);
     expect(r.missing_info).toEqual(['options.today']);
     expect(r.reachable).toBeNull();
-    expect(r.summary).toContain('今天的日期');
+    expect(r.summary).toContain("today's date");
     const bad = analyzeReachability(GOOD, opp, [], { today: 'garbage' });
     expect(bad.missing_info).toEqual(['options.today']);
     expect(bad.reachable).toBeNull();
@@ -499,9 +499,9 @@ describe('analyzeReachability — time', () => {
     const r = analyzeReachability(GOOD, todayOpp, [], TODAY);
     const t = r.barriers.filter((b) => b.type === 'time');
     expect(t).toHaveLength(1);
-    expect(t[0].description).toContain('今天截止');
-    expect(t[0].description).not.toContain('还剩');
-    expect(t[0].description).not.toContain('每周还差');
+    expect(t[0].description).toContain('The deadline is today');
+    expect(t[0].description).not.toContain('days left');
+    expect(t[0].description).not.toContain('short about');
     expect(r.reachable).toBe(false);
     // 今天截止但没有准备差距 → 仍然可达（还没过期）
     expect(analyzeReachability(GOOD, makeOpp({ deadline: '2026-11-17' }), [], TODAY).reachable).toBe(true);
@@ -526,7 +526,7 @@ describe('analyzeReachability — 综合', () => {
       'opportunity.cost.requires_travel_expense',
       'profile.hours_per_week_available',
     ]);
-    expect(r.summary).toContain('还缺信息');
+    expect(r.summary).toContain('missing info');
   });
 
   it('有未化解障碍时，即使信息不足也是 false', () => {

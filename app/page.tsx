@@ -1,29 +1,32 @@
 import Link from "next/link";
 
 const pages = [
-  { href: "/quests", label: "机会 Quests", note: "发现真实机会，看懂资格" },
-  { href: "/map", label: "成长地图 Map", note: "选择走得通的成长路线" },
-  { href: "/passport", label: "技能护照 Passport", note: "记录技能证据" },
-  { href: "/organizer", label: "主办方 Organizer", note: "资源分配与模拟（支持模块）" },
+  { href: "/quests", label: "Quests", note: "Find real opportunities and understand eligibility" },
+  { href: "/map", label: "Map", note: "Pick a growth route that works" },
+  { href: "/passport", label: "Passport", note: "Record evidence of your skills" },
+  { href: "/organizer", label: "Organizer", note: "Resource allocation and simulation (support module)" },
 ];
 
 export default function Home() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Opportunity Compass</h1>
-      <p className="text-gray-700">
-        帮助缺少资源和人脉的学生：发现真实机会 → 看懂资格和现实障碍 →
-        选一条走得通的成长路线 → 申请。
-      </p>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {pages.map((p) => (
+    <div className="home crt">
+      <div className="rpg-stack">
+        <h1>Opportunity Compass</h1>
+        <p className="home__lead">
+          For students without resources or connections: find real opportunities,
+          understand eligibility and real-world barriers, pick a route that works,
+          then apply.
+        </p>
+      </div>
+      <ul className="rpg-menu">
+        {pages.map((p, index) => (
           <li key={p.href}>
             <Link
               href={p.href}
-              className="block rounded border border-gray-200 p-4 hover:border-gray-400"
+              className={index === 0 ? "rpg-menu__row rpg-menu__row--cursor" : "rpg-menu__row"}
             >
-              <span className="font-medium">{p.label}</span>
-              <span className="mt-1 block text-sm text-gray-600">{p.note}</span>
+              <span className="rpg-menu__title">{p.label}</span>
+              <span className="rpg-menu__note">{p.note}</span>
             </Link>
           </li>
         ))}

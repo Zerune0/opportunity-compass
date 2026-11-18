@@ -94,7 +94,7 @@ describe('compareBaselines：设备借用场景，只启用笔记本借用（预
   const c = compareBaselines(LAPTOP_ONLY);
 
   it('四行固定顺序，标签固定', () => {
-    expect(c.rows.map((r) => r.label)).toEqual(['基础资格筛选', '学生端约束规划器', '机构端干预规划器', '联合求解']);
+    expect(c.rows.map((r) => r.label)).toEqual(['Eligibility filter only', 'Student-side planner', 'Organizer-side planner', 'Joint solver']);
     expectConsistent(LAPTOP_ONLY, {}, c);
   });
 
@@ -113,8 +113,8 @@ describe('compareBaselines：设备借用场景，只启用笔记本借用（预
     expect(fails(b)).toEqual(['capacity']);
     expect(b.verified).toBeNull();
     expect(b.repaired).toMatchObject({ R1_count: 5, G: 5, L: 0, N: 5, total_usd: 200 });
-    expect(b.repaired!.note).toContain('保留 5 个对，跳过 2 个对');
-    expect(b.repaired!.note).toContain('不代表谁更需要');
+    expect(b.repaired!.note).toContain('kept 5 pairs, skipped 2 pairs');
+    expect(b.repaired!.note).toContain('does not represent who needs help more');
   });
 
   it('C：声称 5，复核后只有 4 人可达（s03 还缺交通），$200', () => {
@@ -145,7 +145,7 @@ describe('compareBaselines：设备借用场景，全部措施（预算 $400）'
     expect(b.plan.selected_intervention_ids).toEqual([D.laptopLoan, D.onlineEntry]);
     expect(fails(b)).toEqual(['capacity', 'budget']);
     expect(b.repaired).toMatchObject({ G: 5, L: 0, total_usd: 350 });
-    expect(b.repaired!.note).toContain('保留 5 个对，跳过 5 个对');
+    expect(b.repaired!.note).toContain('kept 5 pairs, skipped 5 pairs');
 
     const cc = row(c, 'C_organizer_side');
     expect(cc.claimed_reachable).toBe(7);
@@ -168,7 +168,7 @@ describe('compareBaselines：权衡场景', () => {
     expect(b.verified).toBeNull();
     expect(fails(b)).toEqual(expect.arrayContaining(['mutual_exclusion', 'revocation']));
     expect(b.repaired).toMatchObject({ R1_count: 5, G: 2, L: 0, N: 2, total_usd: 50 });
-    expect(b.repaired!.note).toContain('保留 2 个对，跳过 13 个对');
+    expect(b.repaired!.note).toContain('kept 2 pairs, skipped 13 pairs');
     const cc = row(c, 'C_organizer_side');
     expect(cc.claimed_reachable).toBe(5);
     expect(cc.plan.selected_intervention_ids).toEqual(['iv-weekday-carpool']);
@@ -317,7 +317,7 @@ describe('compareBaselines：小的对抗场景', () => {
     const b = row(c, 'B_student_side');
     expect(fails(b)).toContain('budget');
     expect(b.repaired).toMatchObject({ R1_count: 0, G: 0, total_usd: 0 });
-    expect(b.repaired!.note).toContain('保留 0 个对，跳过 10 个对');
+    expect(b.repaired!.note).toContain('kept 0 pairs, skipped 10 pairs');
     const cc = row(c, 'C_organizer_side');
     expect(cc.plan.selected_intervention_ids).toEqual([]);
     expect(cc.claimed_reachable).toBe(0);

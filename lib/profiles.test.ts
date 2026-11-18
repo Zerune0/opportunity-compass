@@ -30,7 +30,7 @@ describe('data/profiles.json', () => {
     for (const p of profiles) {
       expect(p.is_sample).toBe(true);
       expect(typeof p.id).toBe('string');
-      expect(p.display_name).toContain('示例');
+      expect(p.display_name).toContain('Sample');
       expect(Array.isArray(p.evidence)).toBe(true);
     }
   });

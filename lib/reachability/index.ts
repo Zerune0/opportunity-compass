@@ -50,31 +50,31 @@ import type {
   StudentProfile,
   SupportType,
 } from '../types';
-import { fmt } from '../format';
+import { fmt, plural, pluralNoun } from '../format';
 import { findCoveringEvidence, nonNegOrZero, requiredPrepClosure } from './coverage';
 
 export { evidenceCoversPrep, findCoveringEvidence, requiredPrepClosure } from './coverage';
 
 const DEVICE_ZH: Record<string, string> = {
-  laptop: '笔记本电脑',
-  desktop: '台式电脑',
-  smartphone: '智能手机',
-  tablet: '平板电脑',
-  webcam: '摄像头',
-  home_internet: '家里稳定的网络',
+  laptop: 'a laptop',
+  desktop: 'a desktop computer',
+  smartphone: 'a smartphone',
+  tablet: 'a tablet',
+  webcam: 'a webcam',
+  home_internet: 'reliable home internet',
 };
 
 /** missing_info 字段 → 面向学生的中文名。 */
 const MISSING_ZH: Record<string, string> = {
-  'profile.devices': '你有哪些设备',
-  'profile.budget_usd': '你能自掏的预算',
-  'profile.transport': '你的交通条件',
-  'profile.hours_per_week_available': '你每周可用的小时数',
-  'opportunity.cost.fee_usd': '官方费用（官网未写清）',
-  'opportunity.cost.requires_travel_expense': '是否需要自费差旅（官网未写清）',
-  'opportunity.time_commitment.hours_per_week': '参与期间每周需要的时间（官网未写清）',
-  'opportunity.deadline': '截止日期（格式无法识别）',
-  'options.today': '今天的日期',
+  'profile.devices': 'which devices you have',
+  'profile.budget_usd': 'how much you can pay yourself',
+  'profile.transport': 'your transportation',
+  'profile.hours_per_week_available': 'hours you have each week',
+  'opportunity.cost.fee_usd': 'the official fee (not clear on the website)',
+  'opportunity.cost.requires_travel_expense': 'whether you must pay for travel (not clear on the website)',
+  'opportunity.time_commitment.hours_per_week': 'weekly hours needed during the program (not clear on the website)',
+  'opportunity.deadline': "the deadline (date format can't be read)",
+  'options.today': "today's date",
 };
 
 /** 能化解 transport 障碍的 grant 类型（与 SUPPORT_RESOLVES 中映射到 'transport' 的类型一致）。 */
@@ -97,10 +97,10 @@ export function analyzeReachability(
   const readiness_gaps: ReadinessGap[] = uncovered.map((prep) => {
     let reason: string;
     if (prep.skill) {
-      const kind = prep.evidence_kind ? `「${EVIDENCE_KIND_ZH[prep.evidence_kind]}」类` : '';
-      reason = `档案中还没有体现「${prep.skill}」的${kind}证据，也没有标注完成「${prep.title}」的证据。`;
+      const kind = prep.evidence_kind ? ` (type: ${EVIDENCE_KIND_ZH[prep.evidence_kind]})` : '';
+      reason = `Your profile has no evidence${kind} showing "${prep.skill}" yet, and no evidence marked as completing "${prep.title}".`;
     } else {
-      reason = `档案中还没有标注完成「${prep.title}」的证据。`;
+      reason = `Your profile has no evidence marked as completing "${prep.title}" yet.`;
     }
     return {
       prep_item_id: prep.id,
@@ -145,7 +145,7 @@ export function analyzeReachability(
         const pend = pending.filter((g) => g.type === 'device' && g.device === device).map((g) => g.id);
         barriers.push({
           type: 'device',
-          description: `需要${DEVICE_ZH[device] ?? device}，档案中没有。`,
+          description: `Needs ${DEVICE_ZH[device] ?? device}, which is not in your profile.`,
           shortfall: null,
           resolved: fixing.length > 0,
           resolved_by_grant_ids: fixing.map((g) => g.id),
@@ -171,10 +171,10 @@ export function analyzeReachability(
       // 官方费用未知，但仅必需准备费用这个下限就已超出预算 + 有金额的减免 → 已确定走不通。
       const shortfall = prepCost - budget;
       const rest = prepCost - budget - knownWaivers;
-      const waiverText = knownWaivers > 0 ? `，计入已批准的减免 $${fmt(knownWaivers)} 后，` : '，';
+      const waiverText = knownWaivers > 0 ? `; after the approved waiver of $${fmt(knownWaivers)}, ` : '; ';
       barriers.push({
         type: 'cost',
-        description: `官方费用未写清；仅必需准备项费用就要约 $${fmt(prepCost)}，超出你的预算 $${fmt(budget)}${waiverText}至少还差 $${fmt(rest)}（官方费用未写清，实际可能更多）。`,
+        description: `The official fee is not clear. Required prep alone costs about $${fmt(prepCost)}, over your budget of $${fmt(budget)}${waiverText}you are short at least $${fmt(rest)} (the official fee is not clear, so the real cost may be higher).`,
         shortfall,
         resolved: false,
         resolved_by_grant_ids: [],
@@ -190,11 +190,11 @@ export function analyzeReachability(
         const shortfall = need - budget;
         const covered = (hasFeeOnlyWaiver ? fee : 0) + knownWaivers;
         const resolved = waivers.length > 0 && covered >= shortfall;
-        const parts = [`报名 / 项目费 $${fmt(fee)}`];
-        if (prepCost > 0) parts.push(`必需准备项费用 $${fmt(prepCost)}`);
+        const parts = [`application / program fee $${fmt(fee)}`];
+        if (prepCost > 0) parts.push(`required prep costs $${fmt(prepCost)}`);
         barriers.push({
           type: 'cost',
-          description: `需要约 $${fmt(need)}（${parts.join(' + ')}），超出你的预算 $${fmt(budget)}，还差 $${fmt(shortfall)}。`,
+          description: `Needs about $${fmt(need)} (${parts.join(' + ')}), over your budget of $${fmt(budget)}; you are short $${fmt(shortfall)}.`,
           shortfall,
           resolved,
           resolved_by_grant_ids: resolved ? waivers.map((g) => g.id) : [],
@@ -211,12 +211,12 @@ export function analyzeReachability(
     if (transport == null) {
       miss('profile.transport');
     } else if (transport.level === 'none') {
-      reasons.push('这是线下 / 混合形式的机会，而你目前基本无法自行前往线下地点');
+      reasons.push('this is in person / hybrid, and right now you have almost no way to get there on your own');
     } else if (transport.level === 'limited') {
-      reasons.push('这是线下 / 混合形式的机会，而你的交通条件有限');
+      reasons.push('this is in person / hybrid, and your transportation is limited');
     }
     if (opp.cost.requires_travel_expense === true) {
-      reasons.push('官方说明需要自费差旅，本地通勤条件好也不够');
+      reasons.push('the organizer says you must pay for your own travel, so good local transportation is not enough');
     }
     if (reasons.length > 0) {
       // 交通补助与替代参与方式同等对待：任一 approved 即化解（保持 grants 输入顺序）。
@@ -224,7 +224,7 @@ export function analyzeReachability(
       const subsidies = approved.filter(isTransportFix);
       barriers.push({
         type: 'transport',
-        description: `交通障碍：${reasons.join('；')}。`,
+        description: `Transportation barrier: ${reasons.join('; ')}.`,
         shortfall: null,
         resolved: subsidies.length > 0,
         resolved_by_grant_ids: subsidies.map((g) => g.id),
@@ -259,7 +259,7 @@ export function analyzeReachability(
     const shortfall = needWeekly - available;
     barriers.push(
       timeBarrier(
-        `参与期间每周需要约 ${fmt(needWeekly)} 小时，你每周可用 ${fmt(available)} 小时，每周还差 ${fmt(shortfall)} 小时。`,
+        `The program needs about ${plural(needWeekly, 'hour')} per week; you have ${plural(available, 'hour')} per week, so you are short ${plural(shortfall, 'hour')} per week.`,
         shortfall,
       ),
     );
@@ -277,7 +277,7 @@ export function analyzeReachability(
     } else if (daysBetween(today, deadline) < 0) {
       barriers.push({
         type: 'time',
-        description: `已过截止日期（${opp.deadline}），本届无法再申请；可以关注下一届或同领域的其他机会。`,
+        description: `The deadline (${opp.deadline}) has passed, so you can't apply this round. Watch for the next round or similar opportunities in the same field.`,
         shortfall: null,
         resolved: false,
         resolved_by_grant_ids: [],
@@ -294,8 +294,8 @@ export function analyzeReachability(
           const shortfall = roundUpHalf(prepHours / weeks - available);
           const description =
             daysLeft === 0
-              ? `今天截止（${opp.deadline}），还有约 ${fmt(prepHours)} 小时的必需准备没有完成，今天之内来不及。`
-              : `截止前（还剩 ${days} 天）需要完成约 ${fmt(prepHours)} 小时的必需准备，按你每周 ${fmt(available)} 小时来不及，每周还差约 ${fmt(shortfall)} 小时（向上取整到 0.5 小时）。`;
+              ? `The deadline is today (${opp.deadline}). About ${plural(prepHours, 'hour')} of required prep ${pluralNoun(prepHours, 'is', 'are')} not done, and that can't be finished today.`
+              : `Before the deadline (${plural(days, 'day')} left) you need about ${plural(prepHours, 'hour')} of required prep. At ${plural(available, 'hour')} per week that is not enough; you are short about ${plural(shortfall, 'hour')} per week (rounded up to 0.5 hours).`;
           barriers.push(timeBarrier(description, shortfall));
         }
       }
@@ -314,23 +314,23 @@ export function analyzeReachability(
   if (reachable === false) {
     const blocking = eligibility.items.find((i) => i.hard && i.status === 'not_satisfied');
     if (blocking) {
-      summary = `目前不可达：不满足硬性要求「${blocking.label}」。`;
+      summary = `Not reachable right now: you don't meet the hard requirement "${blocking.label}".`;
     } else {
-      summary = `目前不可达：${unresolved[0].description}`;
-      if (unresolved.length > 1) summary += `（另有 ${unresolved.length - 1} 个未化解的障碍）`;
+      summary = `Not reachable right now: ${unresolved[0].description}`;
+      if (unresolved.length > 1) summary += ` (plus ${plural(unresolved.length - 1, 'more unresolved barrier')})`;
     }
   } else if (reachable === null) {
     const needs: string[] = [];
-    const unknownHard = eligibility.items.filter((i) => i.hard && i.status === 'unknown').map((i) => `「${i.label}」`);
-    if (unknownHard.length > 0) needs.push(`资格待确认：${unknownHard.join('、')}`);
-    if (missing.length > 0) needs.push(`还缺信息：${missing.map((f) => MISSING_ZH[f] ?? f).join('、')}`);
-    summary = `暂时无法判断是否可达。${needs.join('；')}。`;
+    const unknownHard = eligibility.items.filter((i) => i.hard && i.status === 'unknown').map((i) => `"${i.label}"`);
+    if (unknownHard.length > 0) needs.push(`eligibility to confirm with the organizer: ${unknownHard.join(', ')}`);
+    if (missing.length > 0) needs.push(`missing info: ${missing.map((f) => MISSING_ZH[f] ?? f).join(', ')}`);
+    summary = `We can't tell yet if this is reachable. ${needs.join('; ')}.`;
   } else {
     const resolvedCount = barriers.length;
     summary =
       resolvedCount > 0
-        ? `按目前信息，现实条件上走得通（${resolvedCount} 个障碍已被已批准的资源化解）。可达不等于录取。`
-        : '按目前信息，现实条件上走得通。可达不等于录取。';
+        ? `Based on current info, this is realistically doable (${plural(resolvedCount, 'barrier')} resolved by approved support). Reachable does not mean admitted.`
+        : 'Based on current info, this is realistically doable. Reachable does not mean admitted.';
   }
 
   return {

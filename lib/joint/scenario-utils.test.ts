@@ -78,7 +78,7 @@ describe('resolveEnabledInterventions / withEnabledInterventions：运行中的�
   it('勾选了运行中的措施但其前置依赖没勾：冻结（missing_requires），依赖它的其他措施照常移除', () => {
     const iv = (id: string, extra: Partial<Intervention> = {}): Intervention => ({
       id,
-      title: `示例措施 ${id}`,
+      title: `Sample support measure ${id}`,
       type: 'device',
       resolves: ['device'],
       device: 'laptop',
@@ -94,7 +94,7 @@ describe('resolveEnabledInterventions / withEnabledInterventions：运行中的�
       type: 'device',
       device: 'laptop',
       status: 'approved',
-      provider: '示例',
+      provider: 'Sample',
       is_sample: true,
     };
     const s: Scenario = {

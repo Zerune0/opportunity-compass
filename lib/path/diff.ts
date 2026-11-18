@@ -15,10 +15,11 @@
 import type { AlternativeHint, PlanResult, Route, RouteChange, RouteDiff, RouteStep, RouteType, StepChange } from '../types';
 import { ROUTE_TYPES } from '../types';
 import { FEE_UNKNOWN_WARNING, ROUTE_TITLES, SUBMIT_STEP_ID, deepEqual, fmt, round2, usd } from './shared';
+import { joinAnd, plural, pluralNoun } from '../format';
 
 const ALT_LABELS: Record<AlternativeHint['kind'], string> = {
-  next_cycle: '关注下一届',
-  same_field: '同领域替代',
+  next_cycle: 'Watch for the next round',
+  same_field: 'Same-field alternatives',
 };
 
 type StepEventKind = 'skipped' | 'unskipped' | 'added' | 'removed' | 'estimate';
@@ -32,23 +33,39 @@ interface StepEvent {
   routes: RouteType[];
 }
 
-function routeList(types: RouteType[]): string {
-  return types.map((t) => ROUTE_TITLES[t]).join('、');
+/** "the Learning first route" / "the Learning first and Community routes" */
+function routesPhrase(types: RouteType[]): string {
+  return `the ${joinAnd(types.map((t) => ROUTE_TITLES[t]))} ${pluralNoun(types.length, 'route')}`;
 }
 
-function each(types: RouteType[]): string {
-  return types.length > 1 ? '各' : '';
+function lcFirst(s: string): string {
+  return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
-function amountText(hours: number, cost: number): string {
+function ucFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * How the routes' totals move, as a full sentence, or '' when nothing moves:
+ * "The Learning first route is 1 hour shorter." /
+ * "The Learning first and Community routes are each 2 hours shorter and cost $10 less."
+ */
+function deltaSentence(types: RouteType[], hours: number, cost: number, dir: 'less' | 'more'): string {
+  if (hours === 0 && cost === 0) return '';
+  const many = types.length > 1;
   const parts: string[] = [];
-  if (hours !== 0) parts.push(`${fmt(hours)} 小时`);
-  if (cost !== 0) parts.push(usd(cost));
-  return parts.join('、');
+  if (hours !== 0) {
+    parts.push(`${many ? 'are each' : 'is'} ${plural(hours, 'hour')} ${dir === 'less' ? 'shorter' : 'longer'}`);
+  }
+  if (cost !== 0) {
+    parts.push(`${many && parts.length === 0 ? 'each cost' : many ? 'cost' : 'costs'} ${usd(cost)} ${dir}`);
+  }
+  return `${ucFirst(routesPhrase(types))} ${parts.join(' and ')}.`;
 }
 
 function feasibleZh(v: boolean | null): string {
-  return v === true ? '来得及' : v === false ? '可能来不及' : '无法判断';
+  return v === true ? 'on time' : v === false ? 'may not make it' : "can't tell";
 }
 
 function stripEnd(s: string): string {
@@ -72,20 +89,20 @@ function compareSteps(b: Route, a: Route) {
   for (const s of a.steps) {
     const prev = bSteps.get(s.id);
     if (!prev) {
-      added_steps.push(change(s, '机会的准备项有更新，新增了这一步'));
+      added_steps.push(change(s, "The opportunity's prep items were updated, and this step was added"));
       continue;
     }
     if (s.skipped && !prev.skipped) {
-      newly_skipped_steps.push(change(s, s.skip_reason ?? '已有证据覆盖这一项'));
+      newly_skipped_steps.push(change(s, s.skip_reason ?? 'Already covered by your evidence'));
     } else if (!s.skipped && prev.skipped) {
       unskipped_steps.push(
-        change(s, `之前${prev.skip_reason ?? '已有证据覆盖'}，现在对应的证据不再覆盖这一项（可能被删除或修改了）`),
+        change(s, `Before: ${prev.skip_reason ?? 'already covered by your evidence'}. Now that evidence no longer covers this step (it may have been deleted or changed)`),
       );
     }
     if (s.hours !== prev.hours || s.cost_usd !== prev.cost_usd) estimateChanges.push({ step: s, before: prev });
   }
   for (const s of b.steps) {
-    if (!aSteps.has(s.id)) removed_steps.push(change(s, '机会的准备项有更新，这一步不再需要'));
+    if (!aSteps.has(s.id)) removed_steps.push(change(s, "The opportunity's prep items were updated, and this step is no longer needed"));
   }
   return { added_steps, removed_steps, newly_skipped_steps, unskipped_steps, estimateChanges, bSteps };
 }
@@ -98,58 +115,58 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
 
   if (before.profile_id !== after.profile_id || before.opportunity_id !== after.opportunity_id) {
     const what: string[] = [];
-    if (before.profile_id !== after.profile_id) what.push('学生档案');
-    if (before.opportunity_id !== after.opportunity_id) what.push('机会');
-    push(`注意：两次规划的${what.join('和')}不是同一个，下面的差异不只是档案更新造成的，请谨慎解读。`);
+    if (before.profile_id !== after.profile_id) what.push('student profile');
+    if (before.opportunity_id !== after.opportunity_id) what.push('opportunity');
+    push(`Note: the two plans are for a different ${what.join(' and ')}, so the differences below are not only from profile updates. Read them with care.`);
   }
 
   // ── 状态变化 ──
   const status_change = before.status === after.status ? null : { from: before.status, to: after.status };
   if (before.status === 'blocked' && after.status === 'routes') {
-    const labels = before.blocking_requirements.map((b) => `「${b.label}」`).join('、');
+    const labels = before.blocking_requirements.map((b) => `"${b.label}"`).join(', ');
     push(
-      `之前因为不满足硬性要求${labels}而无法规划（${before.reasons.map(stripEnd).join('；')}）；现在这些要求不再判定为不满足，所以给出了 ${after.routes.length} 条路线。`,
+      `Before, we couldn't plan because you didn't meet the hard ${pluralNoun(before.blocking_requirements.length, 'requirement')} ${labels} (${before.reasons.map(stripEnd).join('; ')}). Now ${before.blocking_requirements.length === 1 ? 'that requirement is' : 'those requirements are'} no longer marked as not met, so here ${after.routes.length === 1 ? 'is' : 'are'} ${plural(after.routes.length, 'route')}.`,
     );
   } else if (before.status === 'routes' && after.status === 'blocked') {
     push(
-      `现在无法规划路线：${after.reasons.map(stripEnd).join('；')}。之前的 ${before.routes.length} 条路线不再适用，也不提供绕过要求的路线。`,
+      `We can't plan routes now: ${after.reasons.map(stripEnd).join('; ')}. The ${plural(before.routes.length, 'earlier route')} no longer ${before.routes.length === 1 ? 'applies' : 'apply'}, and we don't offer routes that get around the requirements.`,
     );
   } else if (before.status === 'blocked' && after.status === 'blocked') {
     const bIds = new Set(before.blocking_requirements.map((i) => i.requirement_id));
     const aIds = new Set(after.blocking_requirements.map((i) => i.requirement_id));
     after.blocking_requirements.forEach((item, idx) => {
-      if (!bIds.has(item.requirement_id)) push(`新增阻断：${stripEnd(after.reasons[idx] ?? item.label)}。`);
+      if (!bIds.has(item.requirement_id)) push(`New blocker: ${stripEnd(after.reasons[idx] ?? item.label)}.`);
     });
     for (const item of before.blocking_requirements) {
       if (!aIds.has(item.requirement_id)) {
-        push(`「${item.label}」已不再阻断，但仍有其他硬性要求不满足，所以还是无法规划路线。`);
+        push(`"${item.label}" no longer blocks you, but other hard requirements are still not met, so we still can't plan routes.`);
       }
     }
     // 阻断集合不变、但同一要求的说明有更新（如官网原文或判断说明变了）。
     const sameSet = bIds.size === aIds.size && [...aIds].every((id) => bIds.has(id));
     if (sameSet && !deepEqual(before.reasons, after.reasons)) {
-      push('阻断的要求没变，但阻断原因的说明有更新（可能是档案或机会数据有变化），请以现在的说明为准。');
+      push('The blocking requirements are the same, but the explanation was updated (your profile or the opportunity data may have changed). Go by the current explanation.');
     }
     // 替代提示变化（kind + text 比较）。
     for (const alt of after.alternatives) {
       const prev = before.alternatives.find((x) => x.kind === alt.kind);
-      if (!prev) push(`新增替代提示「${ALT_LABELS[alt.kind]}」：${stripEnd(alt.text)}。`);
-      else if (prev.text !== alt.text) push(`替代提示「${ALT_LABELS[alt.kind]}」有更新：${stripEnd(alt.text)}。`);
+      if (!prev) push(`New alternative "${ALT_LABELS[alt.kind]}": ${stripEnd(alt.text)}.`);
+      else if (prev.text !== alt.text) push(`Alternative "${ALT_LABELS[alt.kind]}" was updated: ${stripEnd(alt.text)}.`);
     }
     for (const alt of before.alternatives) {
       if (after.alternatives.some((x) => x.kind === alt.kind)) continue;
       push(
         alt.kind === 'next_cycle'
-          ? '「关注下一届」的提示不再出现：现在的阻断不会随年级 / 年龄增长而解除，或机会不再确定每年举办。'
-          : `替代提示「${ALT_LABELS[alt.kind]}」不再出现（机会的领域信息有变化）。`,
+          ? 'The "Watch for the next round" hint is gone: the current blocker will not go away as you move up a grade / get older, or the opportunity is no longer known to run every year.'
+          : `The alternative "${ALT_LABELS[alt.kind]}" is gone (the opportunity's field info changed).`,
       );
     }
   }
 
   // ── 整体提醒变化（两边都有路线时） ──
   if (before.status === 'routes' && after.status === 'routes') {
-    for (const w of after.warnings) if (!before.warnings.includes(w)) push(`新的整体提醒：${stripEnd(w)}。`);
-    for (const w of before.warnings) if (!after.warnings.includes(w)) push(`这条整体提醒已不再出现：${stripEnd(w)}。`);
+    for (const w of after.warnings) if (!before.warnings.includes(w)) push(`New overall note: ${stripEnd(w)}.`);
+    for (const w of before.warnings) if (!after.warnings.includes(w)) push(`This overall note is gone: ${stripEnd(w)}.`);
   }
 
   // ── 路线对齐 ──
@@ -200,11 +217,11 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
       if (bothRoutes && type === 'practice_first') {
         push(
           a
-            ? '新出现实践优先路线：现在有尚未被证据覆盖的实践类准备项（项目、作品等），可以先动手做。'
-            : '实践优先路线不再出现：实践类准备项（项目、作品等）都已被证据覆盖或不再需要，剩下的路线已足够。',
+            ? 'New Practice first route: there are now hands-on prep items (projects, portfolio, etc.) not yet covered by your evidence, so you can start by building.'
+            : 'The Practice first route is gone: all hands-on prep items (projects, portfolio, etc.) are covered by your evidence or no longer needed, so the other routes are enough.',
         );
       } else if (bothRoutes) {
-        push(`${ROUTE_TITLES[type]}路线${a ? '新出现' : '不再出现'}。`);
+        push(`The ${ROUTE_TITLES[type]} route ${a ? 'is new' : 'is gone'}.`);
       }
       continue;
     }
@@ -223,10 +240,10 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
     for (const s of a.steps) {
       const prev = cmp.bSteps.get(s.id);
       if (prev && s.skipped && !prev.skipped) {
-        addEvent(`skipped:${s.id}:${s.skip_reason}`, { kind: 'skipped', title: s.title, detail: s.skip_reason ?? '已有证据覆盖这一项', hours: s.hours, cost: s.cost_usd }, type);
+        addEvent(`skipped:${s.id}:${s.skip_reason}`, { kind: 'skipped', title: s.title, detail: s.skip_reason ?? 'Already covered by your evidence', hours: s.hours, cost: s.cost_usd }, type);
         explained = true;
       } else if (prev && !s.skipped && prev.skipped) {
-        addEvent(`unskipped:${s.id}:${prev.skip_reason}`, { kind: 'unskipped', title: s.title, detail: prev.skip_reason ?? '已有证据覆盖', hours: s.hours, cost: s.cost_usd }, type);
+        addEvent(`unskipped:${s.id}:${prev.skip_reason}`, { kind: 'unskipped', title: s.title, detail: prev.skip_reason ?? 'already covered by your evidence', hours: s.hours, cost: s.cost_usd }, type);
         explained = true;
       }
     }
@@ -248,8 +265,8 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
       if (step.id === SUBMIT_STEP_ID && feeStatusChanged) continue;
       const detail =
         step.id === SUBMIT_STEP_ID
-          ? `报名费从 ${usd(prev.cost_usd)} 变为 ${usd(step.cost_usd)}`
-          : `预估从 ${fmt(prev.hours)} 小时、${usd(prev.cost_usd)} 变为 ${fmt(step.hours)} 小时、${usd(step.cost_usd)}`;
+          ? `application fee changed from ${usd(prev.cost_usd)} to ${usd(step.cost_usd)}`
+          : `estimate changed from ${plural(prev.hours, 'hour')}, ${usd(prev.cost_usd)} to ${plural(step.hours, 'hour')}, ${usd(step.cost_usd)}`;
       addEvent(`estimate:${step.id}:${detail}`, { kind: 'estimate', title: step.title, detail, hours: 0, cost: 0 }, type);
       explained = true;
     }
@@ -257,9 +274,9 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
       const aSubmit = a.steps.find((s) => s.id === SUBMIT_STEP_ID);
       const bSubmit = cmp.bSteps.get(SUBMIT_STEP_ID);
       const detail = bFeeUnknown
-        ? `报名费从官网未写清变为 ${usd(aSubmit?.cost_usd ?? 0)}`
-        : `报名费从 ${usd(bSubmit?.cost_usd ?? 0)} 变为官网未写清（未计入费用，请向官方确认）`;
-      addEvent(`estimate:${SUBMIT_STEP_ID}:${detail}`, { kind: 'estimate', title: aSubmit?.title ?? '提交申请', detail, hours: 0, cost: 0 }, type);
+        ? `application fee changed from not clear on the official site to ${usd(aSubmit?.cost_usd ?? 0)}`
+        : `application fee changed from ${usd(bSubmit?.cost_usd ?? 0)} to not clear on the official site (not counted in the cost; confirm with the organizer)`;
+      addEvent(`estimate:${SUBMIT_STEP_ID}:${detail}`, { kind: 'estimate', title: aSubmit?.title ?? 'Submit application', detail, hours: 0, cost: 0 }, type);
       explained = true;
     }
 
@@ -272,19 +289,19 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
     if (a.feasible_by_deadline !== b.feasible_by_deadline) {
       const cause =
         a.total_hours !== b.total_hours
-          ? `所需小时数从 ${fmt(b.total_hours)} 变为 ${fmt(a.total_hours)}`
-          : '所需小时数没变，是每周可用小时或日期信息有变化';
-      const key = `能否在截止日期前完成：从「${feasibleZh(b.feasible_by_deadline)}」变为「${feasibleZh(a.feasible_by_deadline)}」（${cause}）`;
+          ? `hours needed changed from ${fmt(b.total_hours)} to ${fmt(a.total_hours)}`
+          : 'hours needed did not change; your weekly hours or the dates changed';
+      const key = `finishing before the deadline changed from "${feasibleZh(b.feasible_by_deadline)}" to "${feasibleZh(a.feasible_by_deadline)}" (${cause})`;
       feasibleGroups.set(key, [...(feasibleGroups.get(key) ?? []), type]);
       explained = true;
     }
     if (a.estimated_weeks !== b.estimated_weeks && a.total_hours === b.total_hours) {
-      const key = `预计周数从 ${b.estimated_weeks ?? '无法估算'} 变为 ${a.estimated_weeks ?? '无法估算'}（每周可用小时有变化）`;
+      const key = `estimated weeks changed from ${b.estimated_weeks ?? "can't estimate"} to ${a.estimated_weeks ?? "can't estimate"} (your weekly hours changed)`;
       weeksGroups.set(key, [...(weeksGroups.get(key) ?? []), type]);
       explained = true;
     }
-    const bBudget = b.warnings.find((w) => w.startsWith('超出预算'));
-    const aBudget = a.warnings.find((w) => w.startsWith('超出预算'));
+    const bBudget = b.warnings.find((w) => w.startsWith('Over budget'));
+    const aBudget = a.warnings.find((w) => w.startsWith('Over budget'));
     if (aBudget && aBudget !== bBudget) {
       budgetAppeared.set(aBudget, [...(budgetAppeared.get(aBudget) ?? []), type]);
       explained = true;
@@ -297,13 +314,13 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
       let any = false;
       for (const w of a.warnings) {
         if (b.warnings.includes(w)) continue;
-        const key = `新的提醒：${stripEnd(w)}`;
+        const key = `new note: ${stripEnd(w)}`;
         warningGroups.set(key, [...(warningGroups.get(key) ?? []), type]);
         any = true;
       }
       for (const w of b.warnings) {
         if (a.warnings.includes(w)) continue;
-        const key = `这条提醒已不再出现：${stripEnd(w)}`;
+        const key = `this note is gone: ${stripEnd(w)}`;
         warningGroups.set(key, [...(warningGroups.get(key) ?? []), type]);
         any = true;
       }
@@ -313,38 +330,40 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
 
   // ── 步骤级原因（同一步骤跨路线合并） ──
   for (const ev of events.values()) {
-    const rl = routeList(ev.routes);
-    const amt = amountText(ev.hours, ev.cost);
+    const affects = `Affects ${routesPhrase(ev.routes)}.`;
     switch (ev.kind) {
       case 'skipped':
-        push(`「${ev.title}」这一步现在被跳过：${ev.detail}。${amt ? `${rl}路线${each(ev.routes)}少 ${amt}。` : `涉及${rl}路线。`}`);
+        push(`The step "${ev.title}" is now skipped: ${ev.detail}. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'less') || affects}`);
         break;
-      case 'unskipped':
-        push(`「${ev.title}」这一步不再被跳过：之前${ev.detail}，现在对应的证据不再覆盖这一项（可能被删除或修改了）。${amt ? `${rl}路线${each(ev.routes)}多 ${amt}。` : ''}`);
+      case 'unskipped': {
+        const delta = deltaSentence(ev.routes, ev.hours, ev.cost, 'more');
+        push(`The step "${ev.title}" is no longer skipped: before, it was ${lcFirst(ev.detail)}; now that evidence no longer covers this step (it may have been deleted or changed).${delta ? ` ${delta}` : ''}`);
         break;
+      }
       case 'added':
-        push(`新增步骤「${ev.title}」：机会的准备项有更新。${amt ? `${rl}路线${each(ev.routes)}多 ${amt}。` : `涉及${rl}路线。`}`);
+        push(`New step "${ev.title}": the opportunity's prep items were updated. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'more') || affects}`);
         break;
       case 'removed':
-        push(`步骤「${ev.title}」不再需要：机会的准备项有更新。${amt ? `${rl}路线${each(ev.routes)}少 ${amt}。` : `涉及${rl}路线。`}`);
+        push(`The step "${ev.title}" is no longer needed: the opportunity's prep items were updated. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'less') || affects}`);
         break;
       case 'estimate':
-        push(`「${ev.title}」的${ev.detail}（机会数据有更新），涉及${rl}路线。`);
+        push(`"${ev.title}": ${ev.detail} (the opportunity data was updated). ${affects}`);
         break;
     }
   }
-  for (const [text, types] of feasibleGroups) push(`${routeList(types)}路线${text}。`);
-  for (const [text, types] of weeksGroups) push(`${routeList(types)}路线${text}。`);
-  for (const [text, types] of budgetAppeared) push(`${routeList(types)}路线${stripEnd(text)}。`);
-  if (budgetGone.length > 0) push(`${routeList(budgetGone)}路线不再超出预算。`);
-  if (orderChanged.length > 0) push(`${routeList(orderChanged)}路线的步骤顺序有调整（机会的依赖关系有更新）。`);
-  for (const [text, types] of warningGroups) push(`${routeList(types)}路线${text}。`);
+  const forRoutes = (types: RouteType[], text: string) => push(`For ${routesPhrase(types)}: ${lcFirst(text)}.`);
+  for (const [text, types] of feasibleGroups) forRoutes(types, text);
+  for (const [text, types] of weeksGroups) forRoutes(types, text);
+  for (const [text, types] of budgetAppeared) forRoutes(types, stripEnd(text));
+  if (budgetGone.length > 0) forRoutes(budgetGone, 'no longer over budget');
+  if (orderChanged.length > 0) forRoutes(orderChanged, "the step order changed (the opportunity's dependencies were updated)");
+  for (const [text, types] of warningGroups) forRoutes(types, text);
   if (unexplained.length > 0) {
-    push(`${routeList(unexplained)}路线的说明或提醒有更新（可能是档案、日期或机会数据有变化），请以现在的路线说明为准。`);
+    push(`For ${routesPhrase(unexplained)}: the explanation or notes were updated (your profile, the dates or the opportunity data may have changed). Go by the current route details.`);
   }
 
-  if (reasons.length === 0 || (reasons.length === 1 && reasons[0].startsWith('注意：') && status_change === null && route_changes.every((c) => c.change === 'unchanged'))) {
-    push('两次规划没有变化。');
+  if (reasons.length === 0 || (reasons.length === 1 && reasons[0].startsWith('Note:') && status_change === null && route_changes.every((c) => c.change === 'unchanged'))) {
+    push('Nothing changed between the two plans.');
   }
 
   return { status_change, route_changes, reasons };
