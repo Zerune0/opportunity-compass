@@ -31,7 +31,7 @@ export default function QuestBoard() {
   });
 
   return (
-    <div lang="en" className="rpg-stack rpg-stack--loose">
+    <div className="rpg-stack rpg-stack--loose">
       <h1>Quest Board</h1>
       <fieldset className="rpg-toolbar">
         <legend>Filter opportunities</legend>

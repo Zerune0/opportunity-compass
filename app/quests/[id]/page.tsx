@@ -14,7 +14,7 @@ export default async function QuestDetails({ params }: { params: Promise<{ id: s
   const location = [opportunity.location.city, opportunity.location.state, opportunity.location.country]
     .filter(Boolean).join(", ");
   return (
-    <div lang="en" className="rpg-stack rpg-stack--loose">
+    <div className="rpg-stack rpg-stack--loose">
       <p><Link href="/quests">Back to Quest Board</Link></p>
       <header className="rpg-head crt">
         {opportunity.is_sample && <p><span className="rpg-tag rpg-tag--warning">Sample opportunity</span></p>}
@@ -22,7 +22,7 @@ export default async function QuestDetails({ params }: { params: Promise<{ id: s
         <p className="rpg-muted">{opportunity.organizer}{location && `, ${location}`}</p>
         <p>{opportunity.summary}</p>
         <dl>
-          <dt>Deadline</dt>
+          <dt>Verified</dt><dd>{opportunity.verified_on} · {opportunity.verified_by}</dd><dt>Deadline</dt>
           <dd>{opportunity.deadline ?? "unconfirmed"}{opportunity.deadline_note && <span className="rpg-muted"> ({opportunity.deadline_note})</span>}</dd>
         </dl>
         {!opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>Apply on the official site</a>}
