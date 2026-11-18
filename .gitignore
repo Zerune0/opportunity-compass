@@ -32,3 +32,6 @@ next-env.d.ts
 *.tsbuildinfo
 .vercel/
 out/
+
+# hallmark design skill working files
+.hallmark/

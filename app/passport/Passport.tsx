@@ -66,13 +66,13 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
   }
 
   return (
-    <div className="rpg-stack">
+    <div className="rpg-stack rpg-stack--loose">
+      <header className="rpg-head crt">
       <h1>Skill Passport</h1>
       {profile?.is_sample && <p><StatusTag tone="warning">Sample profile / 示例档案</StatusTag> {profile.display_name}</p>}
-      {opportunityId && <a href={`/map?opp=${encodeURIComponent(opportunityId)}`}>Return to Adventure Map</a>}
-      <QuestCard>
-        <SampleProfiles profile={profile} onChange={setProfile} />
-      </QuestCard>
+      {opportunityId && <a className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunityId)}`}>Return to Adventure Map</a>}
+      </header>
+      <SampleProfiles profile={profile} onChange={setProfile} />
       <QuestCard>
         <h2>Add evidence</h2>
         <form className="rpg-stack rpg-evidence-form" onSubmit={submit}>
@@ -87,14 +87,16 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
       </QuestCard>
       <section className="rpg-stack" aria-label="Saved evidence">
         <h2>Saved evidence</h2>
+        <div className="rpg-route-grid">
         {profile !== undefined && !profile?.evidence.length && <p>No evidence saved yet.</p>}
         {profile?.evidence.map((item) => <QuestCard key={item.id}>
           <h3>{item.title}</h3>
-          <StatusTag>{labels[item.status]}</StatusTag>
-          {item.skills.length > 0 && <p>{item.skills.join(", ")}</p>}
+          <p><StatusTag>{labels[item.status]}</StatusTag></p>
+          {item.skills.length > 0 && <p className="rpg-row">{item.skills.map((skill) => <span key={skill} className="rpg-tag rpg-tag--success">{skill}</span>)}</p>}
           {item.description && <p>{item.description}</p>}
-          {item.url && /^https?:\/\//i.test(item.url) && <a href={item.url}>View attached evidence</a>}
+          {item.url && /^https?:\/\//i.test(item.url) && <p><a href={item.url}>View attached evidence</a></p>}
         </QuestCard>)}
+        </div>
       </section>
     </div>
   );
