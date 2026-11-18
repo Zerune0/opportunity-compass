@@ -21,7 +21,9 @@
  *      fee_usd 为 null：记 opportunity.cost.fee_usd；预算没填再记 profile.budget_usd；
  *      预算已填且「必需准备费」这个下限 > 预算 + 有金额的 waiver 之和 → 一条未化解的 cost 障碍
  *      （shortfall = 下限 − 预算，文案写明「至少还差」「实际可能更多」）。
- *    - transport：线上机会跳过；交通 none/limited 或需要自费差旅 → 一条障碍；任一 approved transport_subsidy → 化解。
+ *    - transport：线上机会跳过；交通 none/limited 或需要自费差旅 → 一条障碍；
+ *      任一 approved 的 transport_subsidy 或 alternative_access（替代参与方式，如线上入口、卫星会场）→ 化解，
+ *      两者同等对待；resolved_by_grant_ids / pending_grant_ids 按 grants 输入顺序列出这两类 grant。
  *      若交通没填但官方明确需要自费差旅，仍记障碍，同时把 profile.transport 列为缺失信息。
  *    - time（最多两条）：
  *      a) 参与期每周时间：需要 > 可用 → 障碍（shortfall = 每周缺口）；time_support 小时和 ≥ 缺口 → 化解。
@@ -74,6 +76,9 @@ const MISSING_ZH: Record<string, string> = {
   'opportunity.deadline': '截止日期（格式无法识别）',
   'options.today': '今天的日期',
 };
+
+/** 能化解 transport 障碍的 grant 类型（与 SUPPORT_RESOLVES 中映射到 'transport' 的类型一致）。 */
+const TRANSPORT_FIX_TYPES: readonly SupportType[] = ['transport_subsidy', 'alternative_access'];
 
 function roundUpHalf(x: number): number {
   return Math.ceil(x * 2 - 1e-9) / 2;
@@ -214,14 +219,16 @@ export function analyzeReachability(
       reasons.push('官方说明需要自费差旅，本地通勤条件好也不够');
     }
     if (reasons.length > 0) {
-      const subsidies = approvedOf('transport_subsidy');
+      // 交通补助与替代参与方式同等对待：任一 approved 即化解（保持 grants 输入顺序）。
+      const isTransportFix = (g: ResourceGrant) => TRANSPORT_FIX_TYPES.includes(g.type);
+      const subsidies = approved.filter(isTransportFix);
       barriers.push({
         type: 'transport',
         description: `交通障碍：${reasons.join('；')}。`,
         shortfall: null,
         resolved: subsidies.length > 0,
         resolved_by_grant_ids: subsidies.map((g) => g.id),
-        pending_grant_ids: pendingOf('transport_subsidy'),
+        pending_grant_ids: pending.filter(isTransportFix).map((g) => g.id),
       });
     } else if (opp.cost.requires_travel_expense == null) {
       miss('opportunity.cost.requires_travel_expense');

@@ -1,70 +1,17 @@
 /**
- * MOCK — 第 2 层前由 Charles 替换（lib/joint/ 归 Charles 所有，主导只放了这个占位）。
+ * lib/joint — 主办方 what-if 联合求解（主导接手实现）。规范见 CONTRACT.md「联合求解模型」。
  *
- * solveJoint(scenario, options)：联合求解主办方措施 x、资源分配 y 与路线可达 z。
- *   状态 OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT；
- *   返回选中措施、资源分配、R0、R1、G、L、N、成本（定义见 lib/types.ts 的 JointResult）。
- * verifyPlan(scenario, plan, options?)：独立复核候选方案，不依赖求解器自己的可行性标记。
+ * - solveJoint(scenario, options?)（./solve）：精确搜索主办方措施 x 与资源分配 y，
+ *   状态 OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT；返回选中措施、资源分配、
+ *   R0、R1、G、L、N、成本，以及 alternative（INFEASIBLE 时只放松软要求）、conditional（pending 措施获批的假设）
+ *   和 verification（对主方案的独立复核）。
+ *   max_search_nodes 缺省 200000（DEFAULT_MAX_SEARCH_NODES）。「节点」= 以下任一事件计 1 个：
+ *   预处理中访问一个（学生-机会对, 措施子集）；访问一个措施组合；内层深度优先搜索进入一个状态。
+ *   主搜索、conditional、alternative 的每次放松尝试各自单独计数。详见 ./solve.ts 文件头。
+ * - verifyPlan(scenario, plan, options?)（./verify）：独立复核候选方案，不 import 求解器，
+ *   不依赖求解器自己的可行性标记。
  *
- * 当前 mock：
- * - solveJoint 返回「不启用任何措施」的空方案（R0 = R1 = []，G = L = N = 0），
- *   状态 SEARCH_LIMIT_REACHED（未搜索，不声称 OPTIMAL），notes 写明「MOCK：未进行搜索」；
- *   预算为负等明显非法输入返回 UNSUPPORTED_INPUT。
- * - verifyPlan 不做任何检查，诚实返回 passed = false（不把未检查说成通过）。
- * 签名与最终版一致。纯函数、确定性、无 IO、不调 AI。所有结果均为模拟，不是真实影响。
+ * 纯函数、确定性、无 IO、不调 AI。所有结果均为模拟，不是真实影响；可达 ≠ 录取。
  */
-import type {
-  JointPlan,
-  JointResult,
-  Scenario,
-  SolveOptions,
-  VerifyOptions,
-  VerifyResult,
-} from '../types';
-
-export function solveJoint(scenario: Scenario, options: SolveOptions = {}): JointResult {
-  const empty = {
-    selected_intervention_ids: [],
-    allocations: [],
-    R0: [],
-    R1: [],
-    G: 0,
-    L: 0,
-    N: 0,
-    cost: { fixed_usd: 0, marginal_usd: 0, total_usd: 0 },
-  };
-
-  if (scenario.budget_usd < 0 || (options.mode === 'tradeoff' && options.loss_cap == null)) {
-    return {
-      ...empty,
-      status: 'UNSUPPORTED_INPUT',
-      notes: ['（MOCK）输入不合法：预算为负，或 tradeoff 模式未给 loss_cap。'],
-    };
-  }
-
-  return {
-    ...empty,
-    status: 'SEARCH_LIMIT_REACHED',
-    notes: [
-      'MOCK：未进行搜索。这是不启用任何措施的占位方案，不是最优解，仅供界面开发。结果为模拟。',
-    ],
-  };
-}
-
-export function verifyPlan(
-  scenario: Scenario,
-  plan: JointPlan,
-  options?: VerifyOptions,
-): VerifyResult {
-  void [scenario, plan, options]; // mock 不使用参数；Charles 实现时删除此行
-  return {
-    passed: false,
-    checks: [
-      {
-        name: 'not_implemented',
-        passed: false,
-        detail: '（MOCK）独立复核尚未实现，未做任何检查，因此不判定为通过。',
-      },
-    ],
-  };
-}
+export { solveJoint, DEFAULT_MAX_SEARCH_NODES } from './solve';
+export { verifyPlan } from './verify';
