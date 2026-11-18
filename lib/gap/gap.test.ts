@@ -547,9 +547,10 @@ describe('analyzeGaps — 示例档案 × 真实机会', () => {
     expect(u.detail).toContain('as you move up a grade');
   });
 
-  it('Leo × DOE SULI：每周缺 30 小时、交通障碍、公民身份未知', () => {
+  it('Leo × DOE SULI：每周缺 30 小时、交通障碍、公民身份未知；10 年级不满足「13 年级及以上」', () => {
     const g = analyzeGaps(P('sample-leo'), O('doe-suli-summer-2027'), [], TODAY);
-    expect(counts(g)).toEqual([0, 0, 2, 0, 6]);
+    expect(counts(g)).toEqual([0, 0, 2, 1, 6]);
+    expect(byId(g, 'unchangeable_eligibility:postsecondary-level').action).toBeNull();
     expect(byId(g, 'time_and_cost:time').estimated_hours).toBe(30);
     expect(byId(g, 'time_and_cost:transport')).toBeDefined();
     expect(byId(g, 'unknown_info:us-citizen-or-permanent-resident').action).toContain('citizenship');

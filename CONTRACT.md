@@ -59,14 +59,14 @@
 | `GapItem` | 一条差距 | `id`（结果内唯一且稳定，形如 `materials:prep-resume`；设备障碍为 `time_and_cost:device:<设备>`；重复时加 `#2`、`#3`）、`category`、`title`、`detail`、`basis`、`improvable`、**`action`（`string \| null`；`improvable` 为 false 时为 null；`unchangeable_eligibility` 一律为 null）**、`estimated_hours?`、`estimated_cost_usd?`（不适用或不知道为 null） |
 | `GapAnalysis` | `analyzeGaps` 的返回 | `profile_id`、`opportunity_id`、`items`（先按 `GAP_CATEGORIES` 分组，组内按机会里的原顺序）、`counts`（`Record<GapCategory, number>`，五个键都有）、`eligibility_overall`、`reachable`（语义同 `ReachabilityResult.reachable`）、`summary` |
 | `AlternativeSuggestion` | `findAlternatives` 返回数组中的一条（学生在原机会上没有受阻时，数组为 `[]`） | `kind`（`next_cycle` = 等下一届，给出条件见「第二阶段新函数」中 `findAlternatives` / `same_field` = 同领域的其他机会）、`opportunity_id`（`string \| null`；same_field 为目录中那个机会，next_cycle 指原机会）、`title`、`reason`、`eligibility_overall`（`OverallEligibility \| null`；same_field 不会是 `not_eligible`；next_cycle 为 null）、`shared_fields`（与原机会共有的领域标签，按 `normalizeTag` 比较，用建议机会原本的写法；next_cycle 为原机会的全部 `fields`，按 `normalizeTag` 去重）。给了 `options.today` 时 same_field 不含截止日期已过的机会 |
-| `MatchReasonKind` / `MatchReason` | 一条匹配理由 | `kind`：`interest` / `eligibility` / `reachability` / `format` / `time` / `cost`（常量 `MATCH_REASON_KINDS`）；`positive`（true = 有利 / false = 不利 / null = 信息不足，不猜）、`text` |
-| `MatchExplanation` | `explainMatch` 的返回 | `profile_id`、`opportunity_id`、`reasons`（按 `MATCH_REASON_KINDS` 顺序）、`eligibility_overall`、`reachable`、`shared_interests`（`profile.interests ∩ opp.fields`，按 `normalizeTag` 比较，用机会原本的写法、按 `opp.fields` 顺序；兴趣没填时为 `[]`）、`summary`。**没有任何分数、百分比或名次字段** |
+| `MatchReasonKind` / `MatchReason` | 一条匹配理由 | `kind`：`interest` / `eligibility` / `reachability` / `format` / `time` / `cost` / `device` / `transport`（常量 `MATCH_REASON_KINDS`；`device`、`transport` 为第二阶段第 2 层新增，只追加在末尾。**页面对 `kind` 做映射（图标、标题等）时要有兜底分支**，以后再加种类也不会出错）；`positive`（true = 有利 / false = 不利 / null = 信息不足，不猜）、`text` |
+| `MatchExplanation` | `explainMatch` 的返回 | `profile_id`、`opportunity_id`、`reasons`（按 `MATCH_REASON_KINDS` 顺序，**每个种类最多一条，没有可说的种类不出现（如线上机会没有 `transport`），所以条数不固定；页面不要按下标取理由**，用 `kind` 查找）、`eligibility_overall`、`reachable`、`shared_interests`（`profile.interests ∩ opp.fields`，按 `normalizeTag` 比较，用机会原本的写法、按 `opp.fields` 顺序；兴趣没填时为 `[]`）、`summary`。**没有任何分数、百分比或名次字段** |
 | `MatchOptions` | `explainMatch` 的可选第三参数、`findAlternatives` 的可选第四参数（`extends EvalOptions`） | `today?`；`grants?: ResourceGrant[]`（主办方已分配给该学生、对这个机会生效的资源，与 `analyzeGaps` 的 `grants` 同义；缺省 = `[]`）。同一页面上 `analyzeGaps`、`explainMatch`、`findAlternatives` 传同一组 grants，结论才一致 |
-| `CrossPlanItem` | 联合规划中的一个机会 | `opportunity_id`、`title`、`deadline`、`status`（`planned` / `blocked` / `past_deadline` / `insufficient_data`；后三者小时为 0、不计入负荷；`insufficient_data` = 机会数据不完整、规划时出错，仍列在 `items` 里，`note` 说明缺什么，同时写进 `warnings` 与 `missing_info`）、`route_type`（`RouteType \| null`；非 planned 为 null）、`required_hours`（计入材料复用后：可复用材料只算在 `order` 最靠前的机会上，按 `hours_each` 计，所以承担者的 `required_hours` 可能大于它的 `hours_before_reuse`）、`hours_before_reuse`（不考虑复用时自己需要的小时）、`hours_saved_by_reuse`（因材料已由更靠前的机会承担而少算的小时，≥ 0；承担者为 0）、`weeks_left`（`number \| null`）、`feasible_alone`（`boolean \| null`，口径见「第二阶段新函数」中 `planAcrossOpportunities`）、`order`（1 起，按截止日期；只是建议）、`note`。非 planned 时三个小时字段都为 0 |
+| `CrossPlanItem` | 联合规划中的一个机会 | `opportunity_id`、`title`、`deadline`、`status`（`planned` / `blocked` / `past_deadline` / `insufficient_data`；后三者小时为 0、不计入负荷；`insufficient_data` = 机会数据不完整、规划时出错，仍列在 `items` 里，`note` 说明缺什么，同时写进 `warnings` 与 `missing_info`）、`route_type`（`RouteType \| null`；非 planned 为 null）、`required_hours`（计入材料复用后：可复用材料只算在 `order` 最靠前的机会上，按 `hours_each` 计，所以承担者的 `required_hours` 可能大于它的 `hours_before_reuse`）、`hours_before_reuse`（不考虑复用时自己需要的小时；**只算所选路线的必需步骤及其未完成的前置步骤**，建议项小时不计入、只写在 `note` 里，见变更记录第二阶段第 2 层）、`hours_saved_by_reuse`（因材料已由更靠前的机会承担而少算的小时，≥ 0；承担者为 0）、`weeks_left`（`number \| null`）、`feasible_alone`（`boolean \| null`，口径见「第二阶段新函数」中 `planAcrossOpportunities`）、`order`（1 起，按截止日期；只是建议）、`note`。非 planned 时三个小时字段都为 0 |
 | `MaterialReuse` | 一类材料在多个机会之间的复用情况 | `material_kind`、`reusable`、`opportunity_ids`、`hours_each`（各机会该材料小时数的最大值）、`hours_saved`（reusable 时 = 各机会之和 − `hours_each`；不可复用时为 0）、`note` |
 | `WeeklyLoad` | 某一周的负荷（按天分摊） | `week_start`（该周周一）、`days`（该周落在计划窗口里的天数，1–7：第一周从 today 算起，最后一周算到计入负荷的机会中最晚的截止日）、`hours_needed`（各机会每天分摊小时 × 该机会在本周的天数，求和）、`hours_available`（`number \| null`；= `hours_per_week_available × days / 7`，即按该周落在计划窗口内的天数折算后的小时；没填为 null）、`over`（`boolean \| null`；`hours_available` 为 null 时为 null）、`opportunity_ids` |
 | `CrossPlan` | `planAcrossOpportunities` 的返回 | `profile_id`、`evaluated_on`（`ISODate \| null`）、`items`（按 `order` 升序）、`weekly_load`、`reuse`、`total_hours`、`total_hours_without_reuse`（两者只算 planned 的机会，差 = 复用省下的小时）、`conflicts`、`warnings`、`missing_info` |
-| `CrossPlanOptions` | `planAcrossOpportunities` 的可选末位参数（`extends EvalOptions`） | `today?`；`priorities?: string[]`（学生自己给的优先顺序，只用于冲突说明里的对照，不改变 `order`，也不代表系统建议放弃其他机会） |
+| `CrossPlanOptions` | `planAcrossOpportunities` 的可选末位参数（`extends EvalOptions`） | `today?`；`priorities?: string[]`（学生自己给的优先顺序，只用于冲突说明里的对照，不改变 `order`，也不代表系统建议放弃其他机会）；`materials?: Material[]`（学生已存的申请材料，**页面应把 `loadMaterials(profile_id)` 的结果传进来**；缺省 = 不考虑已有材料；只有 `status: 'ready'` 且 `profile_id` 与档案相同（或没写）的材料生效，规则见「第二阶段新函数」中 `planAcrossOpportunities`） |
 | `JournalApplicationStatus` / `EligibilityConfirmation` / `JournalDecision` | Quest Journal 的三项独立状态（学生自己记录，不是系统判断） | `JournalApplicationStatus`：`preparing` / `submitted` / `withdrawn`（学生的申请进度）；`EligibilityConfirmation`：`unconfirmed` / `confirmed` / `rejected`（官方是否确认了资格）；`JournalDecision`：`pending` / `admitted` / `not_admitted`（官方录取结果）。连同 `JournalEntry.participated`，**四项互相独立：提交 ≠ 官方确认资格 ≠ 被录取 ≠ 已参与**，界面分开显示，不能互相推断 |
 | `JournalEvent` / `JournalHistoryItem` | Journal 事件与事件记录 | `JournalEvent`（常量 `JOURNAL_EVENTS`）：`added`（创建条目时记录，不改其他字段）/ `submitted`（`application = 'submitted'`，`submitted_on` = 当天）/ `withdrawn`（`application = 'withdrawn'`，`submitted_on` 保留）/ `reopened`（`application` 回到 `'preparing'`，`submitted_on = null`）/ `eligibility_confirmed` / `eligibility_rejected`（`eligibility_confirmation` = `'confirmed'` / `'rejected'`）/ `admitted` / `not_admitted`（`decision`）/ `participated` / `did_not_participate`（`participated` = true / false）。`JournalHistoryItem` = `{ event, on }` |
 | `JournalTask` | Journal 里的一条任务 | `id`、`title`、`prep_item_id?`、`done`、`done_on?` |
@@ -100,8 +100,8 @@
 | `verifyPlan` | `lib/joint`（主办方端与 Connect 负责人） | `(scenario: Scenario, plan: JointPlan, options?: VerifyOptions) => VerifyResult` | 已实现（独立复核，不 import 求解器；含第 3 层的 `revocation` / `fairness` 检查） |
 | `analyzeGaps` | `lib/gap`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, grants: ResourceGrant[], options?: EvalOptions) => GapAnalysis` | 已实现（第二阶段第 1 层） |
 | `findAlternatives` | `lib/match`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, catalog: Opportunity[], options?: MatchOptions) => AlternativeSuggestion[]` | 已实现（第二阶段第 1 层；第四参数由 `EvalOptions` 扩展为 `MatchOptions`，向后兼容） |
-| `planAcrossOpportunities` | `lib/planner`（第二阶段） | `(profile: StudentProfile, opps: Opportunity[], options?: CrossPlanOptions) => CrossPlan` | 示例版本（签名为最终版；第 2 层替换为完整实现） |
-| `explainMatch` | `lib/match`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, options?: MatchOptions) => MatchExplanation` | 示例版本（签名为最终版；第 2 层替换为完整实现） |
+| `planAcrossOpportunities` | `lib/planner`（第二阶段） | `(profile: StudentProfile, opps: Opportunity[], options?: CrossPlanOptions) => CrossPlan` | 已实现（第二阶段第 2 层；`CrossPlanOptions` 新增可选 `materials`，向后兼容） |
+| `explainMatch` | `lib/match`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, options?: MatchOptions) => MatchExplanation` | 已实现（第二阶段第 2 层） |
 
 第 3 层新增（不属于上表的共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，已实现（A / B / C / joint 四行；基线 D 未实现），规则见「联合求解模型」第 10 条。`solveJoint` 的撤回、权衡模式、公平底线与新目标顺序均已实现。
 
@@ -112,11 +112,11 @@
 第二阶段的辅助纯函数（不属于上表的共享函数，页面可以直接用）：
 - `lib/tags.ts`：`normalizeTag(s: string): string`（`' Data-Science '` → `'data_science'`）；`normalizedTagSet(tags: readonly unknown[]): Set<string>`（跳过非字符串与归一化后为空的项）；`sharedTags(tags: readonly string[], against: ReadonlySet<string>): string[]`（`tags` 中归一化后在 `against` 里的项，保留原写法与顺序，归一化后重复的只留第一个）。
 - `lib/journal.ts`：`isJournalEvent(v: unknown): v is JournalEvent`；`applyJournalEvent(entry: JournalEntry, event: JournalEvent, on: ISODate): JournalEntry`（返回新对象，按 `JournalEvent` 更新对应字段并追加 `history`，同一事件同一天不重复追加；页面一般不直接调用，用 `recordJournalEvent`）；`journalHeadline(entry: JournalEntry): string`（列表用的一句英文摘要，由四项派生，只说学生记录了什么）。
-**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。第一阶段的六个共享函数都已是真实实现；第二阶段的四个函数中，`analyzeGaps`、`findAlternatives` 已是完整实现，`planAcrossOpportunities`、`explainMatch` 目前是示例版本，换成完整实现时签名与返回类型不变，页面不用改。
+**现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。第一阶段的六个共享函数都已是真实实现；第二阶段的四个函数都已是完整实现（`analyzeGaps`、`findAlternatives` 在第 1 层，`planAcrossOpportunities`、`explainMatch` 在第 2 层），签名与返回类型与示例版本相同。
 
-### 第二阶段新函数：规则（`analyzeGaps` / `findAlternatives` 为完整实现；`planAcrossOpportunities` / `explainMatch` 为示例版本，附「还没做」）
+### 第二阶段新函数：规则（四个函数均为完整实现，各自附「仍然不做」）
 
-四个函数都是纯函数：只读传入的参数，日期只来自 `options.today`（不读系统时钟），无随机、无 IO、不调 AI，**永不抛异常**（数据不完整时返回「信息不足」形式的结果），不修改输入；都不读取 `school_name`、`display_name`（只改这两项，结果完全不变，有对照测试 `lib/fairness-p2.test.ts`）。它们不编造：只整理已有引擎（`checkEligibility` / `analyzeReachability` / `planRoutes`）的结论。两个示例版本的内容是简化的，各自列出「还没做」。
+四个函数都是纯函数：只读传入的参数，日期只来自 `options.today`（不读系统时钟），无随机、无 IO、不调 AI，**永不抛异常**（数据不完整时返回「信息不足」形式的结果），不修改输入；都不读取 `school_name`、`display_name`（只改这两项，结果完全不变，有对照测试 `lib/fairness-p2.test.ts`）。它们不编造：只整理已有引擎（`checkEligibility` / `analyzeReachability` / `planRoutes`）的结论。
 
 **`analyzeGaps`**（`lib/gap/index.ts`，完整实现）
 - 内部只调用一次 `analyzeReachability(profile, opp, grants, options)`（它内部调用 `checkEligibility`），按它的结论归类，不发明新规则；`eligibility_overall` 与 `reachable` 直接取它的结果。
@@ -171,30 +171,50 @@
 - 其他情况（高于上限、现在低于下限但到参考日会超过上限、档案值缺失、区间无效）都不算。
 - 第一阶段 `planRoutes`（`lib/path/plan.ts`，不改）判断年龄时用档案里的当前年龄，与此在「现在低于下限、到参考日会超过上限」这类边界上可能不同（`planRoutes` 的 `alternatives` 可能仍有下一届提示）；`grade` 的规则相同。
 
-**`planAcrossOpportunities`**（`lib/planner/index.ts`，示例版本）
+**`planAcrossOpportunities`**（`lib/planner/index.ts`，完整实现）
+- 只把数字摆出来，**不替学生决定放弃哪个机会**，不给分数或排名。
 - 机会去重（同 id 只取第一条；非对象 / 无 id 的跳过并写进 `warnings`）；每个机会调用 `planRoutes`：
   - `blocked` → `status: 'blocked'`、小时为 0、`route_type: null`，`note` 用 `planRoutes` 的第一条原因；
   - 否则按 `today` 截止已过 → `past_deadline`、小时为 0、`route_type: null`、`feasible_alone: false`；
-  - 否则 `planned`：取第一条路线（learning_first），`hours_before_reuse` = 该路线未跳过步骤的小时合计（= `route.total_hours`）；
-  - `planRoutes` 因数据不完整出错 → `status: 'insufficient_data'`（小时为 0、`route_type: null`、`feasible_alone: null`，`note` 说明缺什么），**仍列在 `items` 里**，同时写进 `warnings` 与 `missing_info`（`opportunity.<id>`）。
+  - `planRoutes` 因数据不完整出错 → `status: 'insufficient_data'`（小时为 0、`route_type: null`、`feasible_alone: null`，`note` 说明缺什么），**仍列在 `items` 里**，同时写进 `warnings` 与 `missing_info`（`opportunity.<id>`）；
+  - 否则 `planned`，按下一条选路线、算必需小时。
+- **路线选择与必需小时**（`RouteStep` 上没有「建议 / 可选」字段，用 `step.prep_item_id` 找回 `PrepItem.required_for_application` 区分）：
+  - 「已完成」的步骤 = `skipped`（证据覆盖）或被 `options.materials` 里的就绪材料覆盖（见下文「已有材料」）。
+  - 必需步骤 = 从 `required_for_application === true` 的未完成步骤出发，沿 `depends_on` 追到的未完成前置步骤（已完成的不再往前追，与 `requiredPrepClosure` 同一口径）+ 路线固定步骤（社区路线的 `find-partner` 2h、`submit-application` 0h；不沿 `submit-application` 的依赖追）。`prep_item_id` 找不到对应准备项的步骤按必需算（不确定时不少算）。
+  - 建议项 = 其余未完成的步骤：小时**不计入**负荷，在 `note` 里如实写出（"Plus N optional hours of suggested prep, not counted here."）。
+  - 在 `planRoutes` 的路线里选一条：先看 `feasible_by_deadline === true` 的（`planRoutes` 自己的判断，按含建议项的总小时），其中取必需小时最少的；没有可行的就在全部路线里取必需小时最少的；并列按 `planRoutes` 原顺序。`route_type` 即所选路线的类型。
+  - `hours_before_reuse` = 所选路线的必需小时。
+- **依赖链**：在所选路线的必需步骤里求最长依赖链；链上至少两个有小时的步骤、且链的小时 > H × D / 7（与 `feasible_alone` 同一口径）时，在 `note` 与 `warnings` 里说明「光是这条必须按顺序做的链就放不下」。这条提醒只会和 `feasible_alone === false` 同时出现。不逐步排日程。
+- **已有材料**（`options.materials`，缺省 = 不考虑）：只有 `status: 'ready'` 且 `profile_id` 与档案相同（或没写）的材料生效；`kind` 与步骤准备项的 `material_kind` 相同，并且满足其一：材料是通用的（`reusable: true`）且准备项标明可复用（`reusable_across_opportunities === true`）——准备项要求针对性准备（false / 未标明）时通用材料不抵消；或材料针对的就是这个机会（`opportunity_id` 相同，若带 `prep_item_id` 还须与准备项 id 相同）。被覆盖的步骤小时计 0（视同已完成），`note` 里说明 "already prepared"；这类步骤不再进入材料复用统计。
 - `order`：按截止日期升序，无截止日期（或无法解析）的排最后，同日期按输入顺序；`items` 按 `order` 排列。
-- 材料复用：只看 planned 机会第一条路线里未跳过、且对应准备项 `material_kind` 非空的步骤。`reusable_across_opportunities === true` 的同类材料被 ≥ 2 个机会用到 → 一条 `reusable: true`，`hours_each` = 各机会该材料小时的最大值，`hours_saved` = 各机会之和 − `hours_each`；这份材料只算在 `order` 最靠前的机会上（按 `hours_each` 计，所以它的 `required_hours` 可能大于 `hours_before_reuse`），其他机会的 `required_hours` 减去自己那份，并把这份计入 `hours_saved_by_reuse`。其余（不可复用 / 未标明）的同类材料被 ≥ 2 个机会用到 → 一条 `reusable: false`、`hours_saved: 0` 的说明。
+- **材料复用**：只看所选路线里计入必需小时、且对应准备项 `material_kind` 非空的步骤。`reusable_across_opportunities === true` 的同类材料被 ≥ 2 个机会用到 → 一条 `reusable: true`，`hours_each` = 各机会该材料小时的最大值，`hours_saved` = 各机会之和 − `hours_each`；这份材料只算在 `order` 最靠前的机会上（按 `hours_each` 计，所以它的 `required_hours` 可能大于 `hours_before_reuse`），其他机会的 `required_hours` 减去自己那份，并把这份计入 `hours_saved_by_reuse`，这些非承担者的 `note` 里写明 "<材料> hours are counted under "<承担者标题>" (prepared once, reused here)."。其余（不可复用 / 未标明）的同类材料被 ≥ 2 个机会用到 → 一条 `reusable: false`、`hours_saved: 0` 的说明。
 - `weekly_load`（**按天分摊**，需要 `options.today`）：设 H = `profile.hours_per_week_available`。
   - 每个 planned 且 `required_hours > 0` 的机会：D = today（含）到截止日（含）的天数，每天分摊 = `required_hours / D`；它在某周的小时 = 每天分摊 × 它落在该周的天数；各机会按周一对齐求和得到 `hours_needed`。
   - 计划窗口 = today（含）到计入负荷的机会中最晚的截止日（含）；`days` = 该周落在窗口里的天数（1–7）；`hours_available = H × days / 7`；`over = hours_needed > hours_available`（H 没填时两者为 null，并写进 `missing_info` 的 `profile.hours_per_week_available`）。没有任何机会投入的周不列出。
   - 没有截止日期（或无法解析）的 planned 机会不进 `weekly_load`，写进 `missing_info`（`opportunity.<id>.deadline`）。
-  - `over: true` 的周生成一条 `conflicts`；给了 `options.priorities` 时再说明「这一周只保留前几个优先项时需要多少小时」，只做对照，不替学生取舍。
-- `feasible_alone`（planned 时）= `hours_before_reuse ≤ H × D / 7`（不考虑复用；D 同上）；today、截止日期或 H 缺失时为 null。只有一个机会时，某周 `over` 为 true ⇔ 该机会 `feasible_alone` 为 false，两者一致。**注意**：第一阶段 `planRoutes` 的 `Route.feasible_by_deadline` 按「today 到截止日的天数差」（不含 today 当天）计，两者在临界日可能不同；**联合规划页以 `feasible_alone` 为准**。
+  - `over: true` 的周生成一条 `conflicts`；给了 `options.priorities` 时再说明「这一周只保留其中前几个优先项时需要多少小时」：直接点出机会标题，每种保留方式都在保留的子集里重算材料复用（不沿用全量计划的承担者归属）；一个都放不下时说「即使只留 "Y" 也需要约 N 小时」。只做对照，不替学生取舍。
+- **优先顺序的整体对照**（给了 `priorities`、有超出的周、H 已填时）：k 从「有截止日期的 planned 机会数 − 1」（不超过其中优先项的个数）递减到 1，只保留前 k 个优先项重新算复用与每周负荷，取第一个让所有周都不超的 k；都不行就说明「即使只保留第一个」也有几周超出。放在 `conflicts` 末尾，措辞是对照、不建议放弃。`priorities` 里不是本次机会 id 的项忽略并写一条 `warning`。
+- **参与期**（`time_commitment.start_date` / `end_date` / `hours_per_week` 都有效的 planned 机会；数据缺失就不判断）：≥ 2 个机会参与期重叠、合计每周小时 > H → 每个重叠区间一条 `warning`；某机会的准备期（today 到截止日）与另一个机会的参与期重叠 → 一条 `warning`，说明那段时间每周大约还剩几小时可用于准备。有 today 时只看 today 及以后。参与期小时**不计入** `weekly_load`（它只算准备）。
+- `feasible_alone`（planned 时）= `hours_before_reuse ≤ H × D / 7`（不考虑复用；D 同上；不抄 `feasible_by_deadline`）；today、截止日期或 H 缺失时为 null。只有一个机会时，某周 `over` 为 true ⇔ 该机会 `feasible_alone` 为 false，两者一致。**注意**：第一阶段 `planRoutes` 的 `Route.feasible_by_deadline` 按「today 到截止日的天数差」（不含 today 当天）且含建议项计，两者可能不同；**联合规划页以 `feasible_alone` 为准**。
 - `total_hours` / `total_hours_without_reuse` 只算 planned 的机会。
-- 还没做：只按 learning_first 路线（含建议项）计小时，不在多条路线间挑选，也不算「只做必需项」的最低负荷；每周负荷是按天平均摊开的粗略估计，不考虑步骤依赖顺序与参与期本身的每周投入（`time_commitment`）；材料复用只按 `material_kind` 粗分（同类即视为同一份）；优先项对照只按周计算。
+- 仍然不做：不逐步排日程（每周负荷是按天平均摊开的估计），不考虑考试周、节假日等个人日历；材料复用只按 `material_kind` 粗分（同类即视为同一份），不看内容是否真能通用；不判断材料质量（学生标记 ready 就按已完成算）；不替学生取舍、不给分数或排名（`order` 只按截止日期，优先项只用于对照）。
 
-**`explainMatch`**（`lib/match/index.ts`，示例版本）
-- 理由只来自三件事，按 `MATCH_REASON_KINDS` 顺序输出 `interest`、`eligibility`、`reachability` 三条。
-- `interest`：`profile.interests ∩ opp.fields`（按 `normalizeTag` 比较：去首尾空格、不区分大小写、空格 / 下划线 / 连字符视为同一写法；`shared_interests` 保留机会里的原顺序与原写法）。兴趣没填或机会没有领域标签 → `positive: null`；有交集 → true；都填了但没交集 → false。
-- `eligibility`：`checkEligibility` 的 `overall`：eligible → true，not_eligible → false（列出不满足的硬性要求），unknown → null（列出待确认的硬性要求）。
-- `reachability`：`analyzeReachability(profile, opp, options.grants ?? [], { today })` 的 `reachable` 与 `summary`。**页面上同时显示 `analyzeGaps` 时请给两者传同一组 grants**，两者的 `reachable` 才一致。
-- 机会数据不完整导致引擎出错时：`eligibility_overall: 'unknown'`、`reachable: null`，两条理由都是 `positive: null`。
-- 还没做：`format` / `time` / `cost` 三类理由（最终版从障碍里拆出单独理由）。
+**`explainMatch`**（`lib/match/explain.ts`，从 `lib/match` 导出；完整实现）
+- 只整理已有引擎的结论，不另写判断：`r = analyzeReachability(profile, opp, options.grants ?? [], { today })`（内部调用 `checkEligibility`），`eligibility_overall` 与 `reachable` 直接取 `r`。引擎只认与该学生、该机会匹配的 approved grant——**与 `analyzeGaps` / `findAlternatives` 传同一组 grants 时三者结论一致**。
+- 理由按 `MATCH_REASON_KINDS` 顺序输出，**每个种类最多一条，没有可说的种类不输出（条数不固定）**：
+  - `interest`：`profile.interests ∩ opp.fields`（按 `normalizeTag` 比较；`shared_interests` 保留机会里的原顺序与原写法）。兴趣没填 / 为空数组（提示可在 Skill Passport 补充）或机会没有领域标签 → `positive: null`；有交集 → true；都填了但没交集 → false。
+  - `eligibility`：eligible → true；not_eligible → false，列出不满足的硬性要求（最多 3 条，其余写「还有 N 条」），每条按 `lib/match/block.ts` 的 `blockNature` 说明走向：permanent「不是靠准备能改变的」/ improvable「升年级或长大后可能满足」（附「届时按官网要求重新确认」）/ fixable「可以自己补上」；unknown → null，列出待确认的硬性要求（最多 3 条），每条注明「在 Skill Passport 补填某项」还是「向主办方确认」——**以 `checkEligibility` 返回的 `confirm_with_official` 为准**（档案缺该项时引擎给 "Add your <字段> to your profile first."，如档案有国家但缺州 / 省；其余如 `manual`、生日不确定为向主办方确认）。偏好（非硬性）要求不列。
+  - `reachability`：`r.reachable` 与 `r.summary`（引擎原文，含「可达 ≠ 录取」）。
+  - `format`：online → true；in_person / hybrid（附地点）按档案交通等级：reliable → true（若引擎仍有未化解的交通障碍，如需自费差旅，文字加半句指向 `transport` 那条）；limited / none → false，交通障碍已被 approved grant 化解时 → true 并写明；交通没填 → null；形式缺失或无法识别 → null。
+  - `time`：已过截止 → false（引擎描述）；未化解的 time 障碍 → false（引擎描述，pending 只说「尚未生效」）；全部已被 `time_support` 化解 → true；缺每周可用小时 / 机会每周小时 / 截止日期 / `today` → null（写出缺什么、去哪补）；否则 true（每周需要与可用小时、截止前剩几天、必需准备小时放得下；没有截止日期时提示可能是滚动截止）。
+  - `cost`：未化解的 cost 障碍 → false（引擎描述；官方费用未知时为 `at least $X`，与 `analyzeGaps` 同一口径；官方费用已知且已批准支持只抵一部分时补一句还差多少）；已被 `fee_waiver` 化解 → true；缺官方费用或预算 → null（官方费用未知、预算已填时如实说明必需准备费与预算的关系：放得下但总数可能更多 / 高于预算、加上主办方已批准的有金额减免才放得下且总数可能更高）；否则 true（费用 + 必需准备费，在预算内）。`financial_aid_available` 为 true 时注明「有资助 ≠ 你已获得」。
+  - `device`：没有必需设备 → true；档案没填设备 → null；缺的设备逐个说明（被 approved device grant 化解的写明是主办方批准的借用，未化解的用引擎描述 + pending 提示）；有未化解的 → false，否则 true。
+  - `transport`：线上机会不输出；未化解的交通障碍 → false（引擎描述 + pending 提示）；已化解 → true（写明是交通补助 / 替代参与方式）；缺档案交通或「是否自费差旅」→ null；否则 true。
+- `summary`：一句英文，按「资格 → 现实条件 → 兴趣」：
+  - not_eligible：不加任何鼓励申请的话、不提兴趣。不满足的硬性要求**全部可以自己补上**（fixable：`portfolio`、`prerequisite_skill`）时说 `Right now you don't meet the hard requirement "…" — this is something you can work on yourself.`（不说本届不能申请，也不承诺补上后会被录取）；含无法改变或需等待的要求时说本届不能申请及原因。
+  - unknown：先说要向主办方确认（或补填档案）哪几条，再说现实条件；eligible：说可达（注明不代表录取）/ 不可达的障碍类别 / 还缺哪些信息；最后一句兴趣。
+- 档案字段损坏（有值但类型不对，与 `analyzeGaps` 同口径）：不调用引擎，只给 `interest` / `eligibility` / `reachability` 三条，后两条为 null，说明是档案问题、请在 Skill Passport 更正（不归咎于机会）。机会数据不完整导致引擎出错：同样三条，提示查看官网。两种情况 `eligibility_overall: 'unknown'`、`reachable: null`。
+- 仍然不做：不比较学生所在地与举办地的距离（只提示学生自己核对路程）；不读学生的形式偏好（档案没有这个字段）；不预测 pending 支持获批后的效果（只说尚未生效，详细推演见 `analyzeGaps`）；不输出任何分数、百分比、名次或匹配等级，也不按理由条数排序机会。
 
 **页面必须遵守的约定**
 - **`explainMatch` 不输出分数、百分比或名次，不得用它（或拼出的任何数字）给学生排名**；页面也不要从理由条数推算分数。
@@ -660,3 +680,12 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - **`findAlternatives` 的第四参数由 `EvalOptions` 扩展为 `MatchOptions`（新增可选 `grants`，向后兼容，原有调用不用改）**：受阻判定中的 `not_reachable` 与候选机会的可达性都使用传入的 grants；例如学生缺 webcam 但已有批准的 webcam 设备支持时，不再判为受阻。
   - 年龄 / 年级「低于下限」改为与 `analyzeGaps` 共用 `lib/requirement-timing.ts`：年龄按参考日当天可能的年龄判断（此前 `findAlternatives` 用当前年龄），到参考日会超过上限时不再给 `next_cycle`。
   - `lib/types.ts` 中 `AlternativeSuggestion`、`GapItem.id`、`MatchOptions` 的注释同步（只改注释）。
+- 2026-11-18：**第二阶段第 2 层：`planAcrossOpportunities`、`explainMatch` 换成完整实现**（签名不变；规则见「第二阶段新函数」一节，四个函数至此都是完整实现）。行为变化要点：
+  - ⚠️ **已发布字段的行为变化：`CrossPlanItem.hours_before_reuse` 现在只算所选路线的必需步骤（及其未完成的前置步骤、路线固定步骤）**，建议项的小时不再计入，只写在 `note` 里（"Plus N optional hours …"）。此前它等于 learning_first 路线的 `route.total_hours`（含建议项）。`required_hours`、`total_hours`、`total_hours_without_reuse`、`weekly_load`、`feasible_alone` 随之变小。**Quest Journal / 排期页面若把它当作「含建议项的总小时」显示或与 `planRoutes` 的 `total_hours` 对比，需要改文案或改用 `planRoutes`。**
+  - `planAcrossOpportunities` 不再固定取 learning_first：在可行路线中取必需小时最少的一条（`route_type` 可能是任一类型）。
+  - **`CrossPlanOptions` 新增可选 `materials?: Material[]`**（向后兼容）：页面应把 `loadMaterials(profile_id)` 的结果传进来，就绪材料覆盖的步骤计 0。
+  - `planAcrossOpportunities` 新增提醒：必需步骤依赖链放不下、参与期重叠、准备期与参与期重叠（写在 `warnings`）；有 `priorities` 时 `conflicts` 末尾有跨周整体对照；单周对照点出机会标题并在保留的子集里重算复用；复用的非承担者 `note` 写明材料小时计在哪个机会上。
+  - **`MatchReasonKind` 新增 `device`、`transport`**（`MATCH_REASON_KINDS` 末尾追加）。**对 `kind` 做穷尽式映射（如 `Record<MatchReasonKind, …>`）的代码需要补这两个键，并保留兜底分支。**
+  - **`explainMatch` 的 `reasons` 条数不固定**：每个种类最多一条，没有可说的不出现（如线上机会没有 `transport`；档案字段损坏或机会数据不完整时只有三条）。**页面不要按下标取理由**，用 `kind` 查找。此前固定三条。
+  - `explainMatch` 新增 `format` / `time` / `cost` / `device` / `transport` 理由；资格 unknown 时按引擎提示区分「补填档案」与「向主办方确认」；not_eligible 且全部可自己补上时 `summary` 不再说本届不能申请。
+  - `lib/types.ts` 中 `MatchReasonKind`、`MatchExplanation.reasons`、`CrossPlanItem.hours_before_reuse` / `note`、`CrossPlanOptions` 的注释同步。
