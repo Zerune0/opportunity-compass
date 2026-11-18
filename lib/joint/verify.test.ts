@@ -676,7 +676,12 @@ describe('exhaustiveBest：小场景手算', () => {
 function bruteNoPrune(scenario: Scenario, options: VerifyOptions = {}) {
   const ints = scenario.interventions.map((i) => i.id);
   const pairs = scenario.students.flatMap((s) => scenario.opportunities.map((o) => [s.id, o.id] as const));
-  const revocable = (scenario.existing_grants ?? []).filter((g) => typeof g.intervention_id === 'string' && ints.includes(g.intervention_id)).map((g) => g.id).sort();
+  // 规则 R1：可撤回 = 措施在场景内、且学生在场景内。
+  const stuIds = scenario.students.map((s) => s.id);
+  const revocable = (scenario.existing_grants ?? [])
+    .filter((g) => typeof g.intervention_id === 'string' && ints.includes(g.intervention_id) && stuIds.includes(g.student_id))
+    .map((g) => g.id)
+    .sort();
   const ev = createJointEvaluator(scenario);
   let best: { N: number; L: number; total: number; count: number; selected: number; revoked: number } | null = null;
   for (let rmask = 0; rmask < 1 << revocable.length; rmask++) {
@@ -854,15 +859,103 @@ describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
     expect(check(res, 'revocation').detail).toContain('new');
   });
 
-  it('强制撤回包括学生不在场景内的 grant', () => {
-    const scenario = rev({
-      interventions: [{ ...OLD, capacity: 2 }, NEW],
-      existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+  describe('规则 R1：场景外学生的已有 grant 不可撤回', () => {
+    // old 容量 2：e-old（s1，场景内，可撤回）+ e-out（outsider，场景外，不可撤回）。
+    const withOutsider = (status: 'approved' | 'pending' = 'pending') =>
+      rev({
+        interventions: [{ ...OLD, capacity: 2 }, NEW],
+        existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status })],
+      });
+
+    it('fixture 自检：可撤回的只有 e-old，e-out 被锁定', () => {
+      const norm = createJointEvaluator(withOutsider()).norm;
+      expect(norm.revocable.map((g) => g.id)).toEqual(['e-old']);
+      expect(norm.locked.map((g) => g.id)).toEqual(['e-out']);
     });
-    const res = verifyPlan(scenario, SWAP, TRADE0);
-    expectFail(res, 'revocation');
-    expect(check(res, 'revocation').detail).toContain('e-out');
-    expect(failedNames(verifyPlan(scenario, { ...SWAP, revoked_grant_ids: ['e-old', 'e-out'] }, TRADE0))).toEqual([]);
+
+    it('撤回场景外学生的 grant → revocation 不通过（approved 与 pending、两种模式都一样），detail 写明原因', () => {
+      for (const status of ['approved', 'pending'] as const) {
+        const scenario = withOutsider(status);
+        const plan: JointPlan = { selected_intervention_ids: [], allocations: [], revoked_grant_ids: ['e-out'] };
+        for (const o of [TRADE0, TRADE1, undefined]) {
+          const res = verifyPlan(scenario, plan, o);
+          expect(check(res, 'input_validity').passed).toBe(true);
+          expectFail(res, 'revocation');
+          expect(check(res, 'revocation').detail).toContain('e-out');
+          expect(check(res, 'revocation').detail).toContain('不在场景内');
+        }
+        // 重算时 X 不含 e-out：它照样占容量 → 撤回列表虽非法，R1 不变（L = 0）
+        const m = verifyAndMeasure(createJointEvaluator(scenario), plan, TRADE1).metrics;
+        expect(m.revoked_grant_ids).toEqual([]);
+        expect(m.L).toBe(0);
+      }
+    });
+
+    it('选中与锁定措施互斥的措施 → mutual_exclusion 不通过（protect 与 tradeoff 都是），即使撤回了全部可撤回的 grant', () => {
+      const scenario = withOutsider();
+      for (const o of [undefined, { mode: 'protect' as const }, TRADE0, TRADE1, { mode: 'tradeoff' as const, loss_cap: 5 }]) {
+        const res = verifyPlan(scenario, SWAP, o);
+        expectFail(res, 'mutual_exclusion');
+        const d = check(res, 'mutual_exclusion').detail;
+        expect(d).toContain('「new」');
+        expect(d).toContain('「old」');
+        expect(d).toContain('e-out');
+        expect(d).toContain('不可撤回');
+        // 强制撤回只针对可撤回的 grant：tradeoff 下撤回 e-old 就满足 revocation，不要求（也不允许）撤回 e-out
+        if (o?.mode === 'tradeoff') expect(failedNames(res)).toEqual(['mutual_exclusion']);
+      }
+      // 再加上撤回 e-out：revocation 也不通过（不可撤回），mutual_exclusion 照样不通过
+      const both = verifyPlan(scenario, { ...SWAP, revoked_grant_ids: ['e-old', 'e-out'] }, TRADE0);
+      expect(failedNames(both)).toEqual(['mutual_exclusion', 'revocation']);
+      // 互斥只由一方列出也算：把互斥写在 old 上
+      const reversed = rev({
+        interventions: [{ ...OLD, capacity: 2, mutually_exclusive_with: ['new'] }, { ...NEW, mutually_exclusive_with: undefined }],
+        existing_grants: [laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old' })],
+      });
+      expectFail(verifyPlan(reversed, { selected_intervention_ids: ['new'], allocations: [alloc('new', 's1', 'o1', 60)] }, TRADE1), 'mutual_exclusion');
+    });
+
+    it('对照：没有场景外 grant 时同一方案（tradeoff）全部通过；锁定措施本身仍可选', () => {
+      expect(failedNames(verifyPlan(rev({ interventions: [{ ...OLD, capacity: 2 }, NEW] }), SWAP, TRADE0))).toEqual([]);
+      // 选 old 本身不受影响（不与自己互斥）：给 s2 分配 old
+      const plan: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's2', 'o1', 100)] };
+      const scenario = rev({
+        interventions: [{ ...OLD, capacity: 3 }, NEW],
+        existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+      });
+      expect(failedNames(verifyPlan(scenario, plan))).toEqual([]);
+    });
+
+    it('不可撤回的 grant 仍占容量', () => {
+      // old 容量 2：s1（e-old）+ outsider（e-out）已占满；再给 s2 分配 old 超容量
+      const scenario = withOutsider('approved');
+      const plan: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's2', 'o1', 100)] };
+      expectFail(verifyPlan(scenario, plan), 'capacity');
+      expect(check(verifyPlan(scenario, plan), 'capacity').detail).toContain('outsider');
+      // tradeoff 下自愿撤回 e-old（可撤回）能腾出 1 个名额 → 通过（L = 1 ≤ 1）；撤回 e-out 不行
+      expect(failedNames(verifyPlan(scenario, { ...plan, revoked_grant_ids: ['e-old'] }, TRADE1))).toEqual([]);
+      expect(failedNames(verifyPlan(scenario, { ...plan, revoked_grant_ids: ['e-out'] }, TRADE1))).toEqual(['revocation', 'capacity']);
+    });
+
+    it('不可撤回的 approved grant 仍让 (措施, 学生) 免成本；pending 的不免（记账口径不因锁定改变）', () => {
+      // outsider 不在场景内，给他分配本身违反 allocation_validity；这里只看 cost_accounting 的记账口径。
+      const toOutsider = (cost: number): JointPlan => ({ selected_intervention_ids: ['old'], allocations: [alloc('old', 'outsider', 'o1', cost)] });
+      const approved = withOutsider('approved');
+      expect(failedNames(verifyPlan(approved, toOutsider(0)))).toEqual(['allocation_validity']);
+      expectFail(verifyPlan(approved, toOutsider(100)), 'cost_accounting');
+      const pending = withOutsider('pending');
+      expect(check(verifyPlan(pending, toOutsider(100)), 'cost_accounting').passed).toBe(true);
+      expectFail(verifyPlan(pending, toOutsider(0)), 'cost_accounting');
+      // 容量预检同样计入锁定的 grant
+      const over = rev({
+        interventions: [{ ...OLD, capacity: 1 }, NEW],
+        existing_grants: [
+          laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old' }),
+          laptopGrant('outsider2', null, { id: 'e-out2', intervention_id: 'old' }),
+        ],
+      });
+      expectFail(verifyPlan(over, { selected_intervention_ids: [], allocations: [] }), 'input_validity');
+    });
   });
 
   it('撤回列表不合法：不存在的 id、重复、不可撤回、非字符串、不是数组', () => {
@@ -1170,10 +1263,50 @@ describe('verifyPlan：公平底线（第 4 条）', () => {
         expectFail(verifyPlan(fair(), { ...honest, fairness: f } as JointPlan, { fairness_floors: [FG, LOW] }), 'metrics');
       });
     }
-    it('options 没给底线：plan 自带非空 fairness 不通过；空数组或 null 通过', () => {
-      expectFail(verifyPlan(fair(), honest), 'metrics');
-      expect(failedNames(verifyPlan(fair(), { ...honest, fairness: [] } as JointPlan))).toEqual([]);
-      expect(failedNames(verifyPlan(fair(), { ...honest, fairness: null } as unknown as JointPlan))).toEqual([]);
+    it('规则 R3：复核选项没给底线（缺省 / null）时不比较 plan 自带的 fairness（任何内容都通过 metrics）', () => {
+      for (const f of [truth, [], null, 'ok', [{ ...truth[0], covered_members: 99 }]]) {
+        for (const o of [undefined, {}, { fairness_floors: null }]) {
+          const res = verifyPlan(fair(), { ...honest, fairness: f } as unknown as JointPlan, o as VerifyOptions | undefined);
+          expect(failedNames(res)).toEqual([]);
+          expect(res.checks.some((c) => c.name === 'fairness')).toBe(false);
+        }
+      }
+      expect(check(verifyPlan(fair(), honest), 'metrics').detail).toContain('未比较 plan 自带的 fairness');
+    });
+  });
+
+  describe('规则 R3：已放松底线的 alternative（reviewer 复现）', () => {
+    // 名额 0：第一代底线（f2 需要设备）达不到 → INFEASIBLE；alternative 放松 fairness_floors，空方案，
+    // 但仍按原底线报告 fairness（covered 1/2，不满足）。
+    const scenario = fair({ interventions: [{ ...LOAN, capacity: 0 }] });
+    const reported = fairnessOf(scenario, EMPTY, [FG]).metrics;
+    const alternative = {
+      ...EMPTY,
+      R0: reported.R0,
+      R1: reported.R1,
+      G: 0,
+      L: 0,
+      N: 0,
+      cost: { fixed_usd: 0, marginal_usd: 0, total_usd: 0 },
+      lost_pairs: [],
+      revocations: [],
+      fairness: reported.fairness as FairnessReport[],
+    };
+    it('前提：按原底线报告的 fairness 不满足', () => {
+      expect(alternative.fairness).toEqual([{ floor_id: 'fg', eligible_members: 2, covered_members: 1, ratio: 0.5, min_ratio: 1, satisfied: false }]);
+      expectFail(verifyPlan(scenario, alternative, { fairness_floors: [FG] }), 'fairness');
+    });
+    it('用去掉底线的复核选项复核：通过（不再因自带 fairness 判 metrics 不通过）', () => {
+      expect(failedNames(verifyPlan(scenario, alternative, {}))).toEqual([]);
+      expect(failedNames(verifyPlan(scenario, alternative, { fairness_floors: null } as unknown as VerifyOptions))).toEqual([]);
+    });
+    it('给出底线时，造假的 fairness 仍被 metrics 查出', () => {
+      const faked = { ...alternative, fairness: [{ ...alternative.fairness[0], covered_members: 2, ratio: 1, satisfied: true }] };
+      const res = verifyPlan(scenario, faked, { fairness_floors: [FG] });
+      expectFail(res, 'metrics');
+      expect(check(res, 'metrics').detail).toContain('covered_members');
+      // 诚实的报告在给出底线时只有 fairness 本身不通过
+      expect(failedNames(verifyPlan(scenario, alternative, { fairness_floors: [FG] }))).toEqual(['fairness']);
     });
   });
 });
@@ -1277,7 +1410,32 @@ describe('exhaustiveBest / naiveBest：撤回与底线（对照手算与不剪�
       { mode: 'tradeoff', loss_cap: 1, fairness_floors: [floor('fg', ['first_generation'], 1)] },
     ],
     ['底线（三人一措施）', makeScenario({ students: [F1, F2, F5], opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }), { fairness_floors: [FG, LOW] }],
+    [
+      'R1：场景外学生的 grant 封锁互斥措施（tradeoff 2）',
+      rev({
+        interventions: [{ ...OLD, capacity: 2 }, NEW],
+        existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+      }),
+      { mode: 'tradeoff', loss_cap: 2 },
+    ],
   ];
+
+  it('R1：场景外学生的 grant 封锁互斥措施——两种模式下 new 都不可选；撤回 e-out 腾名额也不行', () => {
+    const scenario = rev({
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
+      existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+    });
+    // old 已满（s1 + outsider），new 被封锁 → protect 与 tradeoff 都只能是空方案
+    for (const o of [{}, TRADE0, TRADE1, { mode: 'tradeoff' as const, loss_cap: 2 }]) {
+      const n = naiveBest(scenario, o);
+      expect(n.plan?.selected_intervention_ids).toEqual([]);
+      expect(n.N).toBe(0);
+      expect(exhaustiveBest(scenario, o)).toMatchObject({ feasible: true, N: 0 });
+    }
+    // 必须启用 new → 不可行
+    expect(exhaustiveBest(scenario, { ...TRADE0, required_intervention_ids: ['new'] }).feasible).toBe(false);
+    expect(naiveBest(scenario, { required_intervention_ids: ['new'] }).feasible).toBe(false);
+  });
   for (const [name, scenario, options] of tiny) {
     it(`剪枝不改变最优指标：${name}`, () => {
       const brute = bruteNoPrune(scenario, options);

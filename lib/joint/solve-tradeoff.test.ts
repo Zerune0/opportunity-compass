@@ -419,30 +419,26 @@ describe('撤回后 R0 中的对由新分配补位', () => {
 });
 
 describe('撤回的其他规则', () => {
-  it('强制撤回包括学生不在场景内的 grant（不产生损失）；撤回 (措施, 学生) 后不再给它分配', () => {
+  it('撤回 (措施, 学生) 后不再给它分配；强制撤回只针对场景内学生的 grant', () => {
+    // 规则变化（R1）：原用例里 old 还有一条场景外学生 outsider 的 grant（old-outsider），过去会被一起强制撤回 / 自愿撤回。
+    // 现在场景外学生的 grant 不可撤回，与 old 互斥的 new 因此不能选中——这一部分移到下方「场景外学生的已有 grant」一组。
+    // 本用例改为只含场景内学生的 grant，保留原来的检查点（强制撤回、不再补发同一 (措施, 学生)）。
     const s = mini({
       students: [student('a'), student('b')],
       opportunities: [opp('o1')],
-      interventions: [loan('new', { capacity: 5, unit_cost_usd: 1, mutually_exclusive_with: ['old'] }), loan('old', { capacity: 2 })],
-      existing_grants: [laptopGrant('old-a', 'a', 'o1', 'old'), laptopGrant('old-outsider', 'outsider', 'o1', 'old')],
+      interventions: [loan('new', { capacity: 5, unit_cost_usd: 1, mutually_exclusive_with: ['old'] }), loan('old', { capacity: 1 })],
+      existing_grants: [laptopGrant('old-a', 'a', 'o1', 'old')],
     });
-    // new 每人 $1：启用 new（a 补位 + b）共 $2，比「自愿撤回 outsider 的 old 座位、把 old 给 b」（$10）便宜。
+    // new 每人 $1：启用 new（a 补位 + b）共 $2；old 名额已被 a 占满，不启用 new 时 b 无法覆盖。
     const opts: SolveOptions = { mode: 'tradeoff', loss_cap: 0 };
     const r = solveJoint(s, opts);
     expect(r.status).toBe('OPTIMAL');
-    expect(r.revoked_grant_ids).toEqual(['old-a', 'old-outsider']);
-    expect(r.revocations?.map((x) => x.forced_by)).toEqual(['new', 'new']);
+    expect(r.revoked_grant_ids).toEqual(['old-a']);
+    expect(r.revocations?.map((x) => x.forced_by)).toEqual(['new']);
     expect(r.allocations.some((x) => x.intervention_id === 'old')).toBe(false);
     expect([r.G, r.L]).toEqual([1, 0]);
     expect(r.cost.total_usd).toBe(2);
     expect(verifyWith(s, r, opts).passed).toBe(true);
-    // new 改为 $20 时：自愿撤回场景外学生 outsider 的 old 座位、把 old 给 b 更便宜（$10），也不产生损失。
-    const pricey = { ...s, interventions: [loan('new', { capacity: 5, unit_cost_usd: 20, mutually_exclusive_with: ['old'] }), loan('old', { capacity: 2 })] };
-    const rp = solveJoint(pricey, opts);
-    expect(rp.selected_intervention_ids).toEqual(['old']);
-    expect(rp.revocations).toEqual([{ grant_id: 'old-outsider', intervention_id: 'old', student_id: 'outsider', forced_by: null }]);
-    expect([rp.G, rp.L, rp.cost.total_usd]).toEqual([1, 0, 10]);
-    expect(verifyWith(pricey, rp, opts).passed).toBe(true);
     // 撤回后又给同一 (措施, 学生) 分配的方案：revocation 不通过。
     const bad: JointPlan = {
       selected_intervention_ids: ['old'],
@@ -468,6 +464,154 @@ describe('撤回的其他规则', () => {
     const r = solveJoint(s, opts);
     expect(r.status).toBe('OPTIMAL');
     expect(r.revocations).toEqual([{ grant_id: 'old-a', intervention_id: 'old', student_id: 'a', forced_by: 'w-time' }]);
+    expect(verifyWith(s, r, opts).passed).toBe(true);
+  });
+});
+
+// ───────────────────────────── R1：场景外学生的已有 grant 不可撤回 ─────────────────────────────
+
+describe('场景外学生的已有 grant（不可撤回，R1）', () => {
+  // old 有两条 approved grant：a（场景内）与 outsider（不在场景里）。new 与 old 互斥。b 缺笔记本。
+  const base = (oldCap: number) =>
+    mini({
+      students: [student('a'), student('b')],
+      opportunities: [opp('o1')],
+      interventions: [loan('new', { capacity: 5, unit_cost_usd: 1, mutually_exclusive_with: ['old'] }), loan('old', { capacity: oldCap })],
+      existing_grants: [laptopGrant('old-a', 'a', 'o1', 'old'), laptopGrant('old-outsider', 'outsider', 'o1', 'old')],
+    });
+  const tradeoff: SolveOptions = { mode: 'tradeoff', loss_cap: 5 };
+
+  it('场景外学生的 grant 不会被撤回（强制、自愿都不会）；与其措施互斥的 new 两种模式下都不选', () => {
+    const s = base(2);
+    for (const opts of [{}, tradeoff, { mode: 'tradeoff', loss_cap: 0 } as SolveOptions]) {
+      const r = solveJoint(s, opts);
+      expectWellFormed(r);
+      expect(r.status).toBe('OPTIMAL');
+      expect(r.selected_intervention_ids).not.toContain('new');
+      expect(r.revoked_grant_ids).not.toContain('old-outsider');
+      expect(verifyWith(s, r, opts).passed).toBe(true);
+    }
+    // 权衡模式下：old 名额被 a 与 outsider 占满；自愿撤回 a 的座位换给 b 只会 G + 1、L + 1（N 不变）→ 不做。
+    const r = solveJoint(s, tradeoff);
+    expect([r.G, r.L, r.N]).toEqual([0, 0, 0]);
+    expect(r.revoked_grant_ids).toEqual([]);
+    // 复核器：撤回场景外学生的 grant 不合法；选中 new 而不能撤回 old-outsider → 互斥检查不通过。
+    const revokeOutsider: JointPlan = { selected_intervention_ids: [], allocations: [], revoked_grant_ids: ['old-outsider'] };
+    expect(verifyPlan(s, revokeOutsider, tradeoff).checks.find((c) => c.name === 'revocation')?.passed).toBe(false);
+    const pickNew: JointPlan = {
+      selected_intervention_ids: ['new'],
+      allocations: [
+        { intervention_id: 'new', student_id: 'a', opportunity_id: 'o1', cost_usd: 1 },
+        { intervention_id: 'new', student_id: 'b', opportunity_id: 'o1', cost_usd: 1 },
+      ],
+      revoked_grant_ids: ['old-a'],
+    };
+    const v = verifyPlan(s, pickNew, tradeoff);
+    expect(v.passed).toBe(false);
+    expect(v.checks.find((c) => c.name === 'mutual_exclusion')?.passed).toBe(false);
+  });
+
+  it('把 new 设为必须启用 → INFEASIBLE，说明写明「与场景外学生的已有承诺互斥，无法评估其损失」', () => {
+    for (const opts of [{ required_intervention_ids: ['new'] }, { ...tradeoff, required_intervention_ids: ['new'] }] as SolveOptions[]) {
+      const r = solveJoint(base(2), opts);
+      expect(r.status).toBe('INFEASIBLE');
+      expect(r.alternative?.relaxed).toEqual(['required_intervention_ids']);
+      expect(r.alternative?.note).toContain('「new」与「old」发给场景外学生的已有承诺互斥，无法评估其损失，不能启用');
+    }
+  });
+
+  it('场景外学生的 grant 仍占容量：old 容量 2 时 b 分不到；容量 3 时 b 分到 old（G = 1）', () => {
+    expect(solveJoint(base(2)).G).toBe(0);
+    const r = solveJoint(base(3));
+    expect(r.G).toBe(1);
+    expect(r.allocations).toEqual([{ intervention_id: 'old', student_id: 'b', opportunity_id: 'o1', cost_usd: 10 }]);
+    expect(verifyWith(base(3), r).passed).toBe(true);
+  });
+});
+
+// ───────────────────────────── R2：运行中的措施不能通过取消勾选而消失 ─────────────────────────────
+
+describe('运行中的措施（R2）：只勾选卫星会场', () => {
+  const s = withEnabledInterventions(venueTradeoffScenario, [SATELLITE]);
+
+  it('接驳车有已有 grant，仍留在场景里（opportunity_ids = []，不接受新分配），拼车补助被移除', () => {
+    expect(s.interventions.map((i) => i.id)).toEqual([SHUTTLE, SATELLITE]);
+    const shuttle = s.interventions.find((i) => i.id === SHUTTLE)!;
+    expect(shuttle.opportunity_ids).toEqual([]);
+    expect(shuttle.mutually_exclusive_with).toEqual([SATELLITE]);
+    expect(shuttle.capacity).toBe(3);
+  });
+
+  it('protect：卫星会场与运行中的接驳车互斥、不能启用 → G = 0（修复前误为 G = 6、L = 0）', () => {
+    const r = solveJoint(s);
+    expect(r.status).toBe('OPTIMAL');
+    expect(r.selected_intervention_ids).toEqual([]);
+    expect([r.G, r.L, r.N]).toEqual([0, 0, 0]);
+    expect(r.R0).toHaveLength(3);
+    expect(verifyWith(s, r).passed).toBe(true);
+  });
+
+  it('tradeoff、loss_cap 3：启用卫星会场，强制撤回 3 条接驳车 grant，G 6 / L 3 / N 3', () => {
+    const opts: SolveOptions = { mode: 'tradeoff', loss_cap: 3 };
+    const r = solveJoint(s, opts);
+    expectWellFormed(r);
+    expect(r.selected_intervention_ids).toEqual([SATELLITE]);
+    expect(r.revoked_grant_ids).toEqual([...V.shuttleGrants]);
+    expect(r.revocations?.every((x) => x.forced_by === SATELLITE)).toBe(true);
+    expect([r.G, r.L, r.N]).toEqual([6, 3, 3]);
+    expect(r.allocations.some((a) => a.intervention_id === SHUTTLE)).toBe(false);
+    expect(verifyWith(s, r, opts).passed).toBe(true);
+  });
+
+  it('tradeoff、loss_cap 2：卫星会场不可选 → G = 0', () => {
+    const r = solveJoint(s, { mode: 'tradeoff', loss_cap: 2 });
+    expect([r.G, r.L, r.N]).toEqual([0, 0, 0]);
+    expect(r.selected_intervention_ids).toEqual([]);
+  });
+});
+
+// ───────────────────────────── S2 / S3 / R4 文案与行为 ─────────────────────────────
+
+describe('权衡模式的说明文字与 loss_cap = 0', () => {
+  it('S2：必须启用卫星会场、loss_cap 2 → 写明「必须撤回 3 条，至少损失 3 个，超过损失上限 2」', () => {
+    const r = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 2, required_intervention_ids: [SATELLITE] });
+    expect(r.status).toBe('INFEASIBLE');
+    expect(r.alternative?.note).toContain(
+      `启用「${SATELLITE}」必须撤回 3 条已有资源，至少损失 3 个原本可达的（学生, 机会）对，超过损失上限 2`,
+    );
+    // loss_cap 3 时可行，不出现这句。
+    const ok = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 3, required_intervention_ids: [SATELLITE] });
+    expect(ok.status).toBe('OPTIMAL');
+    expect(ok.notes.join('')).not.toContain('超过损失上限');
+  });
+
+  it('S3：「损失来自撤回已有 grant」只在 L > 0 时出现', () => {
+    const none = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 2 });
+    expect(none.L).toBe(0);
+    expect(none.notes.join('')).not.toContain('损失来自撤回');
+    expect(none.notes.some((n) => n.includes('本方案没有损失'))).toBe(true);
+    const some = solveJoint(venueTradeoffScenario, { mode: 'tradeoff', loss_cap: 3 });
+    expect(some.L).toBe(3);
+    expect(some.notes.some((n) => n.includes('损失来自撤回已有 grant'))).toBe(true);
+  });
+
+  it('R4：tradeoff 且 loss_cap = 0 不等同 protect——可以撤回 pending 的 grant 腾出名额（L = 0）', () => {
+    // loan 容量 1，被 a 的 pending grant 占着；a 只有 8 年级、不符合 o1 资格（本来就不可达，撤回不造成损失）。
+    const s = mini({
+      students: [student('a', 8), student('b')],
+      opportunities: [opp('o1')],
+      interventions: [loan('loan', { capacity: 1 })],
+      existing_grants: [laptopGrant('g-a', 'a', 'o1', 'loan', 'pending')],
+    });
+    const protect = solveJoint(s);
+    expect([protect.G, protect.L]).toEqual([0, 0]);
+    expect(protect.revoked_grant_ids).toEqual([]);
+    const opts: SolveOptions = { mode: 'tradeoff', loss_cap: 0 };
+    const r = solveJoint(s, opts);
+    expectWellFormed(r);
+    expect([r.G, r.L, r.N]).toEqual([1, 0, 1]);
+    expect(r.revocations).toEqual([{ grant_id: 'g-a', intervention_id: 'loan', student_id: 'a', forced_by: null }]);
+    expect(r.allocations).toEqual([{ intervention_id: 'loan', student_id: 'b', opportunity_id: 'o1', cost_usd: 10 }]);
     expect(verifyWith(s, r, opts).passed).toBe(true);
   });
 });

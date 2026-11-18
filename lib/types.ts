@@ -652,12 +652,15 @@ export interface RouteDiff {
  * - 方案生效方式：每条 Allocation (i, s, o) 合成一条 approved ResourceGrant
  *   （id = 'alloc:' + i + ':' + s + ':' + o，字段取自措施 i，见 Allocation 注释）。
  *   措施只能通过 grant 化解现实障碍，不能改变官方资格。
- *   tradeoff 模式下方案还可以撤回「可撤回」的已有 grant（JointPlan.revoked_grant_ids；可撤回 = intervention_id 指向场景内措施）；
+ *   tradeoff 模式下方案还可以撤回「可撤回」的已有 grant（JointPlan.revoked_grant_ids；可撤回 = intervention_id 指向场景内措施
+ *   且 student_id 是场景内学生——场景外学生的损失无法评估，不能动）；
  *   protect 模式（默认）不动任何已有承诺：revoked_grant_ids 必须为空。
  * - 硬约束（任何情况下不放松）：措施存在 / 不重复 / approved；互斥；前置依赖；分配合法；
  *   容量（按 capacity_scope 与不同学生计）；成本与预算；损失（protect: L = 0；tradeoff: L ≤ loss_cap）；
- *   撤回（选中与措施 k 互斥的措施时，k 的全部已有 grant 必须撤回；撤回列表合法；protect 模式下不允许任何撤回，
- *   因此 protect 下与「有可撤回已有 grant 的措施」互斥的措施不能被选中）。
+ *   撤回（选中与措施 k 互斥的措施时，k 的全部可撤回 grant 必须撤回；撤回列表合法；protect 模式下不允许任何撤回，
+ *   因此 protect 下与「有可撤回已有 grant 的措施」互斥的措施不能被选中）；两种模式下都不能选中与
+ *   「有场景外学生已有 grant（不可撤回）的措施」互斥的措施（归入 mutual_exclusion）。
+ * - What-if 勾选（withEnabledInterventions）：有已有 grant 的「运行中」措施不能被移除，未勾选时只是不接受新分配。
  * - 软要求（主办方自己提的，INFEASIBLE 时可整项放松并明示）：required_intervention_ids、min_gain、fairness_floors。
  * - 目标：最大化 N = G − L；再 L 小；再 total_usd 小；再 Allocation 条数少；再选中措施数少；再撤回数少；
  *   再字典序最小。因此选中的每项措施要么有分配，要么必须启用，要么是这两类措施的（传递）前置依赖。
@@ -753,7 +756,9 @@ export interface Scenario {
   /**
    * 场景开始前已存在的 grants（全部计入 R0；未被方案撤回的照样计入 R1）。
    * 每条的 id 必须是字符串且在 existing_grants 内唯一（方案按 id 撤回），否则 UNSUPPORTED_INPUT。
-   * 「可撤回」= intervention_id 是场景内某项措施的 id；其余（无 intervention_id 或指向场景外）不可撤回。
+   * 「可撤回」= intervention_id 是场景内某项措施的 id，且 student_id 是场景内学生的 id；其余（无 intervention_id、
+   * 指向场景外，或学生不在场景内）不可撤回——不可撤回的照样生效、占容量，approved 的照样免成本。
+   * 某措施 k 有「学生不在场景内」的 grant 时，与 k 互斥的措施在两种模式下都不能选中。
    * 被方案撤回（JointPlan.revoked_grant_ids）的 grant：不计入 R1、不占容量、不再免成本；撤回不退款。
    * 以下「占容量 / 免成本」规则只对**未被撤回**的已有 grant 适用（UNSUPPORTED_INPUT 的容量预检按全部已有 grant）。
    * 带 intervention_id 的已有 grant 占用该措施的容量（按不同学生计）：
@@ -789,7 +794,10 @@ export interface SolveOptions {
    * 受影响的对与撤回明细见 JointOutcome.lost_pairs / revocations。
    */
   mode?: 'protect' | 'tradeoff';
-  /** tradeoff 模式下允许的最大损失 L（非负有限数）；protect 模式下忽略。 */
+  /**
+   * tradeoff 模式下允许的最大损失 L（非负有限数，按（学生, 机会）对计）；protect 模式下忽略。
+   * tradeoff 且 loss_cap = 0 不等同 protect：仍允许撤回 pending 的 grant 和不造成损失的撤回，只要求 L = 0。
+   */
   loss_cap?: number;
   /**
    * 搜索上限（节点数），达到即返回 SEARCH_LIMIT_REACHED。
@@ -877,7 +885,10 @@ export interface VerifyOptions {
   required_intervention_ids?: SolveOptions['required_intervention_ids'];
   /** 与 SolveOptions.min_gain 同义；传了才检查（organizer_requirements）。 */
   min_gain?: SolveOptions['min_gain'];
-  /** 与 SolveOptions.fairness_floors 同义；给出（非 null，含空数组）时才输出 fairness 检查。 */
+  /**
+   * 与 SolveOptions.fairness_floors 同义；给出（非 null，含空数组）时才输出 fairness 检查。
+   * 没给时，metrics 不比较 plan 自带的 fairness（例如已放松底线的 alternative 仍按原底线报告）。
+   */
   fairness_floors?: SolveOptions['fairness_floors'];
 }
 
@@ -927,8 +938,9 @@ export interface JointPlan {
    * 本方案撤回的已有 grant（Scenario.existing_grants 中的 id），按 id 升序。缺省 / null = 不撤回。
    * **只有 tradeoff 模式允许非空**；protect 模式（默认）下必须为空（验证器 revocation 检查判不通过），
    * 所以 protect 下不能选中与「有可撤回已有 grant 的措施」互斥的措施。
-   * 只能是可撤回的 grant（intervention_id 指向场景内措施），不得重复。
-   * 强制撤回：选中的措施 i 与措施 k 互斥（对称）时，所有 intervention_id === k 的已有 grant 都必须在这里。
+   * 只能是可撤回的 grant（intervention_id 指向场景内措施、student_id 是场景内学生），不得重复。
+   * 强制撤回：选中的措施 i 与措施 k 互斥（对称）时，所有 intervention_id === k 的可撤回 grant 都必须在这里
+   * （k 若有场景外学生的 grant，i 本身就不能选中）。
    * tradeoff 模式下自愿撤回（如为别人腾名额）也允许。撤回的效果与损失见 CONTRACT「联合求解模型」第 2、3 条。
    * 求解器返回的方案（主结果、alternative、conditional）一律给出该字段（可为空数组）。
    */

@@ -7,7 +7,9 @@
  *
  * 做法：
  * 1. 枚举措施的所有子集（2^|I|）作为选中集合 T。
- * 2. 枚举「可撤回 grant」（E 中 intervention_id 指向场景内措施的 grant）的所有子集作为撤回集合 X。
+ * 2. 枚举「可撤回 grant」（规则 R1：E 中 intervention_id 指向场景内措施、且 student_id 是场景内学生的 grant；
+ *    即验证器的 norm.revocable）的所有子集作为撤回集合 X。场景外学生的 grant 不可撤回，不进入枚举；
+ *    它们封锁的互斥措施（R1 推论）由验证器的 mutual_exclusion 判定，属于下面 (d) 中只依赖 T 的检查。
  *    protect 模式下验证器对任何非空撤回判不通过（见 (d)），因此实际只有 X = ∅。
  * 3. 对每个 (T, X)，枚举每个（学生, 机会）对「不分配 / 分配 T 中某个措施子集」的组合；
  *    分配的 cost_usd 按契约口径记账：每个 (措施, 学生) 组按 (i, s, o) 升序的第一条记 unit_cost_usd、其余 0；
@@ -36,7 +38,8 @@
  *     只带 E' 就可达的对，极小集合是空集，只考虑「不分配」）。同一措施在同一对上重复分配违反 allocation_validity，
  *     因此只考虑集合而非多重集；不在措施 opportunity_ids 内的组合违反 allocation_validity，
  *     使用「X 中有 (k, s) 的 grant」的措施 k 给学生 s 分配违反 revocation 的 c——这两类都必然不通过，不必枚举。
- * (d) 只依赖 (T, X) 的检查——approval / mutual_exclusion / prerequisite、budget 中的固定成本部分（单价非负，加分配只会
+ * (d) 只依赖 (T, X) 的检查——approval / mutual_exclusion（含「不得与有不可撤回已有 grant 的措施互斥」，只看 T 与场景）
+ *     / prerequisite、budget 中的固定成本部分（单价非负，加分配只会
  *     让成本更高；撤回不退款）、revocation 的 a（撤回列表合法）/ b（强制撤回）/ d（protect 下必须为空）——
  *     在空分配方案 (T, [], X) 上就不通过时，该 (T, X) 下所有方案都不通过，直接跳过。
  *     revocation 的 c 只会因分配不通过，空分配上一定通过，所以空分配上 revocation 不通过只能来自 a/b/d。
@@ -116,7 +119,7 @@ function allSubsets<T>(items: T[]): T[][] {
 /** 在 (T, X) 下不依赖分配的检查（见文件头 (d)）。 */
 const SELECTION_ONLY_CHECKS = ['approval', 'mutual_exclusion', 'prerequisite', 'budget', 'revocation'];
 
-/** 可撤回 grant 的 id（去重、升序）。 */
+/** 可撤回 grant 的 id（规则 R1：措施与学生都在场景内；去重、升序）。 */
 function revocableIds(ev: JointEvaluator): string[] {
   return [...new Set(ev.norm.revocable.map((g) => g.id))].sort(cmpStr);
 }

@@ -15,7 +15,7 @@
  *   全部措施启用时，s09 可以「笔记本 + 交通补助 $25」→ 可行：s07–s10 + s01，$100 + 5 × $20 + $25 = $225。
  */
 import { describe, expect, it } from 'vitest';
-import { solveJoint } from './solve';
+import { fairnessCoverageBounds, solveJoint } from './solve';
 import { verifyPlan } from './verify';
 import {
   DEVICE_LOAN_IDS as IDS,
@@ -363,5 +363,39 @@ describe('确定性、不修改输入、耗时', () => {
       expect(r.verification).toBeTruthy();
       if (r.selected_intervention_ids.length > 0) expect(r.verification?.passed).toBe(true);
     }
+  });
+});
+
+describe('公平底线的覆盖上界（S1 / R5：分母不变，说明里给出「最多可覆盖 X / Y」）', () => {
+  it('只启用设备借用：低收入 4 人中 s09 还缺交通、无论如何不可达 → 上界 3 / 4；分母仍是 4（R5）', () => {
+    expect(fairnessCoverageBounds(laptopOnly(), [lowIncome(1)])).toEqual([
+      { floor_id: 'low', eligible_members: 4, max_coverable: 3 },
+    ]);
+    // 全部已批准措施（含交通补助）启用时 s09 也能覆盖 → 4 / 4。
+    expect(fairnessCoverageBounds(deviceLoanScenario, [lowIncome(1)])?.[0].max_coverable).toBe(4);
+    // 输入不合法时返回 null。
+    expect(fairnessCoverageBounds({ ...laptopOnly(), budget_usd: -1 }, [lowIncome(1)])).toBeNull();
+  });
+
+  it('底线不可行：主 notes 与 alternative.note 都写明上界，替代方案的覆盖人数另列', () => {
+    const r = solveJoint(laptopOnly(), { fairness_floors: [lowIncome(1)] });
+    expect(r.status).toBe('INFEASIBLE');
+    expect(r.notes.some((n) => n.includes('「低收入学生」最多可覆盖 3 / 4 名'))).toBe(true);
+    expect(r.alternative?.relaxed).toEqual(['fairness_floors']);
+    expect(r.alternative?.note).toContain('替代方案中：「低收入学生」覆盖 1/4 名');
+    expect(r.alternative?.note).toContain('「低收入学生」最多可覆盖 3 / 4 名');
+    expect(r.alternative?.fairness?.[0]).toMatchObject({ eligible_members: 4, covered_members: 1, satisfied: false });
+  });
+
+  it('上界不考虑名额与预算：预算只够 1 人时上界仍是 3 / 4', () => {
+    const r = solveJoint(withBudget(laptopOnly(), 120), { fairness_floors: [lowIncome(1)] });
+    expect(r.status).toBe('INFEASIBLE');
+    expect(r.notes.some((n) => n.includes('最多可覆盖 3 / 4 名'))).toBe(true);
+  });
+
+  it('权衡场景、保护模式：卫星会场与接驳车互斥不能启用 → 低收入上界只算工作日拼车可覆盖的 4 人', () => {
+    const b = fairnessCoverageBounds(venueTradeoffScenario, [lowIncome(1)]);
+    // 低收入 vt-s06…s09 都可由拼车补助（不限人选，只看是否存在可行组合）覆盖工作日场 → 4 / 4。
+    expect(b).toEqual([{ floor_id: 'low', eligible_members: 4, max_coverable: 4 }]);
   });
 });

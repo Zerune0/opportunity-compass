@@ -5,7 +5,8 @@
  * 断言（按 CONTRACT「联合求解模型」）：
  * - 穷举可行 ⇔ 求解器 OPTIMAL；OPTIMAL 方案通过 verifyPlan，前六级指标（N、L、成本、分配条数、措施数、撤回数）与穷举一致；
  * - 穷举不可行 ⇔ 求解器 INFEASIBLE；主结果是空方案；alternative 的放松项按第 6 条规则（逐个规模 m、固定优先级），
- *   且通过「去掉放松项」的 verifyPlan，指标与对应的穷举一致；
+ *   且直接（不删自带的 fairness，规则 R3）通过「去掉放松项」的 verifyPlan，指标与对应的穷举一致；
+ * - 规则 R1：任何方案都不选被「场景外学生的不可撤回 grant」封锁的措施，也不撤回场景外学生的 grant；
  * - 每个方案的 revoked_grant_ids / lost_pairs / revocations / fairness 与验证器重算完全一致；protect 模式下撤回为空；
  * - 规范化（第 5 条）；conditional（第 7 条）；朴素枚举对极小场景逐字段比较完整方案（含撤回）。
  */
@@ -196,7 +197,51 @@ const STATS = {
   multiAllocGroups: 0,
   tradeoff: 0,
   withFloors: 0,
+  /** OPTIMAL 且至少一条自愿撤回（forced_by === null）。 */
+  optimalVoluntaryRevocation: 0,
+  /** OPTIMAL 且撤回了 pending 的已有 grant。 */
+  optimalPendingRevocation: 0,
+  /** 场景里有「不可撤回 grant 封锁互斥措施」的结构（规则 R1）。 */
+  lockedBlocking: 0,
+  /** 上述场景中封锁确实起作用：去掉「被封锁措施 ↔ 锁定措施」的互斥关系后，穷举的最优 N 更大。 */
+  lockedBlockingBinding: 0,
 };
+
+/** 规则 R1：场景外学生（不在 students 中）的已有 grant 所属措施，与某项措施互斥（该措施因此被封锁）。 */
+function blockedByLocked(scenario: Scenario): string[] {
+  const stu = new Set(scenario.students.map((s) => s.id));
+  const ints = new Map(scenario.interventions.map((i) => [i.id, i]));
+  const lockedInts = new Set(
+    (scenario.existing_grants ?? [])
+      .filter((g) => typeof g.intervention_id === 'string' && ints.has(g.intervention_id) && !stu.has(g.student_id))
+      .map((g) => g.intervention_id as string),
+  );
+  const excl = (a: Intervention, b: Intervention) =>
+    (a.mutually_exclusive_with ?? []).includes(b.id) || (b.mutually_exclusive_with ?? []).includes(a.id);
+  return scenario.interventions
+    .filter((i) => [...lockedInts].some((k) => k !== i.id && excl(i, ints.get(k)!)))
+    .map((i) => i.id)
+    .sort();
+}
+
+/** 去掉被封锁措施与锁定措施之间的互斥关系（仅用于统计「封锁是否真的起作用」）。 */
+function withoutLockedExclusions(scenario: Scenario): Scenario {
+  const stu = new Set(scenario.students.map((s) => s.id));
+  const ids = new Set(scenario.interventions.map((i) => i.id));
+  const lockedInts = new Set(
+    (scenario.existing_grants ?? [])
+      .filter((g) => typeof g.intervention_id === 'string' && ids.has(g.intervention_id) && !stu.has(g.student_id))
+      .map((g) => g.intervention_id as string),
+  );
+  return {
+    ...scenario,
+    interventions: scenario.interventions.map((i) => {
+      const mx = i.mutually_exclusive_with;
+      if (!Array.isArray(mx)) return i;
+      return { ...i, mutually_exclusive_with: mx.filter((k) => !(lockedInts.has(k) || lockedInts.has(i.id))) };
+    }),
+  };
+}
 
 /**
  * 对比一次「求解（主结果或条件性结果）」与穷举；返回不一致描述列表。
@@ -255,9 +300,8 @@ function compareOne(
   }
   const relaxed = alternative.relaxed as Soft[];
   const relaxedOpts = without(vopts, relaxed);
-  // 放松了底线时，alternative 仍报告原底线的 fairness；复核「去掉放松项」时不带这份报告（否则 metrics 会因 options 没给底线而不通过）。
-  const altPlan = relaxed.includes('fairness_floors') ? { ...alternative, fairness: undefined } : alternative;
-  const v = verifyPlan(scenario, altPlan, relaxedOpts);
+  // 直接复核（规则 R3：复核选项没给底线时验证器不比较 alternative 按原底线报告的 fairness）。
+  const v = verifyPlan(scenario, alternative, relaxedOpts);
   if (!v.passed) {
     issues.push(`${label}：alternative 未通过去掉 ${relaxed.join('+')} 后的 verifyPlan：${v.checks.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join(' | ')}`);
   }
@@ -306,6 +350,9 @@ function crossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[] {
     if (res.N > 0) STATS.optimalPositiveN++;
     if (res.L > 0) STATS.optimalPositiveL++;
     if ((res.revoked_grant_ids ?? []).length > 0) STATS.optimalWithRevocation++;
+    if ((res.revocations ?? []).some((r) => r.forced_by === null)) STATS.optimalVoluntaryRevocation++;
+    const pendingIds = new Set((scenario.existing_grants ?? []).filter((g) => g.status === 'pending').map((g) => g.id));
+    if ((res.revoked_grant_ids ?? []).some((id) => pendingIds.has(id))) STATS.optimalPendingRevocation++;
     const groups = new Set(res.allocations.map((a) => a.intervention_id + '|' + a.student_id));
     if (groups.size < res.allocations.length) STATS.multiAllocGroups++;
   }
@@ -314,6 +361,12 @@ function crossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[] {
     if (vopts.fairness_floors != null && exhaustiveBest(scenario, without(vopts, ['fairness_floors'])).feasible) STATS.infeasibleByFloors++;
   }
   if (res.conditional) STATS.conditional++;
+  if (blockedByLocked(scenario).length > 0) {
+    STATS.lockedBlocking++;
+    const relaxedEx = exhaustiveBest(withoutLockedExclusions(scenario), vopts);
+    const ex = exhaustiveBest(scenario, vopts);
+    if (relaxedEx.feasible && (!ex.feasible || relaxedEx.N > ex.N)) STATS.lockedBlockingBinding++;
+  }
   if (res.status === 'UNSUPPORTED_INPUT') return [`求解器返回 UNSUPPORTED_INPUT（场景应合法）：${res.notes.join(' / ')}`];
   issues.push(...compareOne('主结果', scenario, res.status, res, vopts, res.alternative ?? null));
 
@@ -333,6 +386,22 @@ function crossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[] {
   // 主结果永远不含 pending 措施
   for (const id of res.selected_intervention_ids) {
     if (pending.includes(id)) issues.push(`主结果含 pending 措施 ${id}`);
+  }
+  // 规则 R1：被不可撤回 grant 封锁的措施在任何方案里都不能出现；场景外学生的 grant 不能被撤回。
+  const blocked = blockedByLocked(scenario);
+  const stuIds = new Set(scenario.students.map((s) => s.id));
+  const outsiderGrantIds = new Set((scenario.existing_grants ?? []).filter((g) => !stuIds.has(g.student_id)).map((g) => g.id));
+  const outcomes: [string, JointOutcome | null | undefined][] = [
+    ['主结果', res],
+    ['alternative', res.alternative],
+    ['条件性结果', res.conditional],
+  ];
+  for (const [label, o] of outcomes) {
+    if (!o) continue;
+    const bad = o.selected_intervention_ids.filter((id) => blocked.includes(id));
+    if (bad.length > 0) issues.push(`${label}选中了被不可撤回 grant 封锁的措施 ${bad.join('、')}`);
+    const badRev = (o.revoked_grant_ids ?? []).filter((id) => outsiderGrantIds.has(id));
+    if (badRev.length > 0) issues.push(`${label}撤回了场景外学生的 grant ${badRev.join('、')}`);
   }
   return issues;
 }
@@ -696,7 +765,43 @@ const HAND3: { name: string; scenario: Scenario; options?: SolveOptions; expect:
     expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [] },
   },
   {
-    name: '撤回 pending 的已有 grant（学生不在场景内）腾名额：L 0',
+    // 规则 R4：loss_cap = 0 的 tradeoff 不等同 protect。h 自己有笔记本（本来可达），e-h 是 pending、不化解任何障碍；
+    // 撤回它不造成损失，却腾出 old 唯一的名额给 a。手算：G 1，L 0，N 1，成本 100，撤回 1 条（自愿）。
+    name: 'loss_cap 0 的 tradeoff：撤回场景内学生的 pending grant 腾名额（L 0）',
+    scenario: makeScenario({
+      students: [need('a'), has('h')],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-h', student_id: 'h', intervention_id: 'old', status: 'pending' })],
+    }),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-h'], allocatedStudents: ['a'] },
+  },
+  {
+    // 同上，但 e-h 是 approved：h 自己有笔记本，撤回仍不造成损失 → loss_cap 0 下照样允许。
+    name: 'loss_cap 0 的 tradeoff：撤回不造成损失的 approved grant 腾名额（L 0）',
+    scenario: makeScenario({
+      students: [need('a'), has('h')],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-h', student_id: 'h', intervention_id: 'old' })],
+    }),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-h'], allocatedStudents: ['a'] },
+  },
+  {
+    name: '同上但 protect：pending 的已有 grant 也不能撤回 → 空方案',
+    scenario: makeScenario({
+      students: [need('a'), has('h')],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-h', student_id: 'h', intervention_id: 'old', status: 'pending' })],
+    }),
+    expect: { status: 'OPTIMAL', N: 0, revoked: [] },
+  },
+  {
+    // 规则 R1：e-out 的学生不在场景内，不可撤回，照样占满 old 的名额 → tradeoff 也不能腾名额。
+    name: 'R1：场景外学生的 pending grant 占满名额，不可撤回（tradeoff 0）→ 空方案',
     scenario: makeScenario({
       students: [need('a')],
       opportunities: [O1],
@@ -704,30 +809,67 @@ const HAND3: { name: string; scenario: Scenario; options?: SolveOptions; expect:
       existing_grants: [grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' })],
     }),
     options: TRADE(0),
-    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-out'], allocatedStudents: ['a'] },
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [], allocatedStudents: [] },
   },
   {
-    name: '同上但 protect：pending 的已有 grant 也不能撤回 → 空方案',
-    scenario: makeScenario({
-      students: [need('a')],
-      opportunities: [O1],
-      interventions: [OLD],
-      existing_grants: [grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' })],
-    }),
-    expect: { status: 'OPTIMAL', N: 0, revoked: [] },
-  },
-  {
-    name: '强制撤回包括场景外学生的 pending grant',
-    // old 单价 200：否则「撤回 e-out（pending，无损失）+ old 给 b」只要 $100，比换用 new（$120）便宜
+    // 规则 R1：old 有场景外学生的 e-out（不可撤回）→ 与 old 互斥的 new 被封锁。old 容量 2 已被 a、outsider 占满；
+    // 自愿撤回 e-a 再把 old 给 b：G 1、L 1、N 0，不优于空方案（且 loss_cap 1 才允许）。手算最优：空方案。
+    name: 'R1：场景外学生的 grant 封锁互斥措施（tradeoff 1）→ new 不可选，空方案',
     scenario: swapScenario({
-      interventions: [{ ...OLD, capacity: 2, unit_cost_usd: 200 }, NEW],
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
       existing_grants: [
         grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' }),
         grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' }),
       ],
     }),
+    options: TRADE(1),
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [], allocatedStudents: [] },
+  },
+  {
+    name: 'R1：同上（protect）→ 空方案',
+    scenario: swapScenario({
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
+      existing_grants: [
+        grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' }),
+        grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' }),
+      ],
+    }),
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [] },
+  },
+  {
+    name: 'R1：必须启用被封锁的 new（tradeoff 2）→ INFEASIBLE，放松 required',
+    scenario: swapScenario({
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
+      existing_grants: [
+        grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' }),
+        grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' }),
+      ],
+    }),
+    options: { ...TRADE(2), required_intervention_ids: ['new'] },
+    expect: { status: 'INFEASIBLE', relaxed: ['required_intervention_ids'] },
+  },
+  {
+    name: 'R1：必须启用被封锁的 new（protect）→ INFEASIBLE，放松 required',
+    scenario: swapScenario({
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
+      existing_grants: [
+        grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' }),
+        grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' }),
+      ],
+    }),
+    options: { required_intervention_ids: ['new'] },
+    expect: { status: 'INFEASIBLE', relaxed: ['required_intervention_ids'] },
+  },
+  {
+    // 对照：没有 e-out 时（old 容量 2，只有 e-a），tradeoff 0 下换用 new：强制撤回 e-a、new 给 a 与 b（N 1），
+    // 或者直接 old 给 b（N 1，成本 100 < 120）→ 后者更便宜，不撤回。
+    name: 'R1 对照：去掉场景外 grant 后 old 有空名额，直接给 b（不撤回）',
+    scenario: swapScenario({
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
+      existing_grants: [grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' })],
+    }),
     options: TRADE(0),
-    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-a', 'e-out'] },
+    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: [], allocatedStudents: ['b'] },
   },
   {
     name: 'protect 下必须启用互斥措施 → INFEASIBLE，放松 required',
@@ -870,19 +1012,27 @@ function pick<T>(rnd: () => number, xs: readonly T[]): T {
 }
 
 /**
- * shape = 'small'：单机会 2–6 人、两机会 2–4 人，1–4 项措施，0–2 条可撤回的已有 grant（与 exhaustiveBest 对照）；
+ * shape = 'small'：单机会 2–6 人、两机会 2–4 人，1–4 项措施，0–2 条可撤回的已有 grant，另可能有场景外学生的不可撤回 grant（与 exhaustiveBest 对照）；
  * shape = 'tiny'：≤ 3 人、≤ 2 个机会、≤ 3 项措施，「措施 × 学生 × 机会」+ 可撤回 grant 数 ≤ 12（与朴素枚举 naiveBest 对照）。
  * 第 3 层新增：带 intervention_id 的已有 grant（approved / pending，可能指向场景外学生）、更多互斥关系
  * （常常指向有已有 grant 的措施，从而触发强制撤回）、tradeoff 模式与随机 loss_cap、基于随机 statuses 的公平底线。
+ * 规则 R1 之后：学生在场景外的已有 grant 不可撤回；另有三种结构——「换用」（L > 0 / 补位）、「pending 腾名额」
+ * （自愿撤回、L = 0，规则 R4）、「锁定」（场景外学生的 grant 封锁与其措施互斥的措施）。
  */
 function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scenario: Scenario; options: SolveOptions } {
   const rnd = lcg(seed);
-  const nOpp = rnd() < 0.6 ? 1 : 2;
+  let nOpp = rnd() < 0.6 ? 1 : 2;
   const r = rnd();
   const nGrants = r < 0.35 ? 0 : r < 0.75 ? 1 : 2;
+  // 「换用」结构的意向（见下）；极小场景中提高比例并固定为 3 人 × 1 机会 × 2 措施，让朴素对照也覆盖 L > 0。
+  const swapIntent = nGrants > 0 && rnd() < (shape === 'tiny' ? 0.6 : 0.5);
   let nStu: number;
   let nInt: number;
-  if (shape === 'small') {
+  if (shape === 'tiny' && swapIntent) {
+    nOpp = 1;
+    nInt = 2;
+    nStu = NAIVE_LIMITS.students;
+  } else if (shape === 'small') {
     nStu = 2 + Math.floor(rnd() * (nOpp === 1 ? 5 : 3)); // 单机会 2–6 人，两机会 2–4 人
     nInt = 1 + Math.floor(rnd() * 4); // 1–4 项措施
     if (nInt === 4 && nStu * nOpp > 4) nStu = Math.max(2, Math.floor(4 / nOpp)); // 4 项措施时控制规模
@@ -964,7 +1114,8 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
   }
   // 「换用」结构（约一半）：eg0 是 approved、对所有机会有效的 grant，所属措施容量 1（已满），
   // 另一项措施与它互斥且名额更多——tradeoff 下可能值得撤回 eg0（L > 0），也可能补位（L = 0）。
-  const swap = existing.length > 0 && !!existing[0].intervention_id && nInt >= 2 && rnd() < 0.5;
+  const swap = swapIntent && existing.length > 0 && nInt >= 2;
+  if (swap && !existing[0].intervention_id) existing[0].intervention_id = interventions[0].id;
   if (swap) {
     // holder = 时间支持（每周 +7 小时），st0 有笔记本、每周 0 小时，只靠 eg0 可达 5 小时的机会；
     // rival = 借笔记本，帮不了 st0（撤回 eg0 后 st0 无法补位 → L > 0），但可能帮到其他人。
@@ -995,7 +1146,80 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
       required_devices: ['laptop'],
       deadline: '2027-03-01',
     });
-    for (const st of students.slice(1)) if (rnd() < 0.7) Object.assign(st, { devices: ['smartphone'], grade: 10, hours_per_week_available: 10 });
+    for (const st of students.slice(1)) {
+      if (rnd() < (shape === 'tiny' ? 1 : 0.7)) Object.assign(st, { devices: ['smartphone'], grade: 10, hours_per_week_available: 10 });
+    }
+  }
+  const swapHolderId = swap ? existing[0].intervention_id : null;
+  /** 「换用」结构占用的措施（holder 与 rival），下面的「pending 腾名额」结构不改动它们。 */
+  const swapIds = new Set(swap ? interventions.filter((iv) => iv.id === swapHolderId || (iv.mutually_exclusive_with ?? []).includes(swapHolderId as string)).map((iv) => iv.id) : []);
+  // 「pending 腾名额」结构（约 30%）：某条场景内学生的已有 grant 改为 pending，所属措施（借笔记本）容量正好被已有 grant 占满；
+  // 该学生资格不符（7 年级），撤回不造成损失、自己也用不上——tradeoff 下（loss_cap 可为 0）值得自愿撤回腾名额（规则 R4）。
+  let pendingRoom = false;
+  if (rnd() < 0.35) {
+    let g = existing.find(
+      (x) => typeof x.intervention_id === 'string' && !swapIds.has(x.intervention_id) && x.student_id !== 'outsider' && !(swap && x.student_id === students[0].id),
+    );
+    const owner = students[students.length - 1];
+    const target = interventions.find((iv) => !swapIds.has(iv.id));
+    // 没有可用的已有 grant 时新建一条（极小场景只在不超出朴素枚举上限时新建）。
+    const roomForNew = shape === 'small' ? existing.length < 2 : nInt * nOpp * nStu + existing.length + 1 <= NAIVE_LIMITS.triplesPlusRevocable;
+    if (!g && target && roomForNew && !(swap && owner === students[0])) {
+      g = {
+        id: 'eg-pend',
+        student_id: owner.id,
+        opportunity_id: null,
+        intervention_id: target.id,
+        type: 'device',
+        status: 'pending',
+        provider: 'Example Org（虚构）',
+        is_sample: true,
+      };
+      existing.push(g);
+    }
+    if (g) {
+      pendingRoom = true;
+      const holder = interventions.find((iv) => iv.id === g.intervention_id)!;
+      Object.assign(holder, { type: 'device', device: 'laptop', amount_usd: null, hours_per_week: null, capacity_scope: 'total' });
+      delete holder.status;
+      Object.assign(g, { status: 'pending', type: 'device', device: 'laptop', amount_usd: null, hours_per_week: null });
+      Object.assign(students.find((st) => st.id === g.student_id)!, { grade: 7 });
+      holder.capacity = new Set(existing.filter((x) => x.intervention_id === holder.id).map((x) => x.student_id)).size;
+      delete holder.requires;
+      delete holder.opportunity_ids;
+      // 另一位场景内学生缺笔记本，第一个机会需要笔记本：腾出的名额有人用得上。
+      const needy = students.find((st) => st.id !== g!.student_id && !(swap && st === students[0]));
+      if (needy) Object.assign(needy, { devices: ['smartphone'], grade: 10, hours_per_week_available: 10, transport: { level: 'reliable' }, budget_usd: 100 });
+      Object.assign(opps[0], {
+        location: { format: 'online' },
+        cost: { fee_usd: 0, requires_travel_expense: false },
+        time_commitment: { hours_per_week: 5, total_weeks: 4 },
+        required_devices: ['laptop'],
+        deadline: '2027-03-01',
+      });
+    }
+  }
+  // 「锁定」结构（约 35%，规则 R1）：场景外学生的已有 grant 指向措施 k（不可撤回），另一项措施 j 与 k 互斥 → j 被封锁。
+  // k 不取「换用」结构的 holder（否则 rival 被封锁，「换用」结构失效）。
+  if (nInt >= 2 && rnd() < 0.35) {
+    const k = pick(rnd, interventions.filter((iv) => iv.id !== swapHolderId));
+    const j = pick(rnd, interventions.filter((iv) => iv !== k));
+    existing.push({
+      id: 'eg-out',
+      student_id: 'outsider',
+      opportunity_id: null,
+      intervention_id: k.id,
+      type: k.type,
+      amount_usd: k.amount_usd ?? null,
+      device: k.device ?? null,
+      hours_per_week: k.hours_per_week ?? null,
+      status: rnd() < 0.5 ? 'approved' : 'pending',
+      provider: 'Example Org（虚构）',
+      is_sample: true,
+    });
+    if (k.capacity != null) k.capacity += 1; // 保持容量预检合法（名额照样被占满或不变）
+    const mx = j.mutually_exclusive_with ?? [];
+    if (!mx.includes(k.id)) j.mutually_exclusive_with = [...mx, k.id];
   }
   // 互斥 / 依赖：互斥常常指向有已有 grant 的措施（触发强制撤回）。
   const granted = [...new Set(existing.map((g) => g.intervention_id).filter((x): x is string => typeof x === 'string'))];
@@ -1012,7 +1236,7 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
     if (rnd() < 0.5) slots[opps[1].id] = rnd() < 0.5 ? 'AM' : 'PM';
   }
   const options: SolveOptions = {};
-  if (rnd() < (swap ? 0.8 : 0.4)) {
+  if (rnd() < (swap || pendingRoom ? 0.8 : 0.4)) {
     options.mode = 'tradeoff';
     options.loss_cap = pick(rnd, [0, 1, 2, 2]);
   }
@@ -1035,7 +1259,7 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
     interventions,
     existing_grants: existing.length > 0 ? existing : undefined,
     opportunity_time_slots: Object.keys(slots).length > 0 ? slots : undefined,
-    budget_usd: pick(rnd, [0, 100, 250, 500, 2000]),
+    budget_usd: swap || pendingRoom ? pick(rnd, [250, 500, 2000]) : pick(rnd, [0, 100, 250, 500, 2000]),
   });
   return { scenario, options };
 }
@@ -1073,11 +1297,17 @@ describe('交叉检查：随机小场景（固定种子线性同余）', () => {
 });
 
 describe('交叉检查覆盖面', () => {
-  it('对照覆盖了 OPTIMAL（含 N > 0、L > 0、有撤回）、INFEASIBLE（含因底线）、conditional、tradeoff、底线', () => {
+  // 门槛按实测（2026-11-17：N>0 106、L>0 13、有撤回 69、自愿撤回 46、撤回 pending 48、封锁结构 66 / 起作用 29、
+  // 因底线不可行 23）留出余量；达不到时调整随机生成器，不要降低门槛。
+  it('对照覆盖了 OPTIMAL（含 N > 0、L > 0、有撤回、自愿撤回、撤回 pending）、不可撤回 grant 封锁互斥措施、INFEASIBLE（含因底线）、conditional、tradeoff、底线', () => {
     console.info('[crosscheck stats]', JSON.stringify(STATS));
     expect(STATS.optimalPositiveN).toBeGreaterThanOrEqual(20);
     expect(STATS.optimalPositiveL).toBeGreaterThanOrEqual(8);
-    expect(STATS.optimalWithRevocation).toBeGreaterThanOrEqual(12);
+    expect(STATS.optimalWithRevocation).toBeGreaterThanOrEqual(40);
+    expect(STATS.optimalVoluntaryRevocation).toBeGreaterThanOrEqual(30);
+    expect(STATS.optimalPendingRevocation).toBeGreaterThanOrEqual(30);
+    expect(STATS.lockedBlocking).toBeGreaterThanOrEqual(45);
+    expect(STATS.lockedBlockingBinding).toBeGreaterThanOrEqual(18);
     expect(STATS.infeasible).toBeGreaterThanOrEqual(4);
     expect(STATS.infeasibleByFloors).toBeGreaterThanOrEqual(10);
     expect(STATS.conditional).toBeGreaterThanOrEqual(3);
@@ -1142,7 +1372,7 @@ function naivePlan(n: NaiveResult) {
   };
 }
 
-const NAIVE_STATS = { feasible: 0, infeasible: 0, nonEmpty: 0, withRevocation: 0, evaluated: 0 };
+const NAIVE_STATS = { feasible: 0, infeasible: 0, nonEmpty: 0, withRevocation: 0, positiveL: 0, lockedBlocking: 0, evaluated: 0 };
 
 function naiveCompareOne(
   label: string,
@@ -1158,6 +1388,7 @@ function naiveCompareOne(
     NAIVE_STATS.feasible++;
     if (nv.plan!.selected_intervention_ids.length > 0) NAIVE_STATS.nonEmpty++;
     if (nv.revokedCount > 0) NAIVE_STATS.withRevocation++;
+    if (nv.L > 0) NAIVE_STATS.positiveL++;
     if (status !== 'OPTIMAL') return [`${label}：朴素枚举可行，求解器状态为 ${status}`];
     const a = JSON.stringify(fullPlan(outcome));
     const b = JSON.stringify(naivePlan(nv));
@@ -1193,6 +1424,7 @@ function naiveCompareOne(
 
 function naiveCrossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[] {
   const res = solveJoint(scenario, sopts);
+  if (blockedByLocked(scenario).length > 0) NAIVE_STATS.lockedBlocking++;
   if (res.status === 'UNSUPPORTED_INPUT') return [`求解器返回 UNSUPPORTED_INPUT：${res.notes.join(' / ')}`];
   const issues = naiveCompareOne('主结果', scenario, res.status, res, verifyOpts(sopts), res.alternative ?? null);
   if (sopts.mode !== 'tradeoff' && (res.revoked_grant_ids ?? []).length > 0) issues.push('protect 模式下主结果有撤回');
@@ -1276,6 +1508,27 @@ describe('交叉检查：朴素枚举（每个撤回子集 × 每个 (措施, �
       options: TRADE(1),
     },
     {
+      name: 'R1：场景外学生的 grant 封锁互斥措施（tradeoff 1，完整方案）',
+      scenario: swapScenario({
+        interventions: [{ ...OLD, capacity: 2 }, NEW],
+        existing_grants: [
+          grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' }),
+          grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' }),
+        ],
+      }),
+      options: TRADE(1),
+    },
+    {
+      name: 'loss_cap 0 的 tradeoff：撤回 pending grant 腾名额（完整方案）',
+      scenario: makeScenario({
+        students: [need('a'), has('h')],
+        opportunities: [O1],
+        interventions: [OLD],
+        existing_grants: [grant({ id: 'e-h', student_id: 'h', intervention_id: 'old', status: 'pending' })],
+      }),
+      options: TRADE(0),
+    },
+    {
       name: '三项软要求的放松（完整方案）',
       scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }, GALA] }),
       options: { required_intervention_ids: ['gala'], min_gain: 2, fairness_floors: [FG] },
@@ -1301,10 +1554,13 @@ describe('交叉检查：朴素枚举（每个撤回子集 × 每个 (措施, �
     });
   }
 
-  it('朴素对照覆盖了可行（含非空方案、含撤回）与不可行，且确实枚举了大量候选', () => {
+  // 门槛按实测（2026-11-17：非空 41、撤回 26、L>0 14、封锁结构 31、不可行 41）留出余量。
+  it('朴素对照覆盖了可行（含非空方案、含撤回、L > 0）、不可撤回 grant 封锁互斥措施与不可行，且确实枚举了大量候选', () => {
     console.info('[naive stats]', JSON.stringify(NAIVE_STATS));
     expect(NAIVE_STATS.nonEmpty).toBeGreaterThanOrEqual(20);
-    expect(NAIVE_STATS.withRevocation).toBeGreaterThanOrEqual(3);
+    expect(NAIVE_STATS.withRevocation).toBeGreaterThanOrEqual(15);
+    expect(NAIVE_STATS.positiveL).toBeGreaterThanOrEqual(8);
+    expect(NAIVE_STATS.lockedBlocking).toBeGreaterThanOrEqual(20);
     expect(NAIVE_STATS.infeasible).toBeGreaterThanOrEqual(3);
     expect(NAIVE_STATS.evaluated).toBeGreaterThan(10_000);
   });

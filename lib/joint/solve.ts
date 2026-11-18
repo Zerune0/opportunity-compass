@@ -8,13 +8,21 @@
  * 3. 精确搜索（见下）→ OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED；INFEASIBLE 时按第 6 条的统一放松规则
  *    （min_gain / fairness_floors / required_intervention_ids 的子集，按项数从少到多）求 alternative，并明示；
  *    场景里有 pending 措施时，把全部 pending 当作已批准再求解一次得到 conditional。
+ *    说明文字：放松公平底线 / 底线不可行时附「当前启用的措施下该群体最多可覆盖 X / Y 名」（上界，见 coverageBounds）；
+ *    tradeoff 下必须启用的措施的强制撤回造成的损失下界超过 loss_cap 时写明「必须撤回 N 条，至少损失 M，超过上限」；
+ *    「损失来自撤回已有 grant」只在 L > 0 时出现。
  * 4. 对返回的方案调用 ./verify 的 verifyPlan 独立复核（verifyPlan 不依赖本文件，依赖方向只能是 solve → verify）。
+ *    复核选项不含底线（已放松或没给）时，验证器不比较 plan 自带的 fairness，所以 alternative 原样带 fairness 复核。
  *    完整搜索得到的最优方案复核不通过时，不返回 OPTIMAL：主结果改为 UNSUPPORTED_INPUT + 空方案
  *    （notes 写「内部复核未通过……」，verification 保留失败的复核）；conditional / alternative 同理不给出该方案。
  *
  * 决策变量：选中的措施集合 T、撤回的已有 grant 集合 X、分配（Allocation）。
+ * - 可撤回的 grant = intervention_id 指向场景内措施、**且 student_id 是场景内学生**的已有 grant（第 0 条）。
+ *   场景外学生的 grant 不可撤回（其损失无法评估，缺信息不猜），仍占容量、approved 的仍免成本；
+ *   与「有这类 grant 的措施」互斥的措施在两种模式下都不能选中（blockedMask，归入 mutual_exclusion）。
  * - 强制撤回 F(T) = 与 T 中某措施互斥的措施的全部可撤回 grant（第 3 条第 8 款 b）。
  * - protect 模式（默认）：X 必须为空（第 8 款 d）→ 凡是 F({i}) 非空的措施 i 直接不可选。
+ * - tradeoff 且 loss_cap = 0 不等同 protect：仍允许撤回 pending 的 grant 与不造成损失的撤回（L = 0 即可）。
  * - tradeoff 模式：X = F(T) ∪ V，V 枚举「可撤回、非强制、所属措施 k ∈ T 且 k 有容量上限」的 grant 的全部子集。
  *   只枚举这一类自愿撤回是安全的：撤回其他 grant（所属措施未选中或不限容量）不会腾出任何有用的容量，
  *   把它们恢复后 R1 只增不减（analyzeReachability 对 approved grant 单调）、成本不增（恢复免成本）、
@@ -35,7 +43,8 @@
  * - 撤回后，R0 中的对可能不再「空集可达」，它们和不在 R0 中的对一样成为决策对（分到新措施即可补位，
  *   否则计入损失 L），求解器不假定 R0 的对无需分配。
  * - 外层：按 id 升序枚举已批准措施的全部子集（位掩码 0…2^k−1），过滤互斥、前置依赖、必须启用（软要求）、
- *   固定成本超预算、以及 protect 模式下会引起强制撤回的组合；中层：tradeoff 模式下枚举自愿撤回子集 V。
+ *   固定成本超预算、protect 模式下会引起强制撤回的组合、以及含「与场景外学生的已有承诺互斥」的措施的组合；
+ *   中层：tradeoff 模式下枚举自愿撤回子集 V。
  * - 内层：按 (student_id, opportunity_id) 升序对决策对做深度优先搜索，每个对的选项 = 可选最小集合
  *   （按大小、再按 id 字典序）或「不分配」；边走边检查容量（按 E' 与不同学生、按 capacity_scope / 时段）、预算、
  *   损失上限（protect: L = 0；tradeoff: L ≤ loss_cap）。
@@ -364,8 +373,13 @@ interface Ctx {
   opps: Map<string, Opportunity>;
   ivs: Map<string, Intervention>;
   existing: ResourceGrant[];
-  /** 可撤回的已有 grant（intervention_id 指向场景内措施），按 id 升序。 */
+  /** 可撤回的已有 grant（intervention_id 指向场景内措施、且 student_id 是场景内的学生），按 id 升序。 */
   revocable: ResourceGrant[];
+  /**
+   * 有「不可撤回」已有 grant 的场景内措施 id（grant 的 intervention_id 指向它、但学生不在场景内）。
+   * 场景外学生的损失无法评估，与这些措施互斥的措施在两种模式下都不能选中（第 0 条、第 3 条第 2 款）。
+   */
+  outsiderLocked: Set<string>;
   grantById: Map<string, ResourceGrant>;
   cache: Map<string, boolean>;
   eligCache: Map<string, boolean>;
@@ -422,9 +436,14 @@ function eligible(ctx: Ctx, s: string, o: string): boolean {
 function makeCtx(scenario: Scenario): Ctx {
   const existing = scenario.existing_grants ?? [];
   const ivs = new Map(scenario.interventions.map((i) => [i.id, i]));
+  const studentIds = new Set(scenario.students.map((s) => s.id));
+  const inScenarioIv = (g: ResourceGrant) => typeof g.intervention_id === 'string' && ivs.has(g.intervention_id);
   const revocable = existing
-    .filter((g) => typeof g.intervention_id === 'string' && ivs.has(g.intervention_id))
+    .filter((g) => inScenarioIv(g) && studentIds.has(g.student_id))
     .sort((a, b) => cmpStr(a.id, b.id));
+  const outsiderLocked = new Set(
+    existing.filter((g) => inScenarioIv(g) && !studentIds.has(g.student_id)).map((g) => g.intervention_id as string),
+  );
   const pairs: CoveragePair[] = [];
   for (const s of scenario.students) for (const o of scenario.opportunities) pairs.push({ student_id: s.id, opportunity_id: o.id });
   pairs.sort(cmpPair);
@@ -435,6 +454,7 @@ function makeCtx(scenario: Scenario): Ctx {
     ivs,
     existing,
     revocable,
+    outsiderLocked,
     grantById: new Map(existing.map((g) => [g.id, g])),
     cache: new Map(),
     eligCache: new Map(),
@@ -451,6 +471,19 @@ function excl(ctx: Ctx, a: string, b: string): boolean {
     (ctx.ivs.get(a)?.mutually_exclusive_with ?? []).includes(b) ||
     (ctx.ivs.get(b)?.mutually_exclusive_with ?? []).includes(a)
   );
+}
+
+/** 与措施 id 互斥、且有场景外学生已有 grant（不可撤回）的措施 k（升序）。非空 = id 在两种模式下都不能选中。 */
+function outsiderConflicts(ctx: Ctx, id: string): string[] {
+  return [...ctx.outsiderLocked].filter((k) => excl(ctx, id, k)).sort(cmpStr);
+}
+
+/** 选中措施集合 ids 时必须强制撤回的可撤回 grant id（升序）。 */
+function forcedRevocations(ctx: Ctx, ids: readonly string[]): string[] {
+  return ctx.revocable
+    .filter((g) => ids.some((i) => excl(ctx, i, g.intervention_id as string)))
+    .map((g) => g.id)
+    .sort(cmpStr);
 }
 
 /** 与 (s, o) 相关、在 X 中的已有 grant id（升序）。 */
@@ -499,6 +532,106 @@ function fairnessReports(ctx: Ctx, floors: readonly FairnessFloor[], R1: readonl
       satisfied: ratioOk(num, den, floor.min_ratio),
     };
   });
+}
+
+/** 一条公平底线在当前启用的措施下的覆盖上界（只给人数）。 */
+export interface FloorCoverageBound {
+  floor_id: string;
+  /** 分母（同 FairnessReport.eligible_members）。 */
+  eligible_members: number;
+  /**
+   * 分母中「本来就可达，或至少有一个（学生, 机会）对存在可行的措施集合（不考虑名额、预算与其他学生）」的成员数。
+   * 任何方案的 covered_members 都不会超过它；它本身不一定能同时达到。
+   */
+  max_coverable: number;
+}
+
+/** 措施集合 ids 的前置依赖传递闭包（含自身；只取场景内的 id），升序。 */
+function requiresClosure(ctx: Ctx, ids: readonly string[]): string[] {
+  const out = new Set<string>();
+  const stack = [...ids];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (out.has(id) || !ctx.ivs.has(id)) continue;
+    out.add(id);
+    for (const r of ctx.ivs.get(id)!.requires ?? []) stack.push(r);
+  }
+  return [...out].sort(cmpStr);
+}
+
+/** 精确枚举单个对的措施子集时，可用措施数的上限；超过时改用「全部可用措施一起」的宽松上界。 */
+const BOUND_EXACT_LIMIT = 12;
+
+/**
+ * 每条底线的覆盖上界（S1 / R5）。可用措施 = 已批准（含 assumed）、前置依赖可满足、不与场景外学生的已有承诺互斥、
+ * protect 下不会引起强制撤回的措施。一个对「存在可行的措施集合」= 存在可用措施的子集 S，S 及其前置依赖闭包内两两不互斥，
+ * 按 S 的闭包强制撤回后（只在 tradeoff 下可能有）不给被撤回的 (措施, 学生) 再分配，reach 为 true。不考虑名额、预算、其他学生。
+ */
+function coverageBounds(ctx: Ctx, floors: readonly FairnessFloor[], approved: ReadonlySet<string>, tradeoff: boolean): FloorCoverageBound[] {
+  const allowed = new Set(
+    [...approved].filter(
+      (id) => ctx.ivs.has(id) && outsiderConflicts(ctx, id).length === 0 && (tradeoff || forcedRevocations(ctx, [id]).length === 0),
+    ),
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const id of [...allowed]) {
+      if ((ctx.ivs.get(id)!.requires ?? []).some((r) => !allowed.has(r))) {
+        allowed.delete(id);
+        changed = true;
+      }
+    }
+  }
+  const allowedSorted = [...allowed].sort(cmpStr);
+  const pairOk = (s: string, o: string): boolean => {
+    if (ctx.r0.has(pairKey(s, o))) return true;
+    const app = allowedSorted.filter((id) => {
+      const ids = ctx.ivs.get(id)!.opportunity_ids;
+      return ids == null || ids.includes(o);
+    });
+    if (app.length === 0) return false;
+    if (app.length > BOUND_EXACT_LIMIT) return reach(ctx, s, o, app); // 宽松上界：grant 越多越可能可达
+    for (const S of [...Array(app.length).keys()].flatMap((m) => subsetsOfSize(app, m + 1))) {
+      const C = requiresClosure(ctx, S);
+      let ok = true;
+      for (let a = 0; a < C.length && ok; a++) for (let b = a + 1; b < C.length && ok; b++) if (excl(ctx, C[a], C[b])) ok = false;
+      if (!ok) continue;
+      const X = new Set(tradeoff ? forcedRevocations(ctx, C) : []);
+      if ([...X].some((gid) => {
+        const g = ctx.grantById.get(gid)!;
+        return g.student_id === s && S.includes(g.intervention_id as string);
+      })) continue;
+      if (reach(ctx, s, o, S, revokedForPair(ctx, X, s, o))) return true;
+    }
+    return false;
+  };
+  return floorInfos(ctx, floors).map(({ floor, members }) => ({
+    floor_id: floor.id,
+    eligible_members: members.length,
+    max_coverable: members.filter((s) => ctx.scenario.opportunities.some((o) => pairOk(s, o.id))).length,
+  }));
+}
+
+/**
+ * 公开版本：主结果（只含已批准措施）下每条底线最多可覆盖的人数。输入不合法时返回 null。
+ * mode 只看 options.mode（tradeoff 允许撤回，可用措施更多）。页面用它显示「当前启用的措施下最多可覆盖 X / Y」。
+ */
+export function fairnessCoverageBounds(
+  scenario: Scenario,
+  floors: readonly FairnessFloor[],
+  options: SolveOptions = {},
+): FloorCoverageBound[] | null {
+  if (validateJointInput(scenario, { ...options, fairness_floors: [...floors] }).length > 0) return null;
+  const ctx = makeCtx(scenario);
+  return coverageBounds(ctx, floors, approvedSet(ctx, []), options.mode === 'tradeoff');
+}
+
+function boundsText(ctx: Ctx, floors: readonly FairnessFloor[], approved: ReadonlySet<string>, tradeoff: boolean): string {
+  const bounds = coverageBounds(ctx, floors, approved, tradeoff);
+  return floors
+    .map((f, k) => `「${f.label}」最多可覆盖 ${bounds[k].max_coverable} / ${bounds[k].eligible_members} 名`)
+    .join('、');
 }
 
 // ───────────────────────────── 方案构造与比较 ─────────────────────────────
@@ -643,6 +776,8 @@ function search(ctx: Ctx, params: SearchParams): SearchOutcome {
       if (excl(ctx, id, g.intervention_id as string)) forcedBy[k].push(gi);
     });
     if (!params.tradeoff && forcedBy[k].length > 0) blockedMask |= 1 << k;
+    // 与场景外学生的已有承诺（不可撤回）互斥：两种模式下都不能选中。
+    if (outsiderConflicts(ctx, id).length > 0) blockedMask |= 1 << k;
   });
   let requiredMask = 0;
   let requiredImpossible = false;
@@ -1028,10 +1163,9 @@ function verifyOptions(options: SolveOptions, soft: SoftOptions, assumed: string
 }
 
 function verifyOutcome(ctx: Ctx, outcome: JointOutcome, vopts: VerifyOptions): VerifyResult {
-  const plan: Record<string, unknown> = { ...outcome, R0: r0List(ctx) };
-  // 复核选项不含底线时（底线已放松或没给），metrics 要求 plan 不带 fairness：只把它留在返回结果里。
-  if (vopts.fairness_floors === undefined) delete plan.fairness;
-  return verifyPlan(ctx.scenario, plan as unknown as JointPlan, vopts);
+  // 复核选项不含底线时（底线已放松或没给），验证器不比较 plan 自带的 fairness（第 8 条 metrics），原样传入即可。
+  const plan: JointPlan = { ...outcome, R0: r0List(ctx) } as JointPlan;
+  return verifyPlan(ctx.scenario, plan, vopts);
 }
 
 interface RunResult {
@@ -1106,7 +1240,31 @@ function runSearch(
   return { complete: false, outcome: null, verification: null, rejected: null };
 }
 
-function describeRequiredFailure(ctx: Ctx, required: string[], assumed: string[], protect: boolean): string {
+/**
+ * 启用 ids（含前置依赖闭包）造成的损失下界（S2）：强制撤回 X_f 后，R0 中即使把「所有仍可用的措施」都分给它也不可达的对数。
+ * 仍可用 = 已批准、适用于该机会、不与 ids 的闭包互斥、不是被撤回的 (措施, 该学生)。选更多措施只会撤回更多，
+ * 而 analyzeReachability 对 approved grant 单调，所以任何包含 ids 的方案都至少损失这么多。
+ */
+function forcedLossLowerBound(ctx: Ctx, closure: readonly string[], approved: ReadonlySet<string>, X: ReadonlySet<string>): number {
+  const usable = [...approved].filter((i) => ctx.ivs.has(i) && !closure.some((c) => excl(ctx, c, i))).sort(cmpStr);
+  let lost = 0;
+  for (const p of ctx.pairs) {
+    if (!ctx.r0.has(pairKey(p.student_id, p.opportunity_id))) continue;
+    const ids = usable.filter((i) => {
+      const oids = ctx.ivs.get(i)!.opportunity_ids;
+      if (oids != null && !oids.includes(p.opportunity_id)) return false;
+      return ![...X].some((gid) => {
+        const g = ctx.grantById.get(gid)!;
+        return g.intervention_id === i && g.student_id === p.student_id;
+      });
+    });
+    if (!reach(ctx, p.student_id, p.opportunity_id, ids, revokedForPair(ctx, X, p.student_id, p.opportunity_id))) lost += 1;
+  }
+  return lost;
+}
+
+function describeRequiredFailure(ctx: Ctx, required: string[], assumed: string[], options: SolveOptions): string {
+  const protect = options.mode !== 'tradeoff';
   const parts: string[] = [];
   const approved = approvedSet(ctx, assumed);
   const pending = required.filter((id) => !approved.has(id));
@@ -1131,6 +1289,28 @@ function describeRequiredFailure(ctx: Ctx, required: string[], assumed: string[]
   }
   for (const id of ids) {
     if (!approved.has(id) && !pending.includes(id)) parts.push(`前置依赖「${id}」尚待审批`);
+  }
+  for (const id of ids) {
+    const ks = outsiderConflicts(ctx, id);
+    if (ks.length) {
+      parts.push(
+        `「${id}」与${ks.map((k) => `「${k}」`).join('、')}发给场景外学生的已有承诺互斥，无法评估其损失，不能启用（两种模式都不允许）`,
+      );
+    }
+  }
+  if (!protect) {
+    const cap = options.loss_cap as number;
+    for (const id of [...new Set(required)].sort(cmpStr)) {
+      const closure = requiresClosure(ctx, [id]);
+      const X = forcedRevocations(ctx, closure);
+      if (X.length === 0) continue;
+      const lb = forcedLossLowerBound(ctx, closure, approved, new Set(X));
+      if (lb > cap + EPS) {
+        parts.push(
+          `启用「${id}」必须撤回 ${X.length} 条已有资源，至少损失 ${lb} 个原本可达的（学生, 机会）对，超过损失上限 ${cap}`,
+        );
+      }
+    }
   }
   if (protect) {
     for (const id of ids) {
@@ -1216,7 +1396,10 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
       `已完成精确搜索并证明最优：新增可达 ${o.G} 个（学生, 机会）对，损失 ${o.L} 个，净值 ${o.N}；${lossText(o)}总成本 ${money(o.cost.total_usd)}（固定 ${money(o.cost.fixed_usd)} + 按人 ${money(o.cost.marginal_usd)}），预算 ${money(ctx.scenario.budget_usd)}。`,
     ];
     if (options.mode === 'tradeoff') {
-      notes.push(`权衡分析模式：主办方设定的损失上限 loss_cap = ${options.loss_cap}；损失来自撤回已有 grant，不是真实影响。`);
+      notes.push(
+        `权衡分析模式：主办方设定的损失上限 loss_cap = ${options.loss_cap}（按（学生, 机会）对计）` +
+          (o.L > 0 ? `；损失来自撤回已有 grant，是模拟结果，不是真实影响。` : '；本方案没有损失。'),
+      );
     }
     return { status: 'OPTIMAL', outcome: o, verification: main.verification, notes, alternative: null };
   }
@@ -1286,9 +1469,12 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
   }
   const why: string[] = [];
   const alt = found.outcome;
+  const floorsGiven = options.fairness_floors ?? [];
+  const fairnessBound =
+    floorsGiven.length > 0 ? boundsText(ctx, floorsGiven, approvedSet(ctx, assumed), options.mode === 'tradeoff') : '';
   const req = options.required_intervention_ids ?? [];
   if (found.relaxed.includes('required_intervention_ids') && req.length > 0) {
-    why.push(`必须启用的措施：${describeRequiredFailure(ctx, req, assumed, options.mode !== 'tradeoff')}`);
+    why.push(`必须启用的措施：${describeRequiredFailure(ctx, req, assumed, options)}`);
   }
   if (found.relaxed.includes('min_gain')) {
     const exact = found.complete && found.relaxed.length === 1 && options.mode !== 'tradeoff';
@@ -1309,7 +1495,10 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
           : `「${f.label}」覆盖 ${rep.covered_members}/${rep.eligible_members} 名（要求 ≥ ${pct(f.min_ratio)}）`;
       })
       .join('、');
-    why.push(`公平底线在硬约束与其他要求下达不到（替代方案中：${detail}）`);
+    why.push(
+      `公平底线在硬约束与其他要求下达不到（替代方案中：${detail}；作为参照，` +
+        `当前启用的措施下该群体最多可覆盖的人数（不考虑名额与预算的上界）：${fairnessBound}）`,
+    );
   }
   const relaxedZh = found.relaxed.map((k) => SOFT_ZH[k]).join('、');
   const altNote =
@@ -1329,6 +1518,9 @@ function solveOnce(ctx: Ctx, options: SolveOptions, assumed: string[], maxNodes:
     verification: null,
     notes: [
       `无解（INFEASIBLE）：没有方案能在满足全部硬约束的同时满足主办方要求（${reasons.join('；')}）。主结果是不启用任何措施的空方案；没有悄悄降低要求，放松后的替代方案见 alternative。`,
+      ...(fairnessBound
+        ? [`公平底线参照：当前启用的措施下该群体最多可覆盖的人数（不考虑名额与预算的上界）：${fairnessBound}。`]
+        : []),
     ],
     alternative,
   };

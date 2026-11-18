@@ -78,7 +78,8 @@
 - `S` = `scenario.students`，`O` = `scenario.opportunities`，`I` = `scenario.interventions`；所有（学生, 机会）对 = `S × O`。
 - `E` = `scenario.existing_grants ?? []`。
 - `X` = 方案撤回的 grant id 集合 = `plan.revoked_grant_ids ?? []`；`E'` = `{ g ∈ E : g.id ∉ X }`（未被撤回的已有 grant）。
-- 「可撤回的 grant」= `E` 中 `intervention_id` 是字符串、且等于 `I` 中某项措施 id 的 grant（不看 status，也不看 `student_id` 是否在场景内）。其余已有 grant（无 / null `intervention_id`，或指向场景外的 id）**不可撤回**。
+- 「可撤回的 grant」= `E` 中 `intervention_id` 是字符串、等于 `I` 中某项措施 id、**且 `student_id` 是 `S` 中某个学生的 id** 的 grant（不看 status）。其余已有 grant（无 / null `intervention_id`、指向场景外的 id，或**学生不在场景内**）**不可撤回**。理由：场景外学生的损失无法评估，缺信息不猜，所以不能动。不可撤回的 grant 照样生效、照样占容量（第 3 条第 5 款），approved 的照样让 (措施, 学生) 免成本（第 3 条第 6 款）。
+- 「运行中的措施」= `I` 中被 `E` 里任何一条 grant 的 `intervention_id` 指向的措施（不论学生是否在场景内、不论 approved / pending）。What-if 勾选不能把它移出场景（第 9 条）。
 - 「措施 i 已批准」= `i.status !== 'pending'`（缺省算 approved）。条件性求解 / 复核时，`assume_approved` 列出的 pending 措施也算已批准。
 - 「互斥」`excl(a, b)`：措施 a 的 `mutually_exclusive_with` 含 b，或 b 的含 a（对称）。
 - 「空方案」= `selected_intervention_ids = []`、`allocations = []`、`revoked_grant_ids = []`、`cost = { fixed_usd: 0, marginal_usd: 0, total_usd: 0 }`。
@@ -108,7 +109,7 @@
 
 **3. 硬约束**（任何情况下都不得放松，protect 与 tradeoff 两种模式都一样）
 1. **措施合法**（检查名 `approval`）：`selected_intervention_ids` 中每个 id 都在 `I` 里、不重复、已批准（见第 0 条）。
-2. **互斥**（`mutual_exclusion`）：选中集合内没有 `excl` 的两项。
+2. **互斥**（`mutual_exclusion`）：选中集合内没有 `excl` 的两项；并且（两种模式都适用）若措施 k ∈ `I` 有**不可撤回**的已有 grant（`E` 中 `intervention_id === k`、`student_id` 不在 `S` 中），则任何与 k `excl` 的措施都不能被选中——选中它就必须停掉 k，而 k 发给场景外学生的承诺既不能撤回、损失也无法评估。`detail` 写明是哪项措施与哪项「有场景外学生已有承诺」的措施冲突。
 3. **前置依赖**（`prerequisite`）：每个选中措施的 `requires` 全部在选中集合里（只要求被选中，不要求有 Allocation）。依赖成环时要么都选、要么都不选。
 4. **分配合法**（`allocation_validity`）：每条 Allocation 的 `intervention_id` 是选中的措施，`student_id` ∈ `S`，`opportunity_id` ∈ `O`；该措施给出 `opportunity_ids` 时必须包含该机会；没有重复的 (i, s, o)。选中但没有任何 Allocation 的措施是允许的（仍计固定成本）。
 5. **容量**（`capacity`）：对每个选中措施 i（`capacity` 为 null 时不限）：
@@ -128,10 +129,10 @@
    - 受影响的对与原因通过 `lost_pairs` 与 `revocations` 说明（第 5 条）。
 8. **撤回**（`revocation`）：
    a. 撤回列表合法：`revoked_grant_ids` 缺省 / null 视为 `[]`；给出时必须是数组，每个元素是字符串、不重复，且是 `E` 中某条**可撤回** grant 的 id。
-   b. **强制撤回**：对每条可撤回的 `g ∈ E`，若存在选中的措施 i（i ∈ `selected_intervention_ids` 且 i ∈ `I`）满足 `excl(i, g.intervention_id)`，则 `g.id ∈ X`——措施 `g.intervention_id` 不能与 i 同时运行，选中 i 就必须承担撤回它全部已有 grant 的后果（包括 pending 的 grant、学生不在场景内的 grant）。
+   b. **强制撤回**：对每条可撤回的 `g ∈ E`，若存在选中的措施 i（i ∈ `selected_intervention_ids` 且 i ∈ `I`）满足 `excl(i, g.intervention_id)`，则 `g.id ∈ X`——措施 `g.intervention_id` 不能与 i 同时运行，选中 i 就必须承担撤回它全部可撤回 grant 的后果（包括 pending 的 grant）。强制撤回只针对可撤回的 grant；该措施若还有场景外学生的（不可撤回的）grant，i 本身就不能选中（第 2 款）。
    c. 撤回后不再补发同一措施：若 `X` 中有一条 grant 的 (`intervention_id`, `student_id`) = (k, s)，则 allocations 中不得有 `intervention_id === k` 且 `student_id === s` 的条目。
    d. **保护模式不动任何已有承诺**：`mode` 缺省或 `'protect'` 时，`revoked_grant_ids` 必须为空（缺省 / null / `[]`）——不允许任何撤回，无论是 b 要求的强制撤回还是自愿撤回，也无论被撤回的 grant 是 approved 还是 pending。因此 protect 模式下，与某项「有可撤回已有 grant」的措施互斥的措施**不能被选中**（选中就违反 b，而撤回又违反 d）。
-   - 只有 tradeoff 模式（必须给出 `loss_cap`）允许撤回：强制撤回与自愿撤回都可以，约束是 `L ≤ loss_cap`（第 7 款）。
+   - 只有 tradeoff 模式（必须给出 `loss_cap`）允许撤回：强制撤回与自愿撤回都可以，约束是 `L ≤ loss_cap`（第 7 款）。`loss_cap` 按（学生, 机会）对计（与 `L` 同单位）。**tradeoff 且 `loss_cap = 0` 不等同 protect**：它仍允许撤回 pending 的 grant 和不造成损失的撤回（例如撤回本来就不可达的学生的 grant 来腾出名额），只要求 `L = 0`。
    - 不是 b 要求的撤回称为**自愿撤回**（例如为腾出名额给别人），仅 tradeoff 模式允许；它造成的不可达同样计入 `L`。
    - tradeoff 模式下撤回 pending 的已有 grant 不影响可达性（pending 本来就不化解障碍），因此不产生损失，但会腾出容量，并照样出现在 `revocations` 里。protect 模式下 pending 的已有 grant 同样不能撤回（照常占容量）。
 - 原有口径（保留）：`Intervention.capacity` = 最多可服务的**不同学生**人数；`unit_cost_usd` = 每服务一位不同学生的边际成本；同一学生凭同一措施参加多个机会只占 1 个容量、只计一次成本；同一 (`intervention_id`, `student_id`) 可有多条 Allocation（对应不同机会），`JointCost.marginal_usd` 仍等于各 Allocation 的 `cost_usd` 之和；未撤回的 existing grant 已覆盖的 (`intervention_id`, `student_id`) 不重复占容量，其中 approved 的还让成本记 0。
@@ -141,7 +142,8 @@
 - `G ≥ min_gain`。
 - **公平底线** `fairness_floors`：每条底线 f 的 `FairnessReport.satisfied === true`。对每条 f（按输入顺序）：
   - 群体成员 `M_f` = `{ s ∈ S : Array.isArray(s.statuses) 且 s.statuses 中至少有一个值 ∈ f.statuses_any_of }`。`statuses` 没填（null / undefined / 非数组）的学生不属于任何群体。
-  - 分母 `eligible_members` = `|{ s ∈ M_f : 存在 o ∈ O 使 checkEligibility(s, o, { today: evaluation_date }).overall === 'eligible' }|`（「符合该项支持条件的档案」：至少对场景内一个机会官方资格为 eligible）。
+  - 分母 `eligible_members` = `|{ s ∈ M_f : 存在 o ∈ O 使 checkEligibility(s, o, { today: evaluation_date }).overall === 'eligible' }|`（「符合该项支持条件的档案」：至少对场景内一个机会官方资格为 eligible）。**分母保持这个定义**，即使其中有人在当前启用的措施下无论如何都不可达（例如缺少的条件没有措施能化解）；这类情况由说明文字里的上界提示，不从分母中去掉。
+  - **覆盖上界（只用于说明，不是约束）**：分母中「至少一个 (s, o) 本来就可达（∈ R0），或存在一组可用措施能让它可达（不考虑名额、预算与其他学生）」的人数。可用措施 = 已批准、前置依赖都可用、不与有场景外学生已有承诺的措施互斥、protect 下不会引起强制撤回；一组措施连同其前置依赖闭包两两不互斥，按它们的强制撤回去掉相应 grant 后、且不给被撤回的 (措施, 学生) 再分配时可达。求解器在公平底线不可行的说明与放松底线的 `alternative.note` 中写「当前启用的措施下该群体最多可覆盖 X / Y 名」，What-if 页面在底线结果中显示同一数字，避免把替代方案的覆盖率误当作上限。
   - 分子 `covered_members` = 上述分母中的学生里，存在 o 使 (s, o) ∈ R1 的学生数（**按学生计**，至少一个可达对即算覆盖，不按对计）。
   - `ratio` = `covered_members / eligible_members`；**分母为 0 时 `ratio = null`**（不计算比例，该底线视为不适用、自动满足）。
   - `min_ratio` 抄自 f；`satisfied` = `ratio === null || ratio ≥ f.min_ratio − 1e-9`。
@@ -188,7 +190,7 @@
   - `conditional`：不给出该方案，`conditional.status = 'UNSUPPORTED_INPUT'`、方案为空方案占位，`note` 写明内部复核未通过；
   - `alternative`：舍弃复核不通过的候选，从其余放松方式中选；都不可用时给出空方案占位，`note` 写明内部复核未通过。
   - 合法输入下求解器与验证器应当一致，这条兜底不应被触发；触发即说明场景数据或实现有问题。
-- **`INFEASIBLE`**：搜索完成，证明没有方案同时满足硬约束和软要求。由于空方案总满足全部硬约束（预算 ≥ 0；不选措施就没有强制撤回；不撤回则 R1 = R0、L = 0），INFEASIBLE 只可能由软要求造成（例如：必须启用的措施的固定成本超出预算、必须启用的措施是 pending、两个必须启用的措施互斥、protect 模式下必须启用的措施与某项有可撤回已有 grant 的措施互斥、`min_gain` 达不到、公平底线在预算 / 名额 / 资格下达不到）。**不得为了得到可行结果而暗中降低任何阈值**。
+- **`INFEASIBLE`**：搜索完成，证明没有方案同时满足硬约束和软要求。由于空方案总满足全部硬约束（预算 ≥ 0；不选措施就没有强制撤回；不撤回则 R1 = R0、L = 0），INFEASIBLE 只可能由软要求造成（例如：必须启用的措施的固定成本超出预算、必须启用的措施是 pending、两个必须启用的措施互斥、protect 模式下必须启用的措施与某项有可撤回已有 grant 的措施互斥、必须启用的措施与有场景外学生已有承诺的措施互斥（两种模式）、tradeoff 下必须启用的措施的强制撤回造成的损失超过 `loss_cap`、`min_gain` 达不到、公平底线在预算 / 名额 / 资格下达不到）。**不得为了得到可行结果而暗中降低任何阈值**。
   - 主结果为空方案（`R1 = R0`，`G = L = N = 0`，成本 0；给了底线时带 `fairness`），`verification = null`。
   - `alternative`（必须非空）= 只放松软要求后的最优方案，`relaxed` 写明放松了哪些、`note` 写明原要求为何达不到。放松 = 整项不再要求（不做部分放松、不降低阈值）。规则：
     - `K` = options 中给出（非 null，含空数组）的软要求项，取自 `min_gain`、`fairness_floors`、`required_intervention_ids`。
@@ -222,14 +224,16 @@
   - `metrics`：始终输出。plan 若带有 `R0` / `R1` / `G` / `L` / `N` / `cost` / `lost_pairs` / `revocations` / `fairness` 中的任一字段（如传入的是 `JointResult`），逐项与重算值比较，任一不一致则不通过；plan 不带这些字段时通过，`detail` 写明「plan 未携带指标，仅重算」。比较方式：
     - `R0` / `R1` / `lost_pairs`：按集合比较，且不得有重复对；数值按第 0 条的误差。
     - `revocations`：按 `grant_id` 作为键的集合比较，不得有重复 `grant_id`；每条的 `intervention_id`、`student_id`、`forced_by` 必须与重算值全等。
-    - `fairness`：options 给出底线时，长度相同且按顺序逐条比较：`floor_id`、`eligible_members`、`covered_members`、`satisfied` 全等，`ratio` 同为 null 或差 ≤ 1e-6，`min_ratio` 差 ≤ 1e-6；options 没给底线时，plan 自带的 `fairness` 必须缺省、null 或空数组。
+    - `fairness`：options 给出底线时，长度相同且按顺序逐条比较：`floor_id`、`eligible_members`、`covered_members`、`satisfied` 全等，`ratio` 同为 null 或差 ≤ 1e-6，`min_ratio` 差 ≤ 1e-6；**options 没给底线时不比较** plan 自带的 `fairness`（它可能是按原底线报告的，例如已放松底线的 `alternative`），有无、内容都不影响 `metrics`。
     - `revoked_grant_ids` 是方案本身（由 `revocation` 检查），不属于指标。
 - 复核条件性方案时，调用方传 `assume_approved_intervention_ids: conditional.assumed_approved_intervention_ids`。
 
 **9. 实现位置与测试**
 - `lib/joint/solve.ts`（`solveJoint`，精确搜索；节点计数与缺省上限见 `lib/joint/index.ts` 文件头）、`lib/joint/verify.ts`（`verifyPlan`）、`lib/joint/baselines.ts`（`compareBaselines`，第 10 条）、`lib/joint/exhaustive.ts`（只用于测试的穷举 / 朴素枚举参考实现；需要同时枚举可撤回 grant 的子集）、`lib/joint/whatif.ts`（What-if 页面视图模型 `runWhatIf`）、`lib/joint/scenarios.ts`（演示场景与 `withEnabledInterventions` / `resolveEnabledInterventions` / `withBudget`）。
 - 独立性：`verify.ts` / `exhaustive.ts` 不 import `./solve`、`./index`、`./scenarios`、`./baselines`（有静态守卫测试）。`baselines.ts` 可以 import `./solve`（为了 joint 行）和 `./verify`。
-- `withEnabledInterventions(scenario, ids)`：只保留勾选的措施；**前置依赖没有全部启用的措施一并移除**（按闭包反复判断），不会删掉 `requires` 让措施单独生效；指向已移除措施的互斥引用会被清理（互斥对象不在场景里不构成约束）。`resolveEnabledInterventions` 返回同一规则下保留与被移除的措施。注意：被移除措施的已有 grant 因此变为「指向场景外」，不可撤回、不占容量，只参与可达性计算。
+- `withEnabledInterventions(scenario, ids)`：只保留勾选的措施；**前置依赖没有全部启用的措施一并移除**（按闭包反复判断；前置依赖只认「勾选且自身依赖满足」的措施），不会删掉 `requires` 让措施单独生效；指向已移除措施的互斥引用会被清理（互斥对象不在场景里不构成约束）。
+- **运行中的措施（第 0 条）不能通过取消勾选而消失**：它一律保留在场景里，不受勾选影响，互斥、容量、已有 grant 的效果照常生效（例如只勾选与它互斥的新措施时，选中新措施仍须按第 3 条第 8 款撤回它的可撤回 grant，protect 下新措施因此不能选）。它是否继续接受**新分配**由勾选决定：没有勾选（或勾选了但前置依赖没有全部启用）的运行中措施，在返回的场景副本里 `opportunity_ids` 设为 `[]`（不适用于任何机会，因此不可能出现它的新 Allocation；`[]` 是合法输入，不触发 `UNSUPPORTED_INPUT`；容量只数已有 grant 与 Allocation、不看 `opportunity_ids`，所以已有 grant 的占用不变），其余字段不变；只有这类措施的 `requires` 可能指向已移除的措施，这些引用被清理（它不会有新分配，清理不放松实际约束）。
+- `resolveEnabledInterventions` 返回 `enabled`（勾选且依赖满足）、`removed`（真正移出场景的，不含运行中的措施）、`running`（全部运行中的措施）、`frozen`（运行中但不接受新分配的措施及原因 `unchecked` / `missing_requires`）。`runningInterventionIds(scenario)` 返回运行中的措施。What-if 页面给运行中的措施显示「运行中」徽标与说明「已有 N 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配」。
 
 **10. 基线对比 `compareBaselines(scenario, options?)`**（`lib/joint/baselines.ts`；类型 `BaselineComparison` / `BaselineRow` / `BaselineMetrics` / `BaselineId`）
 - 签名：`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`。纯函数、确定性。所有基线使用**同一份** scenario、同一份 options（`mode`、`loss_cap`、软要求、`fairness_floors`）、同一个 `analyzeReachability`、同一个验证器；不得故意削弱任何基线。下面的「按 id 升序」「先到先得」都是确定性的简化，不代表任何真实系统。
@@ -401,4 +405,10 @@ npm run build      # 生产构建（提交前必须通过）
   - **行为变化**：选中与「已有 grant 所属措施」互斥的措施时，现在必须撤回那些 grant（此前不要求，那些 grant 照样生效）。由此可能产生 `L > 0`，protect 模式下这样的方案不可行。existing grant 的 `id` 不唯一的场景现在是 `UNSUPPORTED_INPUT`。
   - **补充（用户决定）**：**保护模式不动任何已有承诺**——`mode` 为 protect（默认）时 `revoked_grant_ids` 必须为空，强制与自愿撤回都不允许（approved 与 pending 一样）；因此 protect 下与「有可撤回已有 grant 的措施」互斥的措施不能被选中。只有 tradeoff 模式（给出 `loss_cap`）允许撤回，约束 `L ≤ loss_cap`。验证器的 `revocation` 检查在 protect 下对任何非空 `revoked_grant_ids` 判不通过（第 3 条第 8 款 d、第 5 条、第 8 条已同步）。
   - 当时 `solveJoint` / `verifyPlan` 尚未实现这些规则，`compareBaselines` 尚未编写（均已实现，见下一条）。
+- 2026-11-17：**第 3 层评审修订（只影响联合求解；字段与签名不变）**：
+  - **行为变化：场景外学生的已有 grant 不可撤回**（第 0 条「可撤回」增加「`student_id` 在场景内」）。它们照样占容量、approved 的照样免成本；与「有这类 grant 的措施」互斥的措施在 protect 与 tradeoff 下都不能选中（第 3 条第 2 款，归入 `mutual_exclusion`）；强制撤回只针对可撤回的 grant。此前这类 grant 会被强制或自愿撤回。
+  - **行为变化：运行中的措施不能被移除**（第 9 条）：`withEnabledInterventions` / `resolveEnabledInterventions` 不再把有已有 grant 的措施移出场景，未勾选时保留但 `opportunity_ids = []`（不接受新分配）；删去「被移除措施的已有 grant 变为指向场景外」的说法。例如只勾选周末卫星会场时，保护模式下它不能启用（G = 0，此前误为 G = 6、L = 0）；权衡模式损失上限 3 时启用它并强制撤回 3 条接驳车 grant（L = 3）。`resolveEnabledInterventions` 的返回值新增 `running`、`frozen`（只增字段）。
+  - 第 8 条 `metrics`：options 没给 `fairness_floors` 时不比较 plan 自带的 `fairness`。
+  - 第 3 条第 8 款：写明 `loss_cap` 按（学生, 机会）对计，tradeoff 且 `loss_cap = 0` 不等同 protect。
+  - 第 4 条：公平底线的分母保持原定义；新增「覆盖上界」说明（只用于说明文字与页面显示）。
 - 2026-11-17：**第 3 层已实现（状态更新，规则条文不变）**：`solveJoint` / `verifyPlan` 支持撤回已有 grant、权衡模式（`loss_cap`）与公平底线（`revocation`、`fairness` 检查）；新增 `compareBaselines`（`lib/joint/baselines.ts`，从 `lib/joint` 导出），A / B / C / joint 四行，说明书中的基线 D 未实现。`runWhatIf` 新增可选第三参数 `availableFloors`，`WhatIfInput` 新增 `fairnessFloorIds?`、`minRatioOverrides?`，视图新增模式说明、失去 / 收回汇总、公平底线结果与基线对比（只含人数与汇总）；`/organizer` 页面可切换两个演示场景。全部为模拟结果。

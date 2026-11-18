@@ -347,8 +347,8 @@ function Controls(props: {
   const lossCapErrId = useId();
   const lossCapHintId = useId();
   const floorBaseId = useId();
-  const existingCount = (id: string) =>
-    new Set((scenario.existing_grants ?? []).filter((g) => g.intervention_id === id).map((g) => g.student_id)).size;
+  /** 已有资源（grant）条数：大于 0 = 运行中，不能从方案中移除。 */
+  const existingCount = (id: string) => (scenario.existing_grants ?? []).filter((g) => g.intervention_id === id).length;
   const budgetMax = Math.max(100, Math.ceil((scenario.budget_usd * 2) / 10) * 10);
   // 滑块：预算无效时停在 0，并同样标为无效、关联错误说明（拖动滑块即可给出有效预算）。
   const sliderValue = props.budget !== null ? Math.min(Math.max(props.budget, 0), budgetMax) : 0;
@@ -369,17 +369,24 @@ function Controls(props: {
             const missing = (iv.requires ?? []).filter((r) => !enabled.includes(r));
             const toAdd = missingPrerequisites(scenario, enabled, iv.id);
             const excluded = view?.excluded.find((e) => e.id === iv.id);
+            const runningCount = existingCount(iv.id);
+            const runningView = view?.running.find((r) => r.id === iv.id);
             return (
               <li key={iv.id} className="rounded border border-gray-200 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <span className="min-w-0 break-words font-medium">{iv.title}</span>
-                  <span
-                    className={
-                      "shrink-0 rounded border px-1.5 text-xs " +
-                      (pending ? "border-amber-700 text-amber-900" : "border-green-700 text-green-900")
-                    }
-                  >
-                    {pending ? "待审批" : "已批准"}
+                  <span className="flex shrink-0 flex-wrap gap-1">
+                    {runningCount > 0 && (
+                      <span className="rounded border border-blue-800 px-1.5 text-xs text-blue-900">运行中</span>
+                    )}
+                    <span
+                      className={
+                        "rounded border px-1.5 text-xs " +
+                        (pending ? "border-amber-700 text-amber-900" : "border-green-700 text-green-900")
+                      }
+                    >
+                      {pending ? "待审批" : "已批准"}
+                    </span>
                   </span>
                 </div>
                 <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm text-gray-700">
@@ -397,9 +404,12 @@ function Controls(props: {
                   </dd>
                 </dl>
                 <p className="mt-1 text-sm text-gray-600">{relationText(scenario, iv)}</p>
-                {existingCount(iv.id) > 0 && (
+                {runningCount > 0 && (
                   <p className="mt-1 text-sm text-gray-700">
-                    已有承诺：{existingCount(iv.id)} 名示例学生正在使用（已发出的资源；只有权衡模式才可能收回）。
+                    {runningView
+                      ? runningView.note
+                      : `已有 ${runningCount} 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配。`}
+                    只有权衡模式才可能收回场景内学生的已有资源。
                   </p>
                 )}
                 {pending && (
@@ -579,7 +589,11 @@ function Controls(props: {
               </p>
             )}
             <p id={lossCapHintId} className="text-xs text-gray-600">
-              最多允许多少个原本可达的（学生, 机会）对在新方案下不再可达（0 或以上的整数）。
+              单位是（学生, 机会）组合：最多允许多少个原本可达的组合在新方案下不再可达（0 或以上的整数）。同一名学生失去两个机会算 2。
+              上限为 0 也不等同保护模式：仍允许收回待审批承诺（不计入损失）和不造成损失的收回。
+              {view?.loss && view.mode === "tradeoff"
+                ? ` 当前结果失去 ${view.loss.lost_pairs} 个组合，涉及 ${view.loss.affected_students} 名学生。`
+                : ""}
             </p>
           </div>
         )}
@@ -773,7 +787,10 @@ function Results({ view }: { view: WhatIfView }) {
           {view.alternative.fairness.length > 0 && (
             <ul className="mt-1 list-disc pl-5 text-sm">
               {view.alternative.fairness.map((f) => (
-                <li key={f.floor_id}>{f.text}</li>
+                <li key={f.floor_id}>
+                  {f.text}
+                  {f.bound_text ? ` ${f.bound_text}` : ""}
+                </li>
               ))}
             </ul>
           )}
@@ -800,7 +817,7 @@ function Results({ view }: { view: WhatIfView }) {
             {view.capacity_usage.map((c) => (
               <li key={c.id} className="break-words">
                 {c.title}
-                {c.selected ? "" : "（未启用）"}：
+                {c.frozen ? "（运行中，不再新增分配）" : c.running ? (c.selected ? "（运行中）" : "（运行中，本方案没有新增分配）") : c.selected ? "" : "（未启用）"}：
                 {c.unlimited
                   ? "名额不限"
                   : c.slots.map((sl) => `${sl.scope_label} 已用 ${sl.used} / ${sl.capacity}${sl.full ? "（已满）" : ""}`).join("；")}
@@ -952,6 +969,7 @@ function LossBlock({ view }: { view: WhatIfView }) {
           <p className="font-medium">
             收回的已有资源：共 {rev.total} 条（因互斥必须收回 {rev.forced} 条，自愿收回 {rev.voluntary} 条）
           </p>
+          {rev.pending > 0 && <p className="mt-0.5">其中撤回待审批承诺 {rev.pending} 条（不计入损失，只腾出名额）。</p>}
           <ul className="mt-1 list-disc pl-5">
             {rev.items.map((it) => (
               <li key={it.title + it.reason}>
@@ -980,6 +998,7 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
               <th scope="col" className="py-1 pr-3 text-right font-medium">已覆盖（分子）</th>
               <th scope="col" className="py-1 pr-3 text-right font-medium">比例</th>
               <th scope="col" className="py-1 pr-3 text-right font-medium">要求至少</th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">当前措施下最多可覆盖</th>
               <th scope="col" className="py-1 font-medium">结果</th>
             </tr>
           </thead>
@@ -994,6 +1013,9 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
                 <td className="py-1 pr-3 text-right tabular-nums">{r.covered_members} 人</td>
                 <td className="py-1 pr-3 text-right tabular-nums">{r.ratio_percent === null ? "—" : `${r.ratio_percent}%`}</td>
                 <td className="py-1 pr-3 text-right tabular-nums">{r.min_ratio_percent}%</td>
+                <td className="py-1 pr-3 text-right tabular-nums">
+                  {r.max_coverable === null ? "—" : `${r.max_coverable} / ${r.eligible_members}`}
+                </td>
                 <td className="py-1 font-medium">
                   {r.not_applicable ? "不适用（分母为 0）" : r.satisfied ? "满足" : "不满足"}
                 </td>
@@ -1002,8 +1024,19 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
           </tbody>
         </table>
       </div>
+      {rows.some((r) => r.bound_text) && (
+        <ul className="mt-1 list-disc pl-5 text-xs text-gray-700">
+          {rows
+            .filter((r) => r.bound_text)
+            .map((r) => (
+              <li key={r.floor_id}>
+                {r.label}：{r.bound_text}
+              </li>
+            ))}
+        </ul>
+      )}
       <p className="mt-1 text-xs text-gray-600">
-        按人计：一名学生至少有一个可达的机会即算覆盖；一个学生属于多个群体时在每个群体里各算一次。
+        按人计：一名学生至少有一个可达的机会即算覆盖；一个学生属于多个群体时在每个群体里各算一次。「最多可覆盖」是不考虑名额与预算的上界。
       </p>
     </div>
   );

@@ -8,6 +8,8 @@
  *    `assumptions` 里写明原因。不会出现「依赖没开、措施照样生效」。
  *    runWhatIf 不会替用户自动补上依赖（页面可以提供「一键带上」）。
  *    不在纳入范围内的必须启用项会被忽略，并在 `ignored_required` 里说明。
+ *    **运行中的措施**（有已有 grant 指向它）不能被移除：未勾选（或依赖不全）时仍留在场景里、互斥与容量照常生效，
+ *    只是不接受新分配（规则见 ./scenario-utils 的 withEnabledInterventions）；视图的 `running` 逐项说明。
  * 2. withEnabledInterventions / withBudget 得到场景 → solveJoint。
  * 3. 对主结果**独立再调用一次 verifyPlan**（相同的 mode / loss_cap / 软要求），页面展示的是这次复核。
  *    例外：求解器因「内部复核未通过」返回 UNSUPPORTED_INPUT 时，展示求解器保留的那次失败复核（被舍弃方案的复核），
@@ -17,7 +19,8 @@
  * 5. 第 3 层：模式（保护 / 权衡）与损失上限、公平底线（从调用方传入的可用底线 availableFloors 里按 id 勾选，
  *    可覆盖最低比例）、基线对比（./baselines 的 compareBaselines，同一场景、同一选项）。
  *    视图只含汇总：失去的对数 / 受影响人数 / 按「被收回的措施 → 原因」汇总的人数，收回条数，
- *    每条底线的分子 / 分母 / 比例，基线每行的声称与复核后数字。lost_pairs、revocations、基线方案里的学生 id 不进视图。
+ *    每条底线的分子 / 分母 / 比例与「当前启用的措施下最多可覆盖 X / Y」（solve 的 fairnessCoverageBounds），
+ *    收回中待审批承诺的条数（不计入损失），基线每行的声称与复核后数字。lost_pairs、revocations、基线方案里的学生 id 不进视图。
  *    损失上限或底线比例不合法（空、负数、非整数、非有限数、tradeoff 未填上限）时**不调用求解器**，
  *    视图的 input_errors 写明原因，状态按 UNSUPPORTED_INPUT 显示，数字为 null。
  * 6. 没有评估出来的数字（UNSUPPORTED_INPUT 时的成本、余额、G / L / N 等）为 null，页面显示「—」。
@@ -29,12 +32,14 @@
  */
 import { analyzeReachability } from '../reachability';
 import { compareBaselines } from './baselines';
-import { solveJoint } from './solve';
+import { fairnessCoverageBounds, solveJoint } from './solve';
+import type { FloorCoverageBound } from './solve';
 import { verifyPlan } from './verify';
 import {
   MIN_NAME_TOKEN_LENGTH,
   missingPrerequisites,
   resolveEnabledInterventions,
+  runningInterventionIds,
   withBudget,
   withEnabledInterventions,
 } from './scenario-utils';
@@ -131,6 +136,10 @@ export interface WhatIfCapacity {
   id: string;
   title: string;
   selected: boolean;
+  /** 运行中（有已有资源在使用）。 */
+  running: boolean;
+  /** 运行中但本次不接受新分配（未勾选或前置依赖不全）。 */
+  frozen: boolean;
   /** 不限容量时为空数组。 */
   slots: WhatIfCapacitySlot[];
   unlimited: boolean;
@@ -171,6 +180,8 @@ export interface WhatIfRevocationCounts {
   total: number;
   forced: number;
   voluntary: number;
+  /** 其中收回的待审批（pending）承诺条数：pending 本来就不化解障碍，收回它们不计入损失，只腾出名额。 */
+  pending: number;
 }
 
 /** 按「被收回的措施 → 原因（被哪项新措施替换 / 自愿收回）」汇总的一组损失。 */
@@ -225,6 +236,13 @@ export interface WhatIfFairnessRow {
   satisfied: boolean;
   /** 分母为 0：不适用（自动满足）。 */
   not_applicable: boolean;
+  /**
+   * 当前启用的措施下该群体最多可覆盖的人数（上界：本来就可达，或至少一个机会存在可行的措施组合；不考虑名额与预算）。
+   * 没有计算（如条件性结果）时为 null。分母仍是全部符合资格的成员，即使其中有人无论如何都不可达。
+   */
+  max_coverable: number | null;
+  /** 上界的说明（只含人数）；max_coverable 为 null 时为 null。 */
+  bound_text: string | null;
   text: string;
 }
 
@@ -298,6 +316,17 @@ export interface WhatIfUncovered {
   reasons: WhatIfUncoveredReason[];
 }
 
+/** 运行中的措施（有已有资源在使用，不能从方案中移除）。 */
+export interface WhatIfRunning {
+  id: string;
+  title: string;
+  /** 已有资源（grant）条数。 */
+  existing_grants: number;
+  /** 本次是否接受新分配（勾选且前置依赖满足）。 */
+  accepts_new: boolean;
+  note: string;
+}
+
 export interface WhatIfExcluded {
   id: string;
   title: string;
@@ -324,6 +353,8 @@ export interface WhatIfView {
     loss_cap: number | null;
     /** 参与求解的公平底线（已应用比例覆盖）。 */
     fairness_floor_ids: string[];
+    /** 运行中但本次不接受新分配的措施（仍在场景里，互斥与容量照常生效）。 */
+    frozen_ids: string[];
   };
   /** 输入级问题（损失上限、底线比例等不合法）；非空时没有调用求解器。 */
   input_errors: string[];
@@ -332,8 +363,10 @@ export interface WhatIfView {
   loss_cap: number | null;
   mode_label: string;
   mode_explanation: string;
-  /** 因前置依赖未纳入而被排除的措施。 */
+  /** 因前置依赖未纳入而被排除的措施（不含运行中的措施）。 */
   excluded: WhatIfExcluded[];
+  /** 运行中的措施（按场景顺序）。 */
+  running: WhatIfRunning[];
   /** 被忽略的「必须启用」项。 */
   ignored_required: { id: string; title: string; reason: string }[];
   status: JointStatus;
@@ -526,10 +559,22 @@ function scrubNonFinite<T>(value: T): T {
 function resolvePrerequisites(
   scenario: Scenario,
   enabledIds: readonly string[],
-): { enabled: string[]; excluded: WhatIfExcluded[] } {
+): { enabled: string[]; excluded: WhatIfExcluded[]; running: WhatIfRunning[]; frozen: string[] } {
   const byId = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const title = (id: string) => byId.get(id)?.title ?? id;
-  const { enabled, removed } = resolveEnabledInterventions(scenario, enabledIds);
+  const { enabled, removed, running: runningIds, frozen } = resolveEnabledInterventions(scenario, enabledIds);
+  const frozenById = new Map(frozen.map((f) => [f.id, f]));
+  const running: WhatIfRunning[] = runningIds.map((id) => {
+    const n = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === id).length;
+    const f = frozenById.get(id);
+    const base = `「${title(id)}」已有 ${n} 份资源在使用，不能从方案中移除；取消勾选只表示不再新增分配。`;
+    const extra = !f
+      ? '本次接受新分配。'
+      : f.reason === 'unchecked'
+        ? '本次未勾选：已有资源照常生效、占用名额，与它互斥的措施仍受限制，但不会再新增分配。'
+        : `本次缺少前置依赖${f.missing_requires.map((r) => `「${title(r)}」`).join('、')}：已有资源照常生效、占用名额，但不会再新增分配。`;
+    return { id, title: title(id), existing_grants: n, accepts_new: !f, note: base + extra };
+  });
   const excluded: WhatIfExcluded[] = removed.map((r) => {
     const names = r.missing_requires.map(title);
     return {
@@ -539,7 +584,7 @@ function resolvePrerequisites(
       reason: `「${title(r.id)}」需要同时纳入${names.map((n) => `「${n}」`).join('、')}，后者未纳入，所以本措施没有参与求解。`,
     };
   });
-  return { enabled, excluded };
+  return { enabled, excluded, running, frozen: frozen.map((f) => f.id) };
 }
 
 function synthGrant(scenario: Scenario, iv: Intervention, a: Allocation): ResourceGrant {
@@ -583,22 +628,34 @@ function costOf(c: JointCost): WhatIfPlanCost {
   return { fixed_usd: round2(c.fixed_usd), per_student_usd: round2(c.marginal_usd), total_usd: round2(c.total_usd) };
 }
 
-function revocationCounts(revs: readonly GrantRevocation[] | undefined): WhatIfRevocationCounts {
+function revocationCounts(scenario: Scenario, revs: readonly GrantRevocation[] | undefined): WhatIfRevocationCounts {
   const list = revs ?? [];
+  const status = new Map((scenario.existing_grants ?? []).map((g) => [g.id, g.status]));
   const forced = list.filter((r) => r.forced_by !== null).length;
-  return { total: list.length, forced, voluntary: list.length - forced };
+  const pending = list.filter((r) => status.get(r.grant_id) === 'pending').length;
+  return { total: list.length, forced, voluntary: list.length - forced, pending };
 }
 
 function lossText(L: number, counts: WhatIfRevocationCounts): string | null {
   if (L <= 0) return null;
-  return `失去 ${L} 个原本可达的（学生, 机会）对：收回了 ${counts.total} 条已有资源（其中因互斥必须收回 ${counts.forced} 条、自愿收回 ${counts.voluntary} 条）。`;
+  return (
+    `失去 ${L} 个原本可达的（学生, 机会）对：收回了 ${counts.total} 条已有资源（其中因互斥必须收回 ${counts.forced} 条、自愿收回 ${counts.voluntary} 条）` +
+    (counts.pending > 0 ? `；其中 ${counts.pending} 条是待审批承诺，不计入损失。` : '。')
+  );
 }
 
 const pct = (x: number) => Math.round(x * 1000) / 10;
 
-function fairnessRows(reports: readonly FairnessReport[] | undefined, floors: readonly FairnessFloor[]): WhatIfFairnessRow[] {
+function fairnessRows(
+  reports: readonly FairnessReport[] | undefined,
+  floors: readonly FairnessFloor[],
+  bounds: readonly FloorCoverageBound[] | null = null,
+): WhatIfFairnessRow[] {
   const byId = new Map(floors.map((f) => [f.id, f]));
+  const boundById = new Map((bounds ?? []).map((b) => [b.floor_id, b]));
   return (reports ?? []).map((r) => {
+    const b = boundById.get(r.floor_id);
+    const maxCov = b && r.ratio !== null ? b.max_coverable : null;
     const f = byId.get(r.floor_id);
     const label = f?.label ?? r.floor_id;
     const ratio = r.ratio === null ? null : pct(r.ratio);
@@ -617,13 +674,26 @@ function fairnessRows(reports: readonly FairnessReport[] | undefined, floors: re
       min_ratio_percent: min,
       satisfied: r.satisfied,
       not_applicable: r.ratio === null,
+      max_coverable: maxCov,
+      bound_text:
+        maxCov === null
+          ? null
+          : `当前启用的措施下最多可覆盖 ${maxCov} / ${r.eligible_members}` +
+            (maxCov < r.eligible_members
+              ? `：其余 ${r.eligible_members - maxCov} 人在当前启用的措施与模式下，不论名额和预算多少，都没有措施组合能让他们至少有一个可达的机会（例如缺少的条件没有措施能化解），但仍计入分母。`
+              : '（这是不考虑名额与预算的上界，不一定能同时达到）。'),
       text,
     };
   });
 }
 
-function outcomeSummary(scenario: Scenario, o: JointOutcome, floors: readonly FairnessFloor[]): WhatIfOutcomeSummary {
-  const counts = revocationCounts(o.revocations);
+function outcomeSummary(
+  scenario: Scenario,
+  o: JointOutcome,
+  floors: readonly FairnessFloor[],
+  bounds: readonly FloorCoverageBound[] | null = null,
+): WhatIfOutcomeSummary {
+  const counts = revocationCounts(scenario, o.revocations);
   return {
     R1_count: o.R1.length,
     G: o.G,
@@ -633,13 +703,17 @@ function outcomeSummary(scenario: Scenario, o: JointOutcome, floors: readonly Fa
     selected: summarizeSelected(scenario, o),
     revocation_counts: counts,
     loss_text: lossText(o.L, counts),
-    fairness: fairnessRows(o.fairness, floors),
+    fairness: fairnessRows(o.fairness, floors, bounds),
   };
 }
 
 const DEFAULT_SLOT = '\u0000default';
 
-function capacityUsage(scenario: Scenario, plan: JointPlan2 & { revoked_grant_ids?: string[] }): WhatIfCapacity[] {
+function capacityUsage(
+  scenario: Scenario,
+  plan: JointPlan2 & { revoked_grant_ids?: string[] },
+  frozen: readonly string[],
+): WhatIfCapacity[] {
   const revoked = new Set(plan.revoked_grant_ids ?? []);
   const slotOf = (oid: string | null | undefined): string => {
     const slots = scenario.opportunity_time_slots;
@@ -649,14 +723,17 @@ function capacityUsage(scenario: Scenario, plan: JointPlan2 & { revoked_grant_id
   const allSlots = [...new Set([DEFAULT_SLOT, ...Object.values(scenario.opportunity_time_slots ?? {})])].sort(cmpStr);
   const usedSlots = new Set(scenario.opportunities.map((o) => slotOf(o.id)));
   const selected = new Set(plan.selected_intervention_ids);
+  const running = new Set(runningInterventionIds(scenario));
+  const frozenSet = new Set(frozen);
   return scenario.interventions
     .filter(isApproved)
     .map((iv) => {
+      const flags = { running: running.has(iv.id), frozen: frozenSet.has(iv.id) };
       const allocs = plan.allocations.filter((a) => a.intervention_id === iv.id);
       // 被本方案收回的已有 grant 不占名额（契约第 3 条第 5 款只数 E'）。
       const existing = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === iv.id && !revoked.has(g.id));
       if (iv.capacity == null) {
-        return { id: iv.id, title: iv.title, selected: selected.has(iv.id), slots: [], unlimited: true };
+        return { id: iv.id, title: iv.title, selected: selected.has(iv.id), ...flags, slots: [], unlimited: true };
       }
       const cap = iv.capacity;
       let slots: WhatIfCapacitySlot[];
@@ -680,7 +757,7 @@ function capacityUsage(scenario: Scenario, plan: JointPlan2 & { revoked_grant_id
         for (const a of allocs) set.add(a.student_id);
         slots = [{ scope_label: '全场景', used: set.size, capacity: cap, full: set.size >= cap - EPS }];
       }
-      return { id: iv.id, title: iv.title, selected: selected.has(iv.id), slots, unlimited: false };
+      return { id: iv.id, title: iv.title, selected: selected.has(iv.id), ...flags, slots, unlimited: false };
     });
 }
 
@@ -691,6 +768,7 @@ function uncoveredSummary(
   capacity: WhatIfCapacity[],
   remainingBudget: number,
   infeasible: boolean,
+  frozen: ReadonlySet<string>,
 ): WhatIfUncovered {
   const ivById = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const r1 = new Set(outcome.R1.map((p) => pairKey(p.student_id, p.opportunity_id)));
@@ -739,7 +817,8 @@ function uncoveredSummary(
     // INFEASIBLE：主结果是空方案，是因为主办方提的要求做不到，不是名额、预算或其他约束挡住了这些学生。
     if (infeasible) return INFEASIBLE_UNCOVERED_CAUSE;
     // 只用于解释（展示用），求解与复核都不读 resolves。
-    const enabled = scenario.interventions.filter((iv) => iv.resolves.includes(t));
+    // 运行中但不接受新分配的措施不能再化解新的障碍，不算「能化解它的措施」。
+    const enabled = scenario.interventions.filter((iv) => iv.resolves.includes(t) && !frozen.has(iv.id));
     const enabledApproved = enabled.filter(isApproved);
     if (enabledApproved.length === 0) {
       if (enabled.length > 0) return '能化解它的措施待审批，未计入当前结果';
@@ -871,7 +950,7 @@ function lossAndRevocations(
       text: head + tail,
     };
   });
-  const counts = revocationCounts(revs);
+  const counts = revocationCounts(scenario, revs);
   const loss: WhatIfLoss = {
     lost_pairs: outcome.L,
     affected_students: new Set(lost.map((p) => p.student_id)).size,
@@ -949,7 +1028,8 @@ export function runWhatIf(
   const title = (id: string) => byId.get(id)?.title ?? id;
 
   // 1. 勾选与前置依赖
-  const { enabled, excluded } = resolvePrerequisites(scenario, input.enabledIds);
+  const { enabled, excluded, running, frozen } = resolvePrerequisites(scenario, input.enabledIds);
+  const frozenSet = new Set(frozen);
   const enabledSet = new Set(enabled);
   const ignored_required: WhatIfView['ignored_required'] = [];
   const required: string[] = [];
@@ -997,12 +1077,17 @@ export function runWhatIf(
     '名额或预算不够、多名学生条件相同时，按学生编号顺序决定分给谁（模拟中的确定性规则），不代表谁更需要。',
     MODE_EXPLANATIONS[mode],
     mode === 'tradeoff'
-      ? `权衡模式的含义：允许为新增覆盖而收回已有资源（与新措施互斥的资源必须收回），由此失去的可达对计入「失去可达 L」，且不超过损失上限${lossCap !== null ? ` ${lossCap}` : ''}；收回不退款，不会增加预算。`
+      ? `权衡模式的含义：允许为新增覆盖而收回已有资源（与新措施互斥的资源必须收回），由此失去的可达对计入「失去可达 L」，且不超过损失上限${lossCap !== null ? ` ${lossCap}` : ''}（按（学生, 机会）组合计）；收回不退款，不会增加预算。损失上限为 0 也不等同保护模式：仍允许收回待审批承诺（不计入损失）和不造成损失的收回。`
       : '保护模式下不会收回任何已有资源；与已有资源互斥的新措施因此不能启用。',
+    '发给场景外学生的已有资源不能收回（无法评估他们的损失，不猜）：与这类资源所属措施互斥的新措施在两种模式下都不能启用。',
     '公平底线只依据学生自己声明的身份标签（如低收入、第一代大学生），不读学校名或姓名；分母只算至少对一个机会符合官方资格的该群体学生，按学生计（至少有一个可达机会即算覆盖）；一个学生属于多个群体时，在每个群体里各算一次。',
     '基线对比中的 A / B / C 是确定性的简化做法（按编号升序、先到先得），不代表任何真实系统，也不代表谁更需要；说明书中的基线 D（充分协调的分离式规划器）未实现。',
   ];
   if (floors.length > 0) assumptions.push('本次设置的公平底线及其依据都是示例（虚构依据），仅用于演示。');
+  if (running.length > 0) {
+    assumptions.push('已在运行的措施（已有资源在使用）不能从方案中移除：取消勾选只表示不再新增分配，已有资源照常生效、占用名额，互斥关系照常生效。');
+  }
+  for (const r of running) if (!r.accepts_new) assumptions.push(r.note);
   for (const e of excluded) assumptions.push(e.reason);
   for (const r of ignored_required) assumptions.push(r.reason);
 
@@ -1023,6 +1108,7 @@ export function runWhatIf(
       mode,
       loss_cap: lossCap,
       fairness_floor_ids: floors.map((f) => f.id),
+      frozen_ids: frozen,
     },
     input_errors,
     mode,
@@ -1030,6 +1116,7 @@ export function runWhatIf(
     mode_label: MODE_LABELS[mode],
     mode_explanation: MODE_EXPLANATIONS[mode],
     excluded,
+    running,
     ignored_required,
     labels: WHATIF_LABELS,
   };
@@ -1048,7 +1135,7 @@ export function runWhatIf(
       N: null,
       cost: { fixed_usd: null, per_student_usd: null, total_usd: null, budget_usd: budgetUsd, remaining_usd: null },
       selected: [],
-      capacity_usage: capacityUsage(eff, { selected_intervention_ids: [], allocations: [] }),
+      capacity_usage: capacityUsage(eff, { selected_intervention_ids: [], allocations: [] }, frozen),
       verification: { passed: false, checks: [], note: '设置不完整或不合法，没有调用求解器，也没有复核。' },
       alternative: null,
       conditional: null,
@@ -1116,12 +1203,14 @@ export function runWhatIf(
         remaining_usd: budgetUsd !== null ? round2(budgetUsd - result.cost.total_usd) : null,
       }
     : { fixed_usd: null, per_student_usd: null, total_usd: null, budget_usd: budgetUsd, remaining_usd: null };
-  const capacity_usage = capacityUsage(eff, result);
+  const capacity_usage = capacityUsage(eff, result, frozen);
+  // 公平底线的覆盖上界（主结果与替代方案都只含已批准措施，上界相同；条件性结果不给）。
+  const bounds = evaluated && floors.length > 0 ? fairnessCoverageBounds(eff, floors, opts) : null;
 
   let alternative: WhatIfAlternative | null = null;
   if (result.alternative) {
     alternative = {
-      ...outcomeSummary(eff, result.alternative, floors),
+      ...outcomeSummary(eff, result.alternative, floors, bounds),
       relaxed: result.alternative.relaxed.map((k) => RELAXED_ZH[k]),
       note: cleanText(result.alternative.note, scenario),
     };
@@ -1148,7 +1237,7 @@ export function runWhatIf(
   }
 
   const uncovered = evaluated
-    ? uncoveredSummary(eff, scenario, result, capacity_usage, cost.remaining_usd ?? 0, result.status === 'INFEASIBLE')
+    ? uncoveredSummary(eff, scenario, result, capacity_usage, cost.remaining_usd ?? 0, result.status === 'INFEASIBLE', frozenSet)
     : null;
   const lr = evaluated ? lossAndRevocations(eff, result, mode) : null;
   const baselines = baselinesView(compareBaselines(eff, opts), scenario);
@@ -1179,7 +1268,7 @@ export function runWhatIf(
     uncovered,
     loss: lr ? lr.loss : null,
     revocations: lr ? lr.revocations : null,
-    fairness: evaluated ? fairnessRows(result.fairness, floors) : [],
+    fairness: evaluated ? fairnessRows(result.fairness, floors, bounds) : [],
     baselines,
     solver_notes: result.notes.map((n) => cleanText(n, scenario)),
     assumptions,

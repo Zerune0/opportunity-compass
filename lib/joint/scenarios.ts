@@ -10,7 +10,9 @@
  * - `SCENARIOS`：两个场景的清单（id、标题、一句说明、预设公平底线 suggestedFairnessFloors，均为示例）。
  * - `withEnabledInterventions(scenario, ids)`：只保留指定措施（What-if 页面「勾选措施」用）；
  *   前置依赖没有全部启用的措施一并移除（不放松依赖），并清理指向已移除措施的互斥引用。
- * - `resolveEnabledInterventions(scenario, ids)`：同一套规则，返回保留与被移除的措施（及缺少的依赖）。
+ *   运行中的措施（有已有 grant 指向它）不能被移除：未勾选时保留在场景里、只是不接受新分配（opportunity_ids = []）。
+ * - `resolveEnabledInterventions(scenario, ids)`：同一套规则，返回保留、被移除、运行中与「运行中但不接受新分配」的措施。
+ * - `runningInterventionIds(scenario)`：运行中的措施 id。
  * - `withBudget(scenario, budget)`：改预算。
  * 以上纯函数实现在 ./scenario-utils（不含数据），这里只是转导出。
  * **客户端组件不要 import 本文件**：顶层导入了场景 JSON（含示例学生姓名、学校），会被打包进浏览器。
@@ -120,7 +122,8 @@ export {
   findStudentInfoInInterventions,
   missingPrerequisites,
   resolveEnabledInterventions,
+  runningInterventionIds,
   withBudget,
   withEnabledInterventions,
 } from './scenario-utils';
-export type { RemovedIntervention } from './scenario-utils';
+export type { FrozenIntervention, RemovedIntervention } from './scenario-utils';

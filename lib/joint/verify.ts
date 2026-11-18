@@ -6,7 +6,10 @@
  * 不信任 plan 自带的任何指标或可行性标记：R0、R1、G、L、N、成本、lost_pairs、revocations、fairness 全部自己重算。
  *
  * 记号（契约第 0 条）：E = existing_grants；X = 方案撤回的 grant id 中**合法**的部分（字符串、是可撤回 grant 的 id、去重）；
- * E' = E 去掉 id ∈ X 的 grant。「可撤回」= intervention_id 是字符串且是场景内措施 id 的已有 grant。
+ * E' = E 去掉 id ∈ X 的 grant。
+ * 「可撤回」（规则 R1）= intervention_id 是场景内措施 id、**且 student_id 是场景内学生**的已有 grant。
+ * intervention_id 指向场景内措施、但学生不在场景内的 grant「锁定」：该学生的损失无法评估（缺信息不猜），所以不可撤回；
+ * 它仍占容量、approved 的仍免成本；与它所属措施互斥的措施在两种模式下都不能被选中（归入 mutual_exclusion）。
  * R0 按全部 E 计算；R1、容量、免成本、barrier_resolution 都按 E'（∪ 方案合成的 grant）计算。
  *
  * 检查项（顺序固定；除 organizer_requirements / fairness 外每项都输出；passed = 全部通过）：
@@ -15,11 +18,14 @@
  *   规则与求解器的输入校验相同，但由本文件独立实现（不共用代码）；options 中值为 null 的字段视同未给。
  *   第 3 层新增：existing grant 的 id 不是字符串或重复；fairness_floors 格式不合法。
  * - approval：选中的措施存在、不重复、已批准（pending 只有在 assume_approved 中列出时才算已批准）。
- * - mutual_exclusion：选中集合内没有互斥的两项（mutually_exclusive_with 按对称关系处理）。
+ * - mutual_exclusion：选中集合内没有互斥的两项（mutually_exclusive_with 按对称关系处理）；并且没有选中与
+ *   「有不可撤回已有 grant 的场景内措施 k」互斥的措施（R1；protect 与 tradeoff 都一样，detail 写明是哪条 grant 锁定了 k）。
  * - prerequisite：每个选中措施的 requires 全部在选中集合里。
  * - revocation（始终输出，第 3 条第 8 款）：
- *   a. revoked_grant_ids 缺省 / null 视为 []；给出时必须是数组，元素是字符串、不重复、是 E 中可撤回 grant 的 id；
- *   b. 强制撤回：可撤回的 g ∈ E，若存在选中的措施 i（i ∈ I）满足 excl(i, g.intervention_id)，则 g.id ∈ X；
+ *   a. revoked_grant_ids 缺省 / null 视为 []；给出时必须是数组，元素是字符串、不重复、是 E 中可撤回 grant 的 id
+ *      （列出场景外学生的 grant → 不通过）；
+ *   b. 强制撤回：可撤回的 g ∈ E，若存在选中的措施 i（i ∈ I）满足 excl(i, g.intervention_id)，则 g.id ∈ X
+ *      （只针对可撤回的 grant；不可撤回的由 mutual_exclusion 封锁）；
  *   c. X 中 grant 的 (intervention_id, student_id) 不得再出现在 allocations 中；
  *   d. protect 模式（mode 缺省 / 'protect' / 其他非 'tradeoff' 取值）下 revoked_grant_ids 必须为空（用户侧决定：
  *      保护模式不动任何已有承诺，强制与自愿撤回都不允许，approved 与 pending 都一样）。
@@ -36,6 +42,8 @@
  * - organizer_requirements：只有 options 传了 required_intervention_ids 或 min_gain 时才输出。
  * - fairness：只有 options 给出 fairness_floors（非 null，含空数组）时才输出；每条底线按重算的 R1 计算。
  * - metrics：始终输出；plan 带 R0 / R1 / G / L / N / cost / lost_pairs / revocations / fairness 任一字段时逐项与重算值比较。
+ *   规则 R3：复核选项没给 fairness_floors（缺省 / null）时**不比较** plan 自带的 fairness（已放松底线的 alternative
+ *   仍按原底线报告 fairness）；给出了底线时照常逐条比较。
  *
  * 纯函数：确定性、不读系统时钟、无随机、无 IO、不修改输入；不读取学校名、显示名。
  * 对任意畸形 plan / scenario / options（空、缺字段、未知 id、负成本、非数字）都不抛异常，只判检查不通过。
@@ -162,8 +170,15 @@ export interface JointNorm {
   intById: Map<string, Intervention>;
   /** E：existing_grants 中的对象条目（非对象条目在 input_validity 中报告）。 */
   existing: ResourceGrant[];
-  /** 可撤回的已有 grant（id 是字符串、intervention_id 是场景内措施 id），保持输入顺序。 */
+  /**
+   * 可撤回的已有 grant（R1）：id 是字符串、intervention_id 是场景内措施 id、且 student_id 是场景内学生，保持输入顺序。
+   */
   revocable: ResourceGrant[];
+  /**
+   * 「锁定」的已有 grant（R1）：intervention_id 是场景内措施 id，但 student_id 不是场景内学生——该学生的损失无法评估
+   * （缺信息不猜），所以不可撤回；它仍占容量、approved 的仍免成本，并使与其措施互斥的措施不能被选中。保持输入顺序。
+   */
+  locked: ResourceGrant[];
   evaluationDate: string;
   timeSlots: Record<string, unknown>;
 }
@@ -180,7 +195,10 @@ function normalizeScenario(scenario: Scenario): JointNorm {
   const intById = new Map<string, Intervention>();
   for (const i of interventions) if (!intById.has(i.id)) intById.set(i.id, i);
   const existing = arr<ResourceGrant>(sc.existing_grants).filter((g) => isObj(g));
-  const revocable = existing.filter((g) => isStr(g.id) && isStr(g.intervention_id) && intById.has(g.intervention_id));
+  const linked = (g: ResourceGrant) => isStr(g.intervention_id) && intById.has(g.intervention_id);
+  const inScenario = (g: ResourceGrant) => isStr(g.student_id) && studentById.has(g.student_id);
+  const revocable = existing.filter((g) => isStr(g.id) && linked(g) && inScenario(g));
+  const locked = existing.filter((g) => linked(g) && !inScenario(g));
   const timeSlots = isObj(sc.opportunity_time_slots) ? (sc.opportunity_time_slots as Record<string, unknown>) : {};
   return {
     students,
@@ -191,6 +209,7 @@ function normalizeScenario(scenario: Scenario): JointNorm {
     intById,
     existing,
     revocable,
+    locked,
     evaluationDate: isStr(sc.evaluation_date) ? sc.evaluation_date : '',
     timeSlots,
   };
@@ -704,10 +723,37 @@ export function verifyAndMeasure(
         if (excl(A, B)) conflicts.push(`${q(A.id)} 与 ${q(B.id)}`);
       }
     }
+    // R1：与「有不可撤回已有 grant（学生不在场景内）」的场景内措施 k 互斥的措施不能被选中（两种模式都一样）。
+    const lockedByInt = new Map<string, string[]>();
+    for (const g of norm.locked) {
+      const k = g.intervention_id as string;
+      const l = lockedByInt.get(k) ?? [];
+      l.push(String(g.id));
+      lockedByInt.set(k, l);
+    }
+    const blocked: string[] = [];
+    for (const id of selectedExisting) {
+      const A = norm.intById.get(id) as Intervention;
+      for (const [k, gids] of [...lockedByInt.entries()].sort((a, b) => cmpStr(a[0], b[0]))) {
+        if (k !== id && excl(A, norm.intById.get(k))) {
+          blocked.push(
+            `${q(id)} 与 ${q(k)} 互斥，而 ${q(k)} 有不可撤回的已有 grant ${gids.map(q).join('、')}（学生不在场景内，损失无法评估，不能撤回）`,
+          );
+        }
+      }
+    }
+    const problems = [
+      ...(conflicts.length > 0 ? [`同时选中了互斥的措施：${list(conflicts)}`] : []),
+      ...(blocked.length > 0 ? [`选中了与有不可撤回已有 grant 的措施互斥的措施：${list(blocked)}`] : []),
+    ];
     checks.push(
-      conflicts.length === 0
-        ? check('mutual_exclusion', true, '选中集合内没有互斥的两项（互斥按对称关系检查）。')
-        : check('mutual_exclusion', false, `同时选中了互斥的措施：${list(conflicts)}。`),
+      problems.length === 0
+        ? check(
+            'mutual_exclusion',
+            true,
+            '选中集合内没有互斥的两项（互斥按对称关系检查），也没有与「有不可撤回已有 grant 的措施」互斥的选中措施。',
+          )
+        : check('mutual_exclusion', false, `${problems.join('；')}。`),
     );
   }
 
@@ -754,7 +800,14 @@ export function verifyAndMeasure(
       if (seen.has(x)) dup.add(x);
       seen.add(x);
       if (!existingIds.has(x)) problems.push(`撤回的 grant ${q(x)} 不在 existing_grants 中`);
-      else if (!revocableById.has(x)) problems.push(`撤回的 grant ${q(x)} 不可撤回（没有指向场景内措施的 intervention_id）`);
+      else if (!revocableById.has(x)) {
+        const g = norm.existing.find((e) => e.id === x) as ResourceGrant;
+        problems.push(
+          isStr(g.intervention_id) && norm.intById.has(g.intervention_id)
+            ? `撤回的 grant ${q(x)} 不可撤回（学生 ${q(g.student_id)} 不在场景内，损失无法评估）`
+            : `撤回的 grant ${q(x)} 不可撤回（没有指向场景内措施的 intervention_id）`,
+        );
+      }
     }
     for (const d of dup) problems.push(`重复撤回 ${q(d)}`);
     // b. 强制撤回
@@ -1148,14 +1201,19 @@ export function verifyAndMeasure(
 
   // metrics
   {
+    // R3：复核选项没给 fairness_floors（缺省 / null）时不比较 plan 自带的 fairness——它可能是按原底线报告的
+    // （例如已放松底线的 alternative）。给出了底线时照常比较。
+    const compareFairness = opts.fairness_floors != null;
     const fields = (['R0', 'R1', 'G', 'L', 'N', 'cost', 'lost_pairs', 'revocations', 'fairness'] as const).filter(
-      (f) => p[f] !== undefined,
+      (f) => p[f] !== undefined && (f !== 'fairness' || compareFairness),
     );
+    const fairnessSkipped =
+      !compareFairness && p.fairness !== undefined ? '复核选项没给公平底线，未比较 plan 自带的 fairness。' : '';
     const recomputed =
-      `重算：G = ${G}，L = ${L}，N = ${N}，|R0| = ${R0.length}，|R1| = ${R1.length}，成本 ${money(totalUsd)}（固定 ${money(fixedUsd)} + 边际 ${money(marginalUsd)}），` +
+      `${fairnessSkipped}重算：G = ${G}，L = ${L}，N = ${N}，|R0| = ${R0.length}，|R1| = ${R1.length}，成本 ${money(totalUsd)}（固定 ${money(fixedUsd)} + 边际 ${money(marginalUsd)}），` +
       `撤回 ${revocations.length} 条，受损失影响 ${lost.length} 对`;
     if (fields.length === 0) {
-      checks.push(check('metrics', true, `plan 未携带指标，仅重算。${recomputed}。`));
+      checks.push(check('metrics', true, `plan 未携带${p.fairness !== undefined ? '需比较的' : ''}指标，仅重算。${recomputed}。`));
     } else {
       const problems: string[] = [];
       const show = (k: string) => {
@@ -1237,11 +1295,9 @@ export function verifyAndMeasure(
           if (missing.length > 0) problems.push(`revocations 缺少重算中撤回的 ${missing.join('、')}`);
         }
       }
-      if (p.fairness !== undefined) {
+      if (p.fairness !== undefined && compareFairness) {
         if (fairness === null) {
-          if (!(p.fairness === null || (Array.isArray(p.fairness) && p.fairness.length === 0))) {
-            problems.push('options 没给公平底线，但 plan 自带了非空的 fairness');
-          }
+          problems.push('fairness_floors 不是数组，无法比较 plan 自带的 fairness');
         } else if (!Array.isArray(p.fairness)) {
           problems.push('fairness 不是数组');
         } else if (p.fairness.length !== fairness.length) {
