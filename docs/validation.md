@@ -1,5 +1,5 @@
 # Validation requirements
-No tests or benchmark results exist yet.
+Written before implementation. Vitest tests now exist under `lib/` (see README "Project status"); baseline D below is not implemented, and no user study or real-world measurement has been done.
 
 ## Required behavior
 Check unknown eligibility, hard restrictions, task prerequisites, deadlines, travel and cost limits, material reuse and editing costs, evidence-triggered recalculation, approval states and access permissions.

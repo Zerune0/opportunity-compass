@@ -10,14 +10,14 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 
 **Built for Bridge The Gap Hacks.** The four-day scope is defined in `CONTRACT.md`. This is an independent project; no ExamPilot code is included.
 
-- **Implemented (student-side engine):** four pure functions in `lib/` — `checkEligibility`, `analyzeReachability`, `planRoutes` and `diffRoutes` — with Vitest unit tests, including fairness control tests (`lib/fairness.test.ts`) showing results do not change when only the school name or display name changes.
+- **Implemented (student-side engine):** four pure functions in `lib/` — `checkEligibility`, `analyzeReachability`, `planRoutes` and `diffRoutes` — with Vitest unit tests, including fairness control tests (`lib/fairness.test.ts`, and `lib/fairness-p2.test.ts` for the four phase 2 functions) showing results do not change when only the school name or display name changes.
 - **Implemented (organizer side, simulation only):** `solveJoint` (exact search over support measures and shared-resource allocation, with honest statuses OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT) and `verifyPlan` (an independent verifier that does not import the solver), cross-checked in Vitest against brute-force enumeration; plus the `/organizer` what-if page, which runs on two sample scenarios (`data/scenarios/device-loan.json` and `data/scenarios/venue-tradeoff.json`) and shows only aggregate counts, never individual students. All organizer results are simulated and are not real-world impact.
 - **Implemented (organizer side, layer 3, simulation only):** a tradeoff mode (the organizer sets an explicit loss cap before any existing commitment may be revoked; the default protect mode never revokes anything), fairness floors based only on students' self-declared statuses, and a baseline comparison (`compareBaselines`) of A eligibility-only, B student-side planner and C organizer-side planner against the joint solver, all re-checked by the same verifier. Baseline D (a fully coordinated separate planner) from the product docs is **not implemented**. The `/organizer` page can switch between two sample scenarios (`device-loan.json`, `venue-tradeoff.json`). Baselines are deterministic simplifications, not models of any real system; all numbers are simulated.
 - **Implemented (student pages):** `/quests` (Quest Board and quest details with official eligibility, preparation readiness and practical reachability shown separately), `/map` (Adventure Map with 2–3 routes and a recommendation replay) and `/passport` (Skill Passport: load one of four clearly labelled sample profiles, add evidence). Student data stays in the browser's localStorage; there is no backend or account system.
-- **Opportunities:** `data/opportunities.json` currently holds 3 real opportunities, each with an official link, a verification date and the verifier's name. Anything the official page does not state is left as `null` and shown as "unknown"; it is not guessed.
+- **Opportunities:** `data/opportunities.json` currently holds 12 real opportunities (research, internships, scholarships, a fellowship, a hackathon, a summer program and citizen-science projects), each with an official link, a verification date and the verifier's name. Anything the official page does not state is left as `null` and shown as "unknown"; it is not guessed.
 - **Still a placeholder:** the opportunity used in the two sample organizer scenarios is a clearly marked placeholder event, not a real opportunity.
 - **Sample profiles:** `data/profiles.json` holds 4 sample profiles (`is_sample: true`, labelled "Sample"): three high-school students and one first-year undergraduate (`sample-noor`, added in phase 2 so undergraduate opportunities can be checked).
-- **Known demo limits:** real opportunity data is still 3 records. Whether a student–opportunity combination can evaluate to "reachable" depends on the opportunity record stating both its fee and its weekly hours; each of the 3 current records leaves at least one of these as `null` (unknown, not guessed), so the "barrier resolved by a grant" step is shown on the organizer page with sample data.
+- **Known demo limits:** whether a student–opportunity combination can evaluate to "reachable" depends on the opportunity record stating both its fee and its weekly hours. Of the 12 current records, 2 state a fee and 1 states weekly hours; the rest are `null` (unknown, not guessed), so no sample profile currently evaluates to "reachable" on a real opportunity, and the "barrier resolved by a grant" step is shown on the organizer page with sample data. Only one real record lists a preparation item, so cross-opportunity planning (`planAcrossOpportunities`) shows almost no hours on real data yet; its weekly load, conflicts and material reuse are exercised by tests with clearly fictional fixtures.
 - **Live demo:** https://opportunity-compass-six.vercel.app (deployed on Vercel from `main`). The app is a static-friendly Next.js build with no environment variables; see "Deploying" below.
 
 ### Phase 2 (in progress)
@@ -69,6 +69,8 @@ Adventure View and Classic View should support equivalent tasks. RPG progress mu
 Organizer tools support the student journey; they do not replace it.
 
 ## Documentation
+The files in `docs/` are the original product plan, written before any code. They describe the full product goal, not what is built. For what is implemented, use the "Project status" section above and `CONTRACT.md`.
+
 - [Frozen product scope](docs/product-scope.md)
 - [Architecture boundaries](docs/architecture.md)
 - [Implementation roadmap](docs/roadmap.md)
@@ -84,7 +86,7 @@ app/                    Next.js routes: /, /quests, /map, /passport, /organizer 
 lib/                    Pure decision functions, shared types and the localStorage wrapper (tested with Vitest)
 components/rpg/         Shared UI components (navigation, quest cards, buttons, status tags)
 data/profiles.json      Sample student profiles (is_sample: true)
-data/opportunities.json Verified opportunity records (3 so far)
+data/opportunities.json Verified opportunity records (12 so far)
 data/scenarios/         Simulated organizer scenarios (is_sample: true)
 data/examples/          Explicitly synthetic fixtures
 tests/                  Reserved for future behavioral tests
