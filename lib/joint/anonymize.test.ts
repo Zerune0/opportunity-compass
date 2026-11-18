@@ -3,7 +3,16 @@
  * 且求解结果（状态、G、L、N、成本）与匿名化前一致。全部示例 / 模拟数据。
  */
 import { describe, expect, it } from 'vitest';
-import { DEVICE_LOAN_IDS as IDS, deviceLoanScenario, withBudget, withEnabledInterventions } from './scenarios';
+import {
+  DEVICE_LOAN_IDS as IDS,
+  SCENARIOS,
+  VENUE_TRADEOFF_IDS as V,
+  deviceLoanScenario,
+  venueTradeoffScenario,
+  withBudget,
+  withEnabledInterventions,
+} from './scenarios';
+import { compareBaselines } from './baselines';
 import { anonymizeScenarioForClient } from './scenario-utils';
 import { solveJoint } from './solve';
 import { runWhatIf } from './whatif';
@@ -140,5 +149,65 @@ describe('anonymizeScenarioForClient', () => {
       budget: a.budget_usd,
     });
     expect([v.G, v.L, v.N]).toEqual([5, 0, 5]);
+  });
+});
+
+describe('anonymizeScenarioForClient：权衡场景（第 3 层）', () => {
+  const VT = venueTradeoffScenario;
+  const floors = SCENARIOS[1].suggestedFairnessFloors;
+  const a = anonymizeScenarioForClient(VT);
+
+  it('不含原学生信息；statuses 原样保留；已有 grant 的 student_id 改写为新编号', () => {
+    assertNoOriginalInfo(JSON.stringify(a), VT);
+    expect(a.students.map((s) => s.id)).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9']);
+    expect(a.students.map((s) => s.statuses)).toEqual(VT.students.map((s) => s.statuses));
+    expect(a.existing_grants!.map((g) => [g.id, g.student_id, g.intervention_id, g.status])).toEqual([
+      ['shuttle-grant-1', 's1', V.weekdayShuttle, 'approved'],
+      ['shuttle-grant-2', 's2', V.weekdayShuttle, 'approved'],
+      ['shuttle-grant-3', 's3', V.weekdayShuttle, 'approved'],
+    ]);
+    expect(a.existing_grants!.every((g) => g.note == null)).toBe(true);
+  });
+
+  const pick3 = (r: ReturnType<typeof solveJoint>) => ({
+    ...pick(r),
+    lost: r.lost_pairs?.length,
+    revoked: r.revoked_grant_ids,
+    forced: r.revocations?.filter((x) => x.forced_by !== null).length,
+    fairness: r.fairness,
+  });
+  const variants: [string, SolveOptions][] = [
+    ['protect', {}],
+    ['protect + 底线', { fairness_floors: floors }],
+    ['tradeoff 2', { mode: 'tradeoff', loss_cap: 2 }],
+    ['tradeoff 3', { mode: 'tradeoff', loss_cap: 3 }],
+    ['tradeoff 3 + 底线', { mode: 'tradeoff', loss_cap: 3, fairness_floors: floors }],
+    ['tradeoff 3 + 底线 100%', { mode: 'tradeoff', loss_cap: 3, fairness_floors: floors.map((f) => ({ ...f, min_ratio: 1 })) }],
+  ];
+  for (const [name, opts] of variants) {
+    it(`求解结果（含 L、收回数、公平报告）与基线数字一致：${name}`, () => {
+      expect(pick3(solveJoint(a, opts))).toEqual(pick3(solveJoint(VT, opts)));
+      const strip = (c: ReturnType<typeof compareBaselines>) =>
+        c.rows.map((r) => ({ id: r.id, claimed: r.claimed_reachable, verified: r.verified, repaired: r.repaired, soft: r.soft_requirements_met }));
+      expect(strip(compareBaselines(a, opts))).toEqual(strip(compareBaselines(VT, opts)));
+    });
+  }
+
+  it('tradeoff 3 时 L = 3、强制收回 3 条（匿名化前后相同）', () => {
+    const r = solveJoint(a, { mode: 'tradeoff', loss_cap: 3 });
+    expect([r.G, r.L, r.N]).toEqual([6, 3, 3]);
+    expect(r.revocations?.filter((x) => x.forced_by === V.weekendSatellite)).toHaveLength(3);
+  });
+
+  it('What-if 视图（tradeoff 3 + 底线）在匿名化前后完全一致（视图本来就不含学生标识）', () => {
+    const input = {
+      enabledIds: VT.interventions.map((iv) => iv.id),
+      requiredIds: [],
+      budget: VT.budget_usd,
+      mode: 'tradeoff' as const,
+      lossCap: 3,
+      fairnessFloorIds: [floors[0].id],
+    };
+    expect(JSON.stringify(runWhatIf(a, input, floors))).toBe(JSON.stringify(runWhatIf(VT, input, floors)));
   });
 });

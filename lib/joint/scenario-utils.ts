@@ -2,7 +2,9 @@
  * 场景的纯函数工具（不 import 任何数据 JSON，可以安全地被客户端组件间接引用）。
  *
  * - `resolveEnabledInterventions(scenario, ids)` / `withEnabledInterventions(scenario, ids)`：What-if「勾选措施」；
- *   前置依赖没有全部启用的措施一并移除（闭包），不放松依赖。
+ *   前置依赖没有全部启用的措施一并移除（闭包），不放松依赖；运行中的措施（有已有 grant）不能移除，
+ *   未勾选时保留但不接受新分配。
+ * - `runningInterventionIds(scenario)`：运行中的措施。
  * - `withBudget(scenario, budget)`：改预算。
  * - `missingPrerequisites(scenario, enabledIds, id)`：某措施缺少的前置依赖（含依赖的依赖，传递闭包）。
  * - `anonymizeScenarioForClient(scenario)`：把场景交给浏览器前去掉学生身份与自由文本。
@@ -20,16 +22,36 @@ export interface RemovedIntervention {
   missing_requires: string[];
 }
 
+/** 运行中的措施：场景内有已有 grant 的 intervention_id 指向它（不论学生是否在场景内、不论 approved / pending）。 */
+export function runningInterventionIds(scenario: Scenario): string[] {
+  const used = new Set(
+    (scenario.existing_grants ?? []).map((g) => g?.intervention_id).filter((x): x is string => typeof x === 'string'),
+  );
+  return scenario.interventions.filter((iv) => used.has(iv.id)).map((iv) => iv.id);
+}
+
+/** 运行中、但不再接受新分配的措施（未勾选，或勾选了但前置依赖没有全部启用）。 */
+export interface FrozenIntervention {
+  id: string;
+  /** 'unchecked' = 没有勾选；'missing_requires' = 勾选了但前置依赖没有全部启用。 */
+  reason: 'unchecked' | 'missing_requires';
+  /** reason = 'missing_requires' 时缺少的前置依赖 id；否则为空数组。 */
+  missing_requires: string[];
+}
+
 /**
- * 计算 What-if 勾选后真正参与求解的措施：先取 `ids` 中存在于场景的措施，
- * 再把「前置依赖（requires）没有全部启用」的措施移除，反复判断直到不再变化（闭包）。
- * 不会替用户自动补上依赖，也不会删掉 requires 让措施单独生效。
- * 返回 enabled（按场景原顺序）与 removed（按移除顺序）。纯函数。
+ * 计算 What-if 勾选后真正参与求解的措施（CONTRACT「联合求解模型」第 9 条）：
+ * 1. 先取 `ids` 中存在于场景的措施，再把「前置依赖（requires）没有全部启用」的措施移除，反复判断直到不再变化（闭包）。
+ *    不会替用户自动补上依赖，也不会删掉 requires 让措施单独生效。
+ * 2. **运行中的措施**（有已有 grant 指向它，见 runningInterventionIds）一律保留在场景里，不受勾选影响；
+ *    其中不在 enabled 里的（未勾选或依赖不全）列入 `frozen`：仍在运行、互斥与容量照常生效，但不接受新分配。
+ * 返回 enabled（勾选且依赖满足的，按场景原顺序）、removed（真正从场景移除的，按移除顺序，不含运行中的措施）、
+ * running（全部运行中的措施，按场景原顺序）、frozen（按场景原顺序）。纯函数。
  */
 export function resolveEnabledInterventions(
   scenario: Scenario,
   ids: readonly string[],
-): { enabled: string[]; removed: RemovedIntervention[] } {
+): { enabled: string[]; removed: RemovedIntervention[]; running: string[]; frozen: FrozenIntervention[] } {
   const exists = new Set(scenario.interventions.map((iv) => iv.id));
   const enabled = new Set(ids.filter((id) => exists.has(id)));
   const removed: RemovedIntervention[] = [];
@@ -46,24 +68,48 @@ export function resolveEnabledInterventions(
       }
     }
   }
-  return { enabled: scenario.interventions.filter((iv) => enabled.has(iv.id)).map((iv) => iv.id), removed };
+  const running = runningInterventionIds(scenario);
+  const runningSet = new Set(running);
+  const removedById = new Map(removed.map((r) => [r.id, r]));
+  const frozen: FrozenIntervention[] = running
+    .filter((id) => !enabled.has(id))
+    .map((id) => {
+      const r = removedById.get(id);
+      return r
+        ? { id, reason: 'missing_requires' as const, missing_requires: [...r.missing_requires] }
+        : { id, reason: 'unchecked' as const, missing_requires: [] };
+    });
+  return {
+    enabled: scenario.interventions.filter((iv) => enabled.has(iv.id)).map((iv) => iv.id),
+    removed: removed.filter((r) => !runningSet.has(r.id)),
+    running,
+    frozen,
+  };
 }
 
 /**
  * 只保留 `ids` 中列出的措施（保持原顺序；不存在的 id 忽略），
  * **前置依赖没有全部启用的措施一并移除**（按闭包反复判断，见 resolveEnabledInterventions），
- * 不会删掉 requires 让措施单独生效。保留措施的 mutually_exclusive_with 中指向已移除措施的引用会被清理
- * （互斥对象不在场景里，不构成约束）。保留措施的 requires 必然都已启用，原样保留。
- * 想知道移除了哪些，请调用 resolveEnabledInterventions。
+ * 不会删掉 requires 让措施单独生效。
+ * **运行中的措施**（有已有 grant 指向它）一律保留：没有勾选（或依赖不全）的运行中措施在副本里把
+ * `opportunity_ids` 设为 `[]`（不适用于任何机会，因此不可能有新的 Allocation），其余字段不变——它的已有 grant
+ * 照常生效、占容量（容量只数已有 grant 与 Allocation，不看 opportunity_ids），互斥照常生效
+ * （选中与它互斥的措施仍须按规则撤回它的可撤回 grant）。
+ * 保留措施的 mutually_exclusive_with / requires 中指向已移除措施的引用会被清理（对象不在场景里，不构成约束）；
+ * 只有不接受新分配的运行中措施可能有这样的 requires（它不可能有新分配，清理不放松任何实际约束）。
+ * 想知道移除 / 冻结了哪些，请调用 resolveEnabledInterventions。
  */
 export function withEnabledInterventions(scenario: Scenario, ids: readonly string[]): Scenario {
-  const keep = new Set(resolveEnabledInterventions(scenario, ids).enabled);
+  const res = resolveEnabledInterventions(scenario, ids);
+  const frozen = new Set(res.frozen.map((f) => f.id));
+  const keep = new Set([...res.enabled, ...frozen]);
   const interventions: Intervention[] = scenario.interventions
     .filter((iv) => keep.has(iv.id))
     .map((iv) => {
       const next: Intervention = { ...iv, resolves: [...iv.resolves] };
-      if (iv.opportunity_ids) next.opportunity_ids = [...iv.opportunity_ids];
-      if (iv.requires) next.requires = [...iv.requires];
+      if (frozen.has(iv.id)) next.opportunity_ids = [];
+      else if (iv.opportunity_ids) next.opportunity_ids = [...iv.opportunity_ids];
+      if (iv.requires) next.requires = iv.requires.filter((r) => keep.has(r));
       if (iv.mutually_exclusive_with) {
         next.mutually_exclusive_with = iv.mutually_exclusive_with.filter((r) => keep.has(r));
       }

@@ -2,10 +2,20 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { analyzeReachability } from '../reachability';
-import type { Allocation, JointPlan, ResourceGrant, Scenario, VerifyOptions, VerifyResult } from '../types';
-import { exhaustiveBest } from './exhaustive';
+import type {
+  Allocation,
+  FairnessFloor,
+  FairnessReport,
+  JointPlan,
+  ResourceGrant,
+  Scenario,
+  StudentStatus,
+  VerifyOptions,
+  VerifyResult,
+} from '../types';
+import { exhaustiveBest, naiveBest } from './exhaustive';
 import { EVAL_DATE, makeIntervention, makeOpp, makeScenario, makeStudent } from './testing/fixtures';
-import { verifyPlan } from './verify';
+import { createJointEvaluator, verifyAndMeasure, verifyPlan } from './verify';
 
 // 全部是虚构示例数据（example.com、is_sample: true），结果是模拟。
 
@@ -74,6 +84,7 @@ const ALL_CHECKS = [
   'approval',
   'mutual_exclusion',
   'prerequisite',
+  'revocation',
   'allocation_validity',
   'capacity',
   'cost_accounting',
@@ -658,56 +669,62 @@ describe('exhaustiveBest：小场景手算', () => {
   });
 });
 
-/** 不剪枝的暴力枚举（只用于极小场景），用来确认 exhaustiveBest 的剪枝不改变最优指标。 */
+/**
+ * 不剪枝的暴力枚举（只用于极小场景），用来确认 exhaustiveBest 的剪枝不改变前六级最优指标。
+ * 同时枚举可撤回 grant（intervention_id 指向场景内措施）的所有子集；免成本只认未撤回的 approved grant。
+ */
 function bruteNoPrune(scenario: Scenario, options: VerifyOptions = {}) {
   const ints = scenario.interventions.map((i) => i.id);
   const pairs = scenario.students.flatMap((s) => scenario.opportunities.map((o) => [s.id, o.id] as const));
-  let best: { N: number; total: number; count: number; selected: number } | null = null;
-  for (let mask = 0; mask < 1 << ints.length; mask++) {
-    const selected = ints.filter((_, k) => mask & (1 << k));
-    const per = 1 << selected.length;
-    const total = per ** pairs.length;
-    for (let code = 0; code < total; code++) {
-      let c = code;
-      const raw: Allocation[] = [];
-      for (const [s, o] of pairs) {
-        const m = c % per;
-        c = Math.floor(c / per);
-        selected.forEach((id, k) => {
-          if (m & (1 << k)) raw.push(alloc(id, s, o, 0));
-        });
-      }
-      raw.sort((a, b) =>
-        a.intervention_id < b.intervention_id ? -1 : a.intervention_id > b.intervention_id ? 1 :
-        a.student_id < b.student_id ? -1 : a.student_id > b.student_id ? 1 :
-        a.opportunity_id < b.opportunity_id ? -1 : a.opportunity_id > b.opportunity_id ? 1 : 0,
-      );
-      const charged = new Set<string>();
-      for (const a of raw) {
-        const k = a.intervention_id + '|' + a.student_id;
-        if (charged.has(k)) continue;
-        charged.add(k);
-        const covered = (scenario.existing_grants ?? []).some(
-          (g) => g.intervention_id === a.intervention_id && g.student_id === a.student_id && g.status === 'approved',
+  // 规则 R1：可撤回 = 措施在场景内、且学生在场景内。
+  const stuIds = scenario.students.map((s) => s.id);
+  const revocable = (scenario.existing_grants ?? [])
+    .filter((g) => typeof g.intervention_id === 'string' && ints.includes(g.intervention_id) && stuIds.includes(g.student_id))
+    .map((g) => g.id)
+    .sort();
+  const ev = createJointEvaluator(scenario);
+  let best: { N: number; L: number; total: number; count: number; selected: number; revoked: number } | null = null;
+  for (let rmask = 0; rmask < 1 << revocable.length; rmask++) {
+    const revoked = revocable.filter((_, k) => rmask & (1 << k));
+    for (let mask = 0; mask < 1 << ints.length; mask++) {
+      const selected = ints.filter((_, k) => mask & (1 << k));
+      const per = 1 << selected.length;
+      const total = per ** pairs.length;
+      for (let code = 0; code < total; code++) {
+        let c = code;
+        const raw: Allocation[] = [];
+        for (const [s, o] of pairs) {
+          const m = c % per;
+          c = Math.floor(c / per);
+          selected.forEach((id, k) => {
+            if (m & (1 << k)) raw.push(alloc(id, s, o, 0));
+          });
+        }
+        raw.sort((a, b) =>
+          a.intervention_id < b.intervention_id ? -1 : a.intervention_id > b.intervention_id ? 1 :
+          a.student_id < b.student_id ? -1 : a.student_id > b.student_id ? 1 :
+          a.opportunity_id < b.opportunity_id ? -1 : a.opportunity_id > b.opportunity_id ? 1 : 0,
         );
-        a.cost_usd = covered ? 0 : (scenario.interventions.find((i) => i.id === a.intervention_id)?.unit_cost_usd ?? 0);
-      }
-      const plan = { selected_intervention_ids: selected, allocations: raw };
-      const res = verifyPlan(scenario, plan, options);
-      if (!res.passed) continue;
-      const m = check(res, 'metrics').detail;
-      const N = Number(/N = (-?\d+)/.exec(m)?.[1]);
-      const cost = Number(/成本 \$([\d.]+)/.exec(m)?.[1]);
-      const cand = { N, total: cost, count: raw.length, selected: selected.length };
-      const tieCost = best !== null && Math.abs(cand.total - best.total) <= 1e-6;
-      if (
-        !best ||
-        cand.N > best.N ||
-        (cand.N === best.N &&
-          (cand.total < best.total - 1e-6 ||
-            (tieCost && (cand.count < best.count || (cand.count === best.count && cand.selected < best.selected)))))
-      ) {
-        best = cand;
+        const charged = new Set<string>();
+        for (const a of raw) {
+          const k = a.intervention_id + '|' + a.student_id;
+          if (charged.has(k)) continue;
+          charged.add(k);
+          const covered = (scenario.existing_grants ?? []).some(
+            (g) => g.intervention_id === a.intervention_id && g.student_id === a.student_id && g.status === 'approved' && !revoked.includes(g.id),
+          );
+          a.cost_usd = covered ? 0 : (scenario.interventions.find((i) => i.id === a.intervention_id)?.unit_cost_usd ?? 0);
+        }
+        const plan = { selected_intervention_ids: selected, allocations: raw, revoked_grant_ids: revoked };
+        const { result, metrics } = verifyAndMeasure(ev, plan, options);
+        if (!result.passed) continue;
+        const cand = { N: metrics.N, L: metrics.L, total: metrics.total_usd, count: raw.length, selected: selected.length, revoked: revoked.length };
+        const key = (x: typeof cand) => [-x.N, x.L, Math.round(x.total * 1e6), x.count, x.selected, x.revoked];
+        const better = (a: number[], b: number[]) => {
+          for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return a[k] < b[k];
+          return false;
+        };
+        if (!best || better(key(cand), key(best))) best = cand;
       }
     }
   }
@@ -765,20 +782,679 @@ describe('exhaustiveBest：剪枝不改变最优指标（对照不剪枝的暴�
       const brute = bruteNoPrune(scenario, options ?? {});
       const ex = exhaustiveBest(scenario, options ?? {});
       if (!brute) expect(ex.feasible).toBe(false);
-      else expect({ N: ex.N, total: ex.total_usd, count: ex.allocationCount, selected: ex.selectedCount }).toEqual(brute);
+      else {
+        expect(ex.feasible).toBe(true);
+        expect({ N: ex.N, L: ex.L, total: ex.total_usd, count: ex.allocationCount, selected: ex.selectedCount, revoked: ex.revokedCount }).toEqual(brute);
+      }
+    });
+  }
+});
+
+// ───────────────────────────── 第 3 层：撤回已有 grant ─────────────────────────────
+
+/**
+ * 撤回场景（虚构）：s1 已经通过措施 old 借到笔记本（e-old，对所有机会有效），因此 (s1, o1) ∈ R0。
+ * old 容量 1（已被 s1 占满）、单价 100；new 单价 60、容量 2，与 old 互斥。
+ */
+const OLD = makeIntervention('old', { unit_cost_usd: 100, capacity: 1 });
+const NEW = makeIntervention('new', { unit_cost_usd: 60, capacity: 2, mutually_exclusive_with: ['old'] });
+const E_OLD = laptopGrant('s1', null, { id: 'e-old', intervention_id: 'old' });
+const TRADE0: VerifyOptions = { mode: 'tradeoff', loss_cap: 0 };
+const TRADE1: VerifyOptions = { mode: 'tradeoff', loss_cap: 1 };
+
+function rev(overrides: Partial<Scenario> = {}): Scenario {
+  return makeScenario({
+    students: [S1, S2],
+    opportunities: [O1],
+    interventions: [OLD, NEW],
+    existing_grants: [E_OLD],
+    budget_usd: 1000,
+    ...overrides,
+  });
+}
+
+/** 换用 new：强制撤回 e-old，并由 new 给 s1 补位、同时给 s2。L = 0，G = 1，成本 120。 */
+const SWAP: JointPlan = {
+  selected_intervention_ids: ['new'],
+  allocations: [alloc('new', 's1', 'o1', 60), alloc('new', 's2', 'o1', 60)],
+  revoked_grant_ids: ['e-old'],
+};
+const P = (s: string, o: string) => ({ student_id: s, opportunity_id: o });
+
+describe('verifyPlan：撤回（第 3 条第 8 款）', () => {
+  it('fixture 自检：R0 = {(s1, o1)}，e-old 是可撤回的', () => {
+    const m = verifyAndMeasure(createJointEvaluator(rev()), { selected_intervention_ids: [], allocations: [] }).metrics;
+    expect(m.R0).toEqual([P('s1', 'o1')]);
+    expect(createJointEvaluator(rev()).norm.revocable.map((g) => g.id)).toEqual(['e-old']);
+  });
+
+  it('tradeoff：强制撤回 + 由另一措施补位，全部通过；R0 仍按全部已有 grant', () => {
+    const r = verifyAndMeasure(createJointEvaluator(rev()), SWAP, TRADE0);
+    expect(failedNames(r.result)).toEqual([]);
+    expect(r.metrics).toMatchObject({ G: 1, L: 0, N: 1, total_usd: 120, lost_pairs: [], revoked_grant_ids: ['e-old'] });
+    expect(r.metrics.R0).toEqual([P('s1', 'o1')]);
+    expect(r.metrics.revocations).toEqual([{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1', forced_by: 'new' }]);
+    expect(check(r.result, 'revocation').detail).toContain('强制撤回 1 条');
+  });
+
+  it('protect 模式（缺省或显式）下任何撤回都不通过：强制撤回也不行', () => {
+    for (const o of [undefined, { mode: 'protect' as const }, { mode: 'protect' as const, loss_cap: 5 }]) {
+      const res = verifyPlan(rev(), SWAP, o);
+      expect(failedNames(res)).toEqual(['revocation']);
+      expect(check(res, 'revocation').detail).toContain('protect');
+    }
+  });
+
+  it('protect 模式下选与已有 grant 所属措施互斥的措施：不撤回违反强制撤回，撤回又不被允许', () => {
+    const noRevoke: JointPlan = { selected_intervention_ids: ['new'], allocations: [alloc('new', 's2', 'o1', 60)] };
+    expectFail(verifyPlan(rev(), noRevoke), 'revocation');
+    expectFail(verifyPlan(rev(), { ...noRevoke, revoked_grant_ids: ['e-old'] }), 'revocation');
+  });
+
+  it('缺少强制撤回：detail 写明该撤回的 grant', () => {
+    const plan: JointPlan = { selected_intervention_ids: ['new'], allocations: [alloc('new', 's2', 'o1', 60)], revoked_grant_ids: [] };
+    const res = verifyPlan(rev(), plan, TRADE0);
+    expect(failedNames(res)).toEqual(['revocation']);
+    expect(check(res, 'revocation').detail).toContain('e-old');
+    expect(check(res, 'revocation').detail).toContain('new');
+  });
+
+  describe('规则 R1：场景外学生的已有 grant 不可撤回', () => {
+    // old 容量 2：e-old（s1，场景内，可撤回）+ e-out（outsider，场景外，不可撤回）。
+    const withOutsider = (status: 'approved' | 'pending' = 'pending') =>
+      rev({
+        interventions: [{ ...OLD, capacity: 2 }, NEW],
+        existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status })],
+      });
+
+    it('fixture 自检：可撤回的只有 e-old，e-out 被锁定', () => {
+      const norm = createJointEvaluator(withOutsider()).norm;
+      expect(norm.revocable.map((g) => g.id)).toEqual(['e-old']);
+      expect(norm.locked.map((g) => g.id)).toEqual(['e-out']);
+    });
+
+    it('撤回场景外学生的 grant → revocation 不通过（approved 与 pending、两种模式都一样），detail 写明原因', () => {
+      for (const status of ['approved', 'pending'] as const) {
+        const scenario = withOutsider(status);
+        const plan: JointPlan = { selected_intervention_ids: [], allocations: [], revoked_grant_ids: ['e-out'] };
+        for (const o of [TRADE0, TRADE1, undefined]) {
+          const res = verifyPlan(scenario, plan, o);
+          expect(check(res, 'input_validity').passed).toBe(true);
+          expectFail(res, 'revocation');
+          expect(check(res, 'revocation').detail).toContain('e-out');
+          expect(check(res, 'revocation').detail).toContain('不在场景内');
+        }
+        // 重算时 X 不含 e-out：它照样占容量 → 撤回列表虽非法，R1 不变（L = 0）
+        const m = verifyAndMeasure(createJointEvaluator(scenario), plan, TRADE1).metrics;
+        expect(m.revoked_grant_ids).toEqual([]);
+        expect(m.L).toBe(0);
+      }
+    });
+
+    it('选中与锁定措施互斥的措施 → mutual_exclusion 不通过（protect 与 tradeoff 都是），即使撤回了全部可撤回的 grant', () => {
+      const scenario = withOutsider();
+      for (const o of [undefined, { mode: 'protect' as const }, TRADE0, TRADE1, { mode: 'tradeoff' as const, loss_cap: 5 }]) {
+        const res = verifyPlan(scenario, SWAP, o);
+        expectFail(res, 'mutual_exclusion');
+        const d = check(res, 'mutual_exclusion').detail;
+        expect(d).toContain('「new」');
+        expect(d).toContain('「old」');
+        expect(d).toContain('e-out');
+        expect(d).toContain('不可撤回');
+        // 强制撤回只针对可撤回的 grant：tradeoff 下撤回 e-old 就满足 revocation，不要求（也不允许）撤回 e-out
+        if (o?.mode === 'tradeoff') expect(failedNames(res)).toEqual(['mutual_exclusion']);
+      }
+      // 再加上撤回 e-out：revocation 也不通过（不可撤回），mutual_exclusion 照样不通过
+      const both = verifyPlan(scenario, { ...SWAP, revoked_grant_ids: ['e-old', 'e-out'] }, TRADE0);
+      expect(failedNames(both)).toEqual(['mutual_exclusion', 'revocation']);
+      // 互斥只由一方列出也算：把互斥写在 old 上
+      const reversed = rev({
+        interventions: [{ ...OLD, capacity: 2, mutually_exclusive_with: ['new'] }, { ...NEW, mutually_exclusive_with: undefined }],
+        existing_grants: [laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old' })],
+      });
+      expectFail(verifyPlan(reversed, { selected_intervention_ids: ['new'], allocations: [alloc('new', 's1', 'o1', 60)] }, TRADE1), 'mutual_exclusion');
+    });
+
+    it('对照：没有场景外 grant 时同一方案（tradeoff）全部通过；锁定措施本身仍可选', () => {
+      expect(failedNames(verifyPlan(rev({ interventions: [{ ...OLD, capacity: 2 }, NEW] }), SWAP, TRADE0))).toEqual([]);
+      // 选 old 本身不受影响（不与自己互斥）：给 s2 分配 old
+      const plan: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's2', 'o1', 100)] };
+      const scenario = rev({
+        interventions: [{ ...OLD, capacity: 3 }, NEW],
+        existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+      });
+      expect(failedNames(verifyPlan(scenario, plan))).toEqual([]);
+    });
+
+    it('不可撤回的 grant 仍占容量', () => {
+      // old 容量 2：s1（e-old）+ outsider（e-out）已占满；再给 s2 分配 old 超容量
+      const scenario = withOutsider('approved');
+      const plan: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's2', 'o1', 100)] };
+      expectFail(verifyPlan(scenario, plan), 'capacity');
+      expect(check(verifyPlan(scenario, plan), 'capacity').detail).toContain('outsider');
+      // tradeoff 下自愿撤回 e-old（可撤回）能腾出 1 个名额 → 通过（L = 1 ≤ 1）；撤回 e-out 不行
+      expect(failedNames(verifyPlan(scenario, { ...plan, revoked_grant_ids: ['e-old'] }, TRADE1))).toEqual([]);
+      expect(failedNames(verifyPlan(scenario, { ...plan, revoked_grant_ids: ['e-out'] }, TRADE1))).toEqual(['revocation', 'capacity']);
+    });
+
+    it('不可撤回的 approved grant 仍让 (措施, 学生) 免成本；pending 的不免（记账口径不因锁定改变）', () => {
+      // outsider 不在场景内，给他分配本身违反 allocation_validity；这里只看 cost_accounting 的记账口径。
+      const toOutsider = (cost: number): JointPlan => ({ selected_intervention_ids: ['old'], allocations: [alloc('old', 'outsider', 'o1', cost)] });
+      const approved = withOutsider('approved');
+      expect(failedNames(verifyPlan(approved, toOutsider(0)))).toEqual(['allocation_validity']);
+      expectFail(verifyPlan(approved, toOutsider(100)), 'cost_accounting');
+      const pending = withOutsider('pending');
+      expect(check(verifyPlan(pending, toOutsider(100)), 'cost_accounting').passed).toBe(true);
+      expectFail(verifyPlan(pending, toOutsider(0)), 'cost_accounting');
+      // 容量预检同样计入锁定的 grant
+      const over = rev({
+        interventions: [{ ...OLD, capacity: 1 }, NEW],
+        existing_grants: [
+          laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old' }),
+          laptopGrant('outsider2', null, { id: 'e-out2', intervention_id: 'old' }),
+        ],
+      });
+      expectFail(verifyPlan(over, { selected_intervention_ids: [], allocations: [] }), 'input_validity');
+    });
+  });
+
+  it('撤回列表不合法：不存在的 id、重复、不可撤回、非字符串、不是数组', () => {
+    const scenario = rev({
+      existing_grants: [
+        E_OLD,
+        laptopGrant('s5', null, { id: 'e-free' }), // 无 intervention_id：不可撤回
+        laptopGrant('s5', 'o2', { id: 'e-gone', intervention_id: 'gone' }), // 指向场景外：不可撤回
+      ],
+    });
+    const empty = { selected_intervention_ids: [], allocations: [] };
+    const bad: [unknown, string][] = [
+      [['ghost'], 'ghost'],
+      [['e-old', 'e-old'], '重复'],
+      [['e-free'], '不可撤回'],
+      [['e-gone'], '不可撤回'],
+      [[42], '非字符串'],
+      ['e-old', '不是数组'],
+    ];
+    for (const [ids, text] of bad) {
+      const res = verifyPlan(scenario, { ...empty, revoked_grant_ids: ids as string[] }, TRADE1);
+      expect(check(res, 'input_validity').passed).toBe(true); // 方案的撤回列表不合法不触发 UNSUPPORTED_INPUT
+      expectFail(res, 'revocation');
+      expect(check(res, 'revocation').detail).toContain(text);
+    }
+    // null / 缺省 = 不撤回
+    expect(failedNames(verifyPlan(scenario, { ...empty, revoked_grant_ids: null as unknown as string[] }, TRADE1))).toEqual([]);
+    expect(failedNames(verifyPlan(scenario, empty, TRADE1))).toEqual([]);
+  });
+
+  it('重算时 X 只取合法部分：非法 id 不影响 R1，合法的 e-old 照样生效（L = 1）', () => {
+    const ev = createJointEvaluator(rev());
+    const r = verifyAndMeasure(ev, { selected_intervention_ids: [], allocations: [], revoked_grant_ids: ['ghost', 'e-old', 'e-old'] }, TRADE1);
+    expectFail(r.result, 'revocation');
+    expect(r.metrics).toMatchObject({ L: 1, G: 0, N: -1, revoked_grant_ids: ['e-old'], lost_pairs: [P('s1', 'o1')] });
+    expect(r.metrics.revocations).toEqual([{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1', forced_by: null }]);
+  });
+
+  it('撤回后又给同一 (措施, 学生) 分配：revocation 不通过；且该学生不再免成本', () => {
+    const scenario = rev({ interventions: [{ ...OLD, capacity: 2 }, NEW] });
+    const reissueFree: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's1', 'o1', 0)], revoked_grant_ids: ['e-old'] };
+    const r1 = verifyPlan(scenario, reissueFree, TRADE1);
+    expectFail(r1, 'revocation');
+    expect(check(r1, 'revocation').detail).toContain('(old, s1)');
+    expectFail(r1, 'cost_accounting'); // 被撤回的 grant 不再免成本
+    const reissuePaid = { ...reissueFree, allocations: [alloc('old', 's1', 'o1', 100)] };
+    const r2 = verifyPlan(scenario, reissuePaid, TRADE1);
+    expect(failedNames(r2)).toEqual(['revocation']);
+    // 对照：不撤回时 (old, s1) 记 0 是对的
+    expect(failedNames(verifyPlan(scenario, { ...reissueFree, revoked_grant_ids: [] }))).toEqual([]);
+  });
+
+  it('自愿撤回腾出名额：撤回后新分配不超容量；不撤回则超容量', () => {
+    const plan: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's2', 'o1', 100)], revoked_grant_ids: ['e-old'] };
+    const r = verifyAndMeasure(createJointEvaluator(rev()), plan, TRADE1);
+    expect(failedNames(r.result)).toEqual([]);
+    expect(r.metrics).toMatchObject({ G: 1, L: 1, N: 0, lost_pairs: [P('s1', 'o1')] });
+    expect(r.metrics.revocations[0].forced_by).toBeNull();
+    expect(check(r.result, 'revocation').detail).toContain('自愿撤回 1 条');
+    expectFail(verifyPlan(rev(), { ...plan, revoked_grant_ids: [] }, TRADE1), 'capacity');
+  });
+
+  it('tradeoff 下 L 超过 / 等于 / 低于 loss_cap', () => {
+    const plan: JointPlan = { selected_intervention_ids: ['new'], allocations: [alloc('new', 's2', 'o1', 60)], revoked_grant_ids: ['e-old'] };
+    expect(failedNames(verifyPlan(rev(), plan, { mode: 'tradeoff', loss_cap: 0 }))).toEqual(['coverage_loss']);
+    expect(failedNames(verifyPlan(rev(), plan, { mode: 'tradeoff', loss_cap: 1 }))).toEqual([]);
+    expect(failedNames(verifyPlan(rev(), plan, { mode: 'tradeoff', loss_cap: 2 }))).toEqual([]);
+    expect(check(verifyPlan(rev(), plan, { mode: 'tradeoff', loss_cap: 0 }), 'coverage_loss').detail).toContain('(s1, o1)');
+  });
+
+  it('撤回 pending 的已有 grant：不产生损失、腾出容量、照样列入 revocations', () => {
+    const scenario = makeScenario({
+      students: [S1, S2, S5],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [laptopGrant('s2', null, { id: 'e-pend', intervention_id: 'old', status: 'pending' })],
+    });
+    const plan: JointPlan = { selected_intervention_ids: ['old'], allocations: [alloc('old', 's1', 'o1', 100)], revoked_grant_ids: ['e-pend'] };
+    const r = verifyAndMeasure(createJointEvaluator(scenario), plan, TRADE0);
+    expect(failedNames(r.result)).toEqual([]);
+    expect(r.metrics).toMatchObject({ G: 1, L: 0, lost_pairs: [] });
+    expect(r.metrics.revocations).toEqual([{ grant_id: 'e-pend', intervention_id: 'old', student_id: 's2', forced_by: null }]);
+    expectFail(verifyPlan(scenario, { ...plan, revoked_grant_ids: [] }, TRADE0), 'capacity');
+    expect(failedNames(verifyPlan(scenario, plan))).toEqual(['revocation']); // protect 下 pending 也不能撤回
+    // 撤回了 (old, s2) 的 pending grant 后也不能再给 s2 分配 old
+    expectFail(verifyPlan(scenario, { ...plan, allocations: [alloc('old', 's2', 'o1', 100)] }, TRADE0), 'revocation');
+  });
+
+  it('existing grant 的 id 不是字符串或重复 → input_validity 不通过', () => {
+    for (const eg of [
+      [E_OLD, { ...E_OLD, student_id: 's2' }],
+      [{ ...E_OLD, id: 7 as unknown as string }],
+    ]) {
+      const res = verifyPlan(rev({ existing_grants: eg, interventions: [{ ...OLD, capacity: 3 }, NEW] }), { selected_intervention_ids: [], allocations: [] });
+      expectFail(res, 'input_validity');
+      expect(check(res, 'input_validity').detail).toContain('id');
+    }
+  });
+
+  it('容量预检按全部已有 grant（不考虑撤回）', () => {
+    const scenario = rev({ existing_grants: [E_OLD, laptopGrant('s2', null, { id: 'e-2', intervention_id: 'old' })] });
+    const res = verifyPlan(scenario, { selected_intervention_ids: [], allocations: [], revoked_grant_ids: ['e-2'] }, TRADE1);
+    expectFail(res, 'input_validity');
+  });
+
+  describe('plan 自带的 lost_pairs / revocations 造假', () => {
+    const lossPlan: JointPlan = { selected_intervention_ids: ['new'], allocations: [alloc('new', 's2', 'o1', 60)], revoked_grant_ids: ['e-old'] };
+    const honest = {
+      ...lossPlan,
+      R0: [P('s1', 'o1')],
+      R1: [P('s2', 'o1')],
+      G: 1,
+      L: 1,
+      N: 0,
+      cost: { fixed_usd: 0, marginal_usd: 60, total_usd: 60 },
+      lost_pairs: [P('s1', 'o1')],
+      revocations: [{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1', forced_by: 'new' }],
+    };
+    it('诚实的指标通过', () => {
+      expect(failedNames(verifyPlan(rev(), honest, TRADE1))).toEqual([]);
+    });
+    const variants: [string, unknown][] = [
+      ['lost_pairs 为空', { ...honest, lost_pairs: [] }],
+      ['lost_pairs 多一个', { ...honest, lost_pairs: [P('s1', 'o1'), P('s2', 'o1')] }],
+      ['lost_pairs 重复', { ...honest, lost_pairs: [P('s1', 'o1'), P('s1', 'o1')] }],
+      ['lost_pairs 不是数组', { ...honest, lost_pairs: 'x' }],
+      ['revocations 为空', { ...honest, revocations: [] }],
+      ['forced_by 写成 null', { ...honest, revocations: [{ ...honest.revocations[0], forced_by: null }] }],
+      ['forced_by 缺省', { ...honest, revocations: [{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1' }] }],
+      ['student_id 错', { ...honest, revocations: [{ ...honest.revocations[0], student_id: 's2' }] }],
+      ['多一条', { ...honest, revocations: [...honest.revocations, { grant_id: 'e-x', intervention_id: 'old', student_id: 's2', forced_by: null }] }],
+      ['重复 grant_id', { ...honest, revocations: [honest.revocations[0], honest.revocations[0]] }],
+      ['R1 仍算上被撤回 grant 的学生', { ...honest, R1: [P('s1', 'o1'), P('s2', 'o1')], L: 0, N: 1, lost_pairs: [] }],
+    ];
+    for (const [name, plan] of variants) {
+      it(name, () => {
+        const res = verifyPlan(rev(), plan as JointPlan, TRADE1);
+        expectFail(res, 'metrics');
+      });
+    }
+  });
+});
+
+// ───────────────────────────── 第 3 层：公平底线 ─────────────────────────────
+
+const F1 = makeStudent('f1', { statuses: ['high_school_student', 'low_income'] });
+const F2 = makeStudent('f2', { statuses: ['low_income', 'first_generation'] });
+const F3 = makeStudent('f3', { statuses: null, devices: ['laptop'] }); // 没填 statuses：不属于任何群体（本来可达）
+const F4 = makeStudent('f4', { grade: 7, statuses: ['low_income'] }); // 资格不符：不计入分母
+const F5 = makeStudent('f5', { statuses: ['first_generation'], devices: ['laptop'] }); // 本来可达
+
+const floor = (id: string, statuses: StudentStatus[], min_ratio: number): FairnessFloor => ({
+  id,
+  label: `示例群体 ${id}`,
+  basis: '虚构的分组依据（示例）',
+  statuses_any_of: statuses,
+  min_ratio,
+});
+const LOW = floor('low', ['low_income'], 0.5);
+const FG = floor('fg', ['first_generation'], 1);
+const UG = floor('ug', ['undergraduate'], 1);
+const HS = floor('hs', ['high_school_student'], 1);
+
+function fair(overrides: Partial<Scenario> = {}): Scenario {
+  return makeScenario({ students: [F1, F2, F3, F4, F5], opportunities: [O1], interventions: [LOAN], budget_usd: 1000, ...overrides });
+}
+const EMPTY: JointPlan = { selected_intervention_ids: [], allocations: [], revoked_grant_ids: [] };
+const TO = (s: string): JointPlan => ({ selected_intervention_ids: ['loan'], allocations: [alloc('loan', s, 'o1', 100)], revoked_grant_ids: [] });
+
+function fairnessOf(scenario: Scenario, plan: JointPlan, floors: FairnessFloor[]) {
+  return verifyAndMeasure(createJointEvaluator(scenario), plan, { fairness_floors: floors });
+}
+
+describe('verifyPlan：公平底线（第 4 条）', () => {
+  it('不达标：空方案下低收入群体 0/2（f4 资格不符不计入分母）', () => {
+    const r = fairnessOf(fair(), EMPTY, [LOW]);
+    expect(failedNames(r.result)).toEqual(['fairness']);
+    expect(r.metrics.fairness).toEqual([{ floor_id: 'low', eligible_members: 2, covered_members: 0, ratio: 0, min_ratio: 0.5, satisfied: false }]);
+    expect(check(r.result, 'fairness').detail).toContain('0/2');
+  });
+
+  it('达标：恰好等于 min_ratio（1/2 = 0.5）', () => {
+    const r = fairnessOf(fair(), TO('f1'), [LOW]);
+    expect(failedNames(r.result)).toEqual([]);
+    expect(r.metrics.fairness?.[0]).toMatchObject({ covered_members: 1, ratio: 0.5, satisfied: true });
+  });
+
+  it('比较容差 1e-9：0.5 + 1e-10 仍满足，0.5 + 1e-8 不满足', () => {
+    expect(fairnessOf(fair(), TO('f1'), [{ ...LOW, min_ratio: 0.5 + 1e-10 }]).metrics.fairness?.[0].satisfied).toBe(true);
+    expect(fairnessOf(fair(), TO('f1'), [{ ...LOW, min_ratio: 0.5 + 1e-8 }]).metrics.fairness?.[0].satisfied).toBe(false);
+  });
+
+  it('分母为 0：ratio = null，视为不适用、自动满足', () => {
+    const r = fairnessOf(fair(), EMPTY, [UG]);
+    expect(failedNames(r.result)).toEqual([]);
+    expect(r.metrics.fairness).toEqual([{ floor_id: 'ug', eligible_members: 0, covered_members: 0, ratio: null, min_ratio: 1, satisfied: true }]);
+    expect(check(r.result, 'fairness').detail).toContain('不适用');
+  });
+
+  it('statuses 没填（null / undefined / 非数组）的学生不属于任何群体', () => {
+    for (const st of [null, undefined, 'high_school_student']) {
+      const f3 = { ...F3, statuses: st as StudentStatus[] | null };
+      const r = fairnessOf(fair({ students: [F1, F2, f3, F4, F5] }), TO('f1'), [HS]);
+      // 只有 f1 属于 high_school_student 群体（f3 本来可达，但没填 statuses 不计入）
+      expect(r.metrics.fairness?.[0]).toMatchObject({ eligible_members: 1, covered_members: 1, ratio: 1, satisfied: true });
+    }
+  });
+
+  it('多群体、多条底线：同一学生在每个所属群体各计一次，报告按输入顺序', () => {
+    const r = fairnessOf(fair(), TO('f2'), [FG, LOW, UG]);
+    expect(failedNames(r.result)).toEqual([]);
+    expect(r.metrics.fairness?.map((x) => [x.floor_id, x.covered_members, x.eligible_members])).toEqual([
+      ['fg', 2, 2],
+      ['low', 1, 2],
+      ['ug', 0, 0],
+    ]);
+    // 给 f1 时：低收入达标但第一代不达标
+    const r1 = fairnessOf(fair(), TO('f1'), [FG, LOW]);
+    expect(failedNames(r1.result)).toEqual(['fairness']);
+    expect(check(r1.result, 'fairness').detail).toContain('fg');
+    expect(r1.metrics.fairness?.map((x) => x.satisfied)).toEqual([false, true]);
+  });
+
+  it('按学生计：一个学生有多个可达对也只算 1 人', () => {
+    const scenario = fair({ opportunities: [O1, O2] });
+    const plan: JointPlan = { selected_intervention_ids: ['loan'], allocations: [alloc('loan', 'f1', 'o1', 100), alloc('loan', 'f1', 'o2', 0)], revoked_grant_ids: [] };
+    expect(fairnessOf(scenario, plan, [LOW]).metrics.fairness?.[0]).toMatchObject({ eligible_members: 2, covered_members: 1, ratio: 0.5 });
+  });
+
+  it('撤回导致的不可达也影响底线（R1 按 E\' 计算）', () => {
+    const scenario = rev({ students: [{ ...S1, statuses: ['low_income'] }, S2] });
+    const lowOnly = floor('low', ['low_income'], 1);
+    const plan: JointPlan = { selected_intervention_ids: ['new'], allocations: [alloc('new', 's2', 'o1', 60)], revoked_grant_ids: ['e-old'] };
+    const r = verifyAndMeasure(createJointEvaluator(scenario), plan, { ...TRADE1, fairness_floors: [lowOnly] });
+    expect(failedNames(r.result)).toEqual(['fairness']);
+    expect(r.metrics.fairness?.[0]).toMatchObject({ eligible_members: 1, covered_members: 0 });
+  });
+
+  it('只有给出 fairness_floors（含空数组）时才输出 fairness；空数组直接通过；null 视同未给', () => {
+    expect(verifyPlan(fair(), EMPTY).checks.some((c) => c.name === 'fairness')).toBe(false);
+    expect(verifyPlan(fair(), EMPTY, { fairness_floors: null as unknown as FairnessFloor[] }).checks.some((c) => c.name === 'fairness')).toBe(false);
+    const r = fairnessOf(fair(), EMPTY, []);
+    expect(check(r.result, 'fairness').passed).toBe(true);
+    expect(r.metrics.fairness).toEqual([]);
+    expect(verifyAndMeasure(createJointEvaluator(fair()), EMPTY).metrics.fairness).toBeNull();
+  });
+
+  it('不读取学校名、显示名：只改这两个字段，公平结果相同', () => {
+    const renamed = [F1, F2, F3, F4, F5].map((s, k) => ({ ...s, school_name: k % 2 ? 'Fictional Elite Academy' : 'Fictional Rural High', display_name: `别名 ${k}` }));
+    const a = fairnessOf(fair(), TO('f2'), [FG, LOW]);
+    const b = fairnessOf(fair({ students: renamed }), TO('f2'), [FG, LOW]);
+    expect(b.result).toEqual(a.result);
+    expect(b.metrics.fairness).toEqual(a.metrics.fairness);
+  });
+
+  describe('不合法的底线输入 → input_validity 不通过（fairness 检查同样不通过）', () => {
+    const bad: [string, unknown][] = [
+      ['不是数组', { low: LOW }],
+      ['条目不是对象', [null]],
+      ['id 为空', [{ ...LOW, id: '' }]],
+      ['id 不是字符串', [{ ...LOW, id: 3 }]],
+      ['id 重复', [LOW, { ...FG, id: 'low' }]],
+      ['label 只有空格', [{ ...LOW, label: '   ' }]],
+      ['basis 缺失', [{ id: 'x', label: 'x', statuses_any_of: ['low_income'], min_ratio: 0.5 }]],
+      ['statuses_any_of 为空', [{ ...LOW, statuses_any_of: [] }]],
+      ['statuses_any_of 不是数组', [{ ...LOW, statuses_any_of: 'low_income' }]],
+      ['statuses_any_of 含非法取值', [{ ...LOW, statuses_any_of: ['low_income', 'rich'] }]],
+      ['min_ratio 大于 1', [{ ...LOW, min_ratio: 1.5 }]],
+      ['min_ratio 为负', [{ ...LOW, min_ratio: -0.1 }]],
+      ['min_ratio NaN', [{ ...LOW, min_ratio: Number.NaN }]],
+      ['min_ratio 是字符串', [{ ...LOW, min_ratio: '0.5' }]],
+    ];
+    for (const [name, floors] of bad) {
+      it(name, () => {
+        const res = verifyPlan(fair(), TO('f1'), { fairness_floors: floors as FairnessFloor[] });
+        expectFail(res, 'input_validity');
+        expect(check(res, 'input_validity').detail).toContain('fairness_floors');
+        expectFail(res, 'fairness');
+      });
+    }
+    it('边界合法：min_ratio 为 0 与 1、statuses_any_of 有重复值', () => {
+      const res = verifyPlan(fair(), TO('f2'), { fairness_floors: [{ ...LOW, min_ratio: 0 }, { ...FG, statuses_any_of: ['first_generation', 'first_generation'] }] });
+      expect(failedNames(res)).toEqual([]);
+    });
+  });
+
+  describe('plan 自带的 fairness 造假', () => {
+    const truth = fairnessOf(fair(), TO('f2'), [FG, LOW]).metrics.fairness as FairnessReport[];
+    const honest = { ...TO('f2'), fairness: truth };
+    it('诚实的 fairness 通过', () => {
+      expect(failedNames(verifyPlan(fair(), honest, { fairness_floors: [FG, LOW] }))).toEqual([]);
+    });
+    const variants: [string, unknown][] = [
+      ['covered_members 多报', [{ ...truth[0], covered_members: 3 }, truth[1]]],
+      ['eligible_members 少报', [truth[0], { ...truth[1], eligible_members: 1, ratio: 1 }]],
+      ['ratio 不一致', [truth[0], { ...truth[1], ratio: 0.6 }]],
+      ['satisfied 造假', [truth[0], { ...truth[1], satisfied: false }]],
+      ['min_ratio 被降低', [{ ...truth[0], min_ratio: 0.5 }, truth[1]]],
+      ['顺序颠倒', [truth[1], truth[0]]],
+      ['少一条', [truth[0]]],
+      ['不是数组', 'ok'],
+    ];
+    for (const [name, f] of variants) {
+      it(name, () => {
+        expectFail(verifyPlan(fair(), { ...honest, fairness: f } as JointPlan, { fairness_floors: [FG, LOW] }), 'metrics');
+      });
+    }
+    it('规则 R3：复核选项没给底线（缺省 / null）时不比较 plan 自带的 fairness（任何内容都通过 metrics）', () => {
+      for (const f of [truth, [], null, 'ok', [{ ...truth[0], covered_members: 99 }]]) {
+        for (const o of [undefined, {}, { fairness_floors: null }]) {
+          const res = verifyPlan(fair(), { ...honest, fairness: f } as unknown as JointPlan, o as VerifyOptions | undefined);
+          expect(failedNames(res)).toEqual([]);
+          expect(res.checks.some((c) => c.name === 'fairness')).toBe(false);
+        }
+      }
+      expect(check(verifyPlan(fair(), honest), 'metrics').detail).toContain('未比较 plan 自带的 fairness');
+    });
+  });
+
+  describe('规则 R3：已放松底线的 alternative（reviewer 复现）', () => {
+    // 名额 0：第一代底线（f2 需要设备）达不到 → INFEASIBLE；alternative 放松 fairness_floors，空方案，
+    // 但仍按原底线报告 fairness（covered 1/2，不满足）。
+    const scenario = fair({ interventions: [{ ...LOAN, capacity: 0 }] });
+    const reported = fairnessOf(scenario, EMPTY, [FG]).metrics;
+    const alternative = {
+      ...EMPTY,
+      R0: reported.R0,
+      R1: reported.R1,
+      G: 0,
+      L: 0,
+      N: 0,
+      cost: { fixed_usd: 0, marginal_usd: 0, total_usd: 0 },
+      lost_pairs: [],
+      revocations: [],
+      fairness: reported.fairness as FairnessReport[],
+    };
+    it('前提：按原底线报告的 fairness 不满足', () => {
+      expect(alternative.fairness).toEqual([{ floor_id: 'fg', eligible_members: 2, covered_members: 1, ratio: 0.5, min_ratio: 1, satisfied: false }]);
+      expectFail(verifyPlan(scenario, alternative, { fairness_floors: [FG] }), 'fairness');
+    });
+    it('用去掉底线的复核选项复核：通过（不再因自带 fairness 判 metrics 不通过）', () => {
+      expect(failedNames(verifyPlan(scenario, alternative, {}))).toEqual([]);
+      expect(failedNames(verifyPlan(scenario, alternative, { fairness_floors: null } as unknown as VerifyOptions))).toEqual([]);
+    });
+    it('给出底线时，造假的 fairness 仍被 metrics 查出', () => {
+      const faked = { ...alternative, fairness: [{ ...alternative.fairness[0], covered_members: 2, ratio: 1, satisfied: true }] };
+      const res = verifyPlan(scenario, faked, { fairness_floors: [FG] });
+      expectFail(res, 'metrics');
+      expect(check(res, 'metrics').detail).toContain('covered_members');
+      // 诚实的报告在给出底线时只有 fairness 本身不通过
+      expect(failedNames(verifyPlan(scenario, alternative, { fairness_floors: [FG] }))).toEqual(['fairness']);
+    });
+  });
+});
+
+describe('verifyPlan：第 3 层正确方案全部通过', () => {
+  it('撤回 + 底线 + 全部软要求 + 自带全部指标', () => {
+    const scenario = rev({ students: [{ ...S1, statuses: ['low_income'] }, { ...S2, statuses: ['low_income'] }] });
+    const floors = [floor('low', ['low_income'], 1)];
+    const opts: VerifyOptions = { ...TRADE0, fairness_floors: floors, min_gain: 1, required_intervention_ids: ['new'] };
+    const m = verifyAndMeasure(createJointEvaluator(scenario), SWAP, opts).metrics;
+    const full = {
+      ...SWAP,
+      R0: m.R0,
+      R1: m.R1,
+      G: m.G,
+      L: m.L,
+      N: m.N,
+      cost: { fixed_usd: m.fixed_usd, marginal_usd: m.marginal_usd, total_usd: m.total_usd },
+      lost_pairs: m.lost_pairs,
+      revocations: m.revocations,
+      fairness: m.fairness ?? undefined,
+    };
+    const res = verifyPlan(scenario, full, opts);
+    expect(failedNames(res)).toEqual([]);
+    expect(res.checks.map((c) => c.name)).toEqual([...ALL_CHECKS.slice(0, -1), 'organizer_requirements', 'fairness', 'metrics']);
+  });
+
+  it('畸形的撤回 / 底线输入不抛异常', () => {
+    const weird: unknown[] = [{ ...SWAP, revoked_grant_ids: [null, {}, ['e-old']] }, { ...SWAP, revocations: [null, 1] }, { ...SWAP, fairness: [null] }];
+    for (const plan of weird) {
+      expect(() => verifyPlan(rev(), plan as JointPlan, { ...TRADE0, fairness_floors: [LOW, null] as unknown as FairnessFloor[] })).not.toThrow();
+    }
+    expect(() => verifyPlan(rev(), SWAP, { fairness_floors: 'x' as unknown as FairnessFloor[] })).not.toThrow();
+  });
+
+  it('不修改输入（含撤回与底线）', () => {
+    const scenario = rev();
+    const plan = { ...SWAP };
+    const opts = { ...TRADE0, fairness_floors: [LOW] };
+    const before = JSON.stringify([scenario, plan, opts]);
+    const a = verifyPlan(scenario, plan, opts);
+    expect(JSON.stringify([scenario, plan, opts])).toBe(before);
+    expect(verifyPlan(scenario, plan, opts)).toEqual(a);
+  });
+});
+
+describe('exhaustiveBest / naiveBest：撤回与底线（对照手算与不剪枝的暴力枚举）', () => {
+  it('protect：不能换用互斥的 new（要撤回 e-old），最优为空方案', () => {
+    expect(exhaustiveBest(rev())).toMatchObject({ feasible: true, N: 0, L: 0, total_usd: 0, revokedCount: 0 });
+  });
+
+  it('tradeoff loss_cap 0：换用 new、强制撤回 e-old，由 new 给 s1 补位（R0 中的对需要分配）', () => {
+    const r = exhaustiveBest(rev(), TRADE0);
+    expect(r).toMatchObject({ feasible: true, N: 1, G: 1, L: 0, total_usd: 120, allocationCount: 2, revokedCount: 1 });
+    const n = naiveBest(rev(), TRADE0);
+    expect(n.plan).toEqual(SWAP);
+    expect(n.revocations).toEqual([{ grant_id: 'e-old', intervention_id: 'old', student_id: 's1', forced_by: 'new' }]);
+  });
+
+  it('底线不可行 → 不可行；去掉底线后可行', () => {
+    const scenario = makeScenario({ students: [F1, F2, F5], opportunities: [O1], interventions: [{ ...LOAN, capacity: 0 }] });
+    expect(exhaustiveBest(scenario, { fairness_floors: [FG] }).feasible).toBe(false);
+    expect(exhaustiveBest(scenario).feasible).toBe(true);
+  });
+
+  it('底线改变人选：没有底线时按学生编号给 f1，有第一代底线时给 f2', () => {
+    const scenario = makeScenario({ students: [F1, F2, F5], opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] });
+    expect(naiveBest(scenario).plan?.allocations.map((a) => a.student_id)).toEqual(['f1']);
+    const withFloor = naiveBest(scenario, { fairness_floors: [FG] });
+    expect(withFloor.plan?.allocations.map((a) => a.student_id)).toEqual(['f2']);
+    expect(withFloor.fairness?.[0]).toMatchObject({ covered_members: 2, eligible_members: 2 });
+  });
+
+  const tiny: [string, Scenario, VerifyOptions][] = [
+    ['换用互斥措施（protect）', rev(), {}],
+    ['换用互斥措施（tradeoff 0）', rev(), TRADE0],
+    ['换用互斥措施（tradeoff 1）', rev(), TRADE1],
+    [
+      '撤回 pending grant 腾名额',
+      makeScenario({
+        students: [S1, S2],
+        opportunities: [O1],
+        interventions: [OLD],
+        existing_grants: [laptopGrant('s2', null, { id: 'e-pend', intervention_id: 'old', status: 'pending' })],
+      }),
+      TRADE0,
+    ],
+    [
+      '自愿撤回不值得（N 不变、L 变大）',
+      makeScenario({
+        students: [S1, S2],
+        opportunities: [O1],
+        interventions: [OLD],
+        existing_grants: [E_OLD],
+      }),
+      { mode: 'tradeoff', loss_cap: 2 },
+    ],
+    [
+      '底线 + 撤回',
+      rev({ students: [{ ...S1, statuses: ['low_income'] }, { ...S2, statuses: ['first_generation'] }] }),
+      { mode: 'tradeoff', loss_cap: 1, fairness_floors: [floor('fg', ['first_generation'], 1)] },
+    ],
+    ['底线（三人一措施）', makeScenario({ students: [F1, F2, F5], opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }), { fairness_floors: [FG, LOW] }],
+    [
+      'R1：场景外学生的 grant 封锁互斥措施（tradeoff 2）',
+      rev({
+        interventions: [{ ...OLD, capacity: 2 }, NEW],
+        existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+      }),
+      { mode: 'tradeoff', loss_cap: 2 },
+    ],
+  ];
+
+  it('R1：场景外学生的 grant 封锁互斥措施——两种模式下 new 都不可选；撤回 e-out 腾名额也不行', () => {
+    const scenario = rev({
+      interventions: [{ ...OLD, capacity: 2 }, NEW],
+      existing_grants: [E_OLD, laptopGrant('outsider', null, { id: 'e-out', intervention_id: 'old', status: 'pending' })],
+    });
+    // old 已满（s1 + outsider），new 被封锁 → protect 与 tradeoff 都只能是空方案
+    for (const o of [{}, TRADE0, TRADE1, { mode: 'tradeoff' as const, loss_cap: 2 }]) {
+      const n = naiveBest(scenario, o);
+      expect(n.plan?.selected_intervention_ids).toEqual([]);
+      expect(n.N).toBe(0);
+      expect(exhaustiveBest(scenario, o)).toMatchObject({ feasible: true, N: 0 });
+    }
+    // 必须启用 new → 不可行
+    expect(exhaustiveBest(scenario, { ...TRADE0, required_intervention_ids: ['new'] }).feasible).toBe(false);
+    expect(naiveBest(scenario, { required_intervention_ids: ['new'] }).feasible).toBe(false);
+  });
+  for (const [name, scenario, options] of tiny) {
+    it(`剪枝不改变最优指标：${name}`, () => {
+      const brute = bruteNoPrune(scenario, options);
+      const ex = exhaustiveBest(scenario, options);
+      if (!brute) expect(ex.feasible).toBe(false);
+      else expect({ N: ex.N, L: ex.L, total: ex.total_usd, count: ex.allocationCount, selected: ex.selectedCount, revoked: ex.revokedCount }).toEqual(brute);
     });
   }
 });
 
 describe('独立性守卫', () => {
   for (const file of ['./verify.ts', './exhaustive.ts']) {
-    it(`${file} 不 import 求解器 / index / scenarios`, () => {
+    it(`${file} 不 import 求解器 / index / scenarios / baselines / whatif`, () => {
       const src = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8');
       const specifiers = [...src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)['"]([^'"]+)['"]/g)].map((m) => m[1]);
       expect(specifiers.length).toBeGreaterThan(0);
       for (const spec of specifiers) {
-        expect(spec).not.toMatch(/^\.\/(solve|index|scenarios)(\.ts)?$/);
-        expect(spec).not.toMatch(/^\.\/?$|^\.\.\/joint|^@\/lib\/joint(\/(solve|index|scenarios))?$/);
+        expect(spec).not.toMatch(/^\.\/(solve|index|scenarios|baselines|whatif)(\.ts)?$/);
+        expect(spec).not.toMatch(/^\.\/?$|^\.\.\/joint|^@\/lib\/joint(\/(solve|index|scenarios|baselines|whatif))?$/);
       }
       expect(specifiers.every((s) => ['../types', '../reachability', '../eligibility', '../eligibility/dates', '../format', './verify'].includes(s))).toBe(true);
     });
