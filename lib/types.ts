@@ -1383,9 +1383,12 @@ export interface AlternativeSuggestion {
 
 /**
  * 匹配理由的类别：interest = 兴趣与领域重合；eligibility = 资格结论；reachability = 现实可达性；
- * format = 参与形式（线上 / 线下）与交通；time = 时间投入与可用时间；cost = 费用与预算。
+ * format = 参与形式（线上 / 线下 / 混合）与学生的交通条件；time = 时间投入、准备小时与可用时间、截止前剩余时间；
+ * cost = 费用与预算；device = 所需设备（第二阶段第 2 层新增）；transport = 线下参加的交通障碍、自费差旅与交通支持
+ * （第二阶段第 2 层新增）。
+ * 新增成员只追加在末尾；页面若对 MatchReasonKind 做穷尽式映射，需要为 'device'、'transport' 补上。
  */
-export type MatchReasonKind = 'interest' | 'eligibility' | 'reachability' | 'format' | 'time' | 'cost';
+export type MatchReasonKind = 'interest' | 'eligibility' | 'reachability' | 'format' | 'time' | 'cost' | 'device' | 'transport';
 
 export const MATCH_REASON_KINDS: readonly MatchReasonKind[] = [
   'interest',
@@ -1394,6 +1397,8 @@ export const MATCH_REASON_KINDS: readonly MatchReasonKind[] = [
   'format',
   'time',
   'cost',
+  'device',
+  'transport',
 ] as const;
 
 /** 一条匹配理由。 */
@@ -1415,7 +1420,10 @@ export interface MatchReason {
 export interface MatchExplanation {
   profile_id: string;
   opportunity_id: string;
-  /** 理由列表，稳定顺序（按 MATCH_REASON_KINDS 顺序）。 */
+  /**
+   * 理由列表，稳定顺序（按 MATCH_REASON_KINDS 顺序），每个种类最多一条；
+   * 某个种类没有可说的就不出现（例如线上机会没有 transport 理由），所以条数不固定，页面不要按下标取理由。
+   */
   reasons: MatchReason[];
   eligibility_overall: OverallEligibility;
   /** 现实可达性（语义同 ReachabilityResult.reachable；可达 ≠ 录取）。 */
@@ -1465,7 +1473,11 @@ export interface CrossPlanItem {
    * 关系：required_hours = hours_before_reuse − hours_saved_by_reuse + （作为承担者时 Σ(hours_each − 自己那份)）。
    */
   required_hours: number;
-  /** 不考虑复用时这个机会自己需要的小时数。非 planned 时为 0。 */
+  /**
+   * 不考虑复用时这个机会自己需要的小时数。非 planned 时为 0。
+   * （完整版补充说明）只算所选路线的必需步骤：申请必需的准备项及其未完成的前置步骤、路线固定步骤；
+   * 已被证据跳过、或已由 options.materials 中就绪材料覆盖的步骤不计；建议项小时不计入，只在 note 里说明。
+   */
   hours_before_reuse: number;
   /**
    * 这个机会因复用（材料已由 order 更靠前的机会承担）而少算的小时，≥ 0：
@@ -1485,7 +1497,10 @@ export interface CrossPlanItem {
   feasible_alone: boolean | null;
   /** 按截止日期的建议先后（1 起）；截止日期为 null 的排在最后。只是建议，不替学生做取舍。 */
   order: number;
-  /** 面向学生的说明（为什么排在这里、为什么 blocked 等）。 */
+  /**
+   * 面向学生的说明（为什么排在这里、为什么 blocked 等）。planned 时还会写：小时来自哪条路线、
+   * 建议项的小时（不计入）、已就绪材料省下的小时，以及作为复用非承担者时哪份材料的小时计在哪个机会上。
+   */
   note: string;
 }
 
@@ -1563,8 +1578,17 @@ export interface CrossPlanOptions extends EvalOptions {
   /**
    * 学生自己给的优先顺序（机会 id，靠前优先）。只用于冲突说明「若只保留前几个会怎样」，
    * 不改变 order（order 只按截止日期），也不代表系统建议放弃其他机会。缺省 = 学生没给。
+   * （完整版补充说明）有超出的周时，conflicts 末尾另有一条跨周的整体对照；不认识的 id 忽略并写进 warnings。
    */
   priorities?: string[];
+  /**
+   * （补充字段）学生已存的申请材料（lib/store.ts 的 loadMaterials(profile_id)，由页面传入）。缺省 = 不考虑已有材料。
+   * 只有 status 为 'ready' 的材料生效：kind 与步骤准备项的 material_kind 相同时，该步骤小时计 0（视同已完成）。
+   * - 通用材料（reusable: true）只抵消同样标明可复用（PrepItem.reusable_across_opportunities === true）的准备项；
+   * - 针对某个机会的材料（opportunity_id 为该机会 id）只对那个机会生效；若带 prep_item_id，还须与准备项 id 相同。
+   * profile_id 与档案 id 不同的材料忽略。未就绪（not_started / in_progress）的材料不减小时。
+   */
+  materials?: Material[];
 }
 
 // ───────────────────────────── Quest Journal ─────────────────────────────

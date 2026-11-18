@@ -1,5 +1,5 @@
 /**
- * explainMatch（第二阶段示例版本）/ findAlternatives（完整实现）测试。机会 fixture 全部虚构（example.com、is_sample: true）。
+ * explainMatch / findAlternatives（均为完整实现）测试；explainMatch 的分项理由测试在 ./explain.test.ts。机会 fixture 全部虚构（example.com、is_sample: true）。
  */
 import { describe, expect, it } from 'vitest';
 import opportunitiesJson from '@/data/opportunities.json';
@@ -91,10 +91,10 @@ function collectKeys(v: unknown, out: Set<string>): Set<string> {
 describe('explainMatch', () => {
   const m = explainMatch(STUDENT, TARGET, TODAY);
 
-  it('形状：三条理由（interest / eligibility / reachability），按 MATCH_REASON_KINDS 顺序', () => {
+  it('形状：线上机会 → interest / eligibility / reachability / format / time / cost / device（无 transport），按 MATCH_REASON_KINDS 顺序', () => {
     expect(m.profile_id).toBe(STUDENT.id);
     expect(m.opportunity_id).toBe(TARGET.id);
-    expect(m.reasons.map((r) => r.kind)).toEqual(['interest', 'eligibility', 'reachability']);
+    expect(m.reasons.map((r) => r.kind)).toEqual(['interest', 'eligibility', 'reachability', 'format', 'time', 'cost', 'device']);
     const idx = m.reasons.map((r) => MATCH_REASON_KINDS.indexOf(r.kind));
     expect(idx).toEqual([...idx].sort((a, b) => a - b));
     expect(m.shared_interests).toEqual(['climate']);
@@ -444,7 +444,10 @@ describe('示例档案 × 真实机会', () => {
       for (const o of opps) {
         for (const opts of [TODAY, undefined]) {
           const m = explainMatch(p, o, opts);
-          expect(m.reasons).toHaveLength(3);
+          // 完整版：每个种类最多一条，按 MATCH_REASON_KINDS 顺序；前三条恒为 interest / eligibility / reachability。
+          expect(m.reasons.slice(0, 3).map((x) => x.kind)).toEqual(['interest', 'eligibility', 'reachability']);
+          const idx = m.reasons.map((x) => MATCH_REASON_KINDS.indexOf(x.kind));
+          expect(idx).toEqual([...new Set(idx)].sort((a, b) => a - b));
           for (const a of findAlternatives(p, o, opps, opts)) {
             if (a.kind === 'same_field') expect(a.eligibility_overall).not.toBe('not_eligible');
           }

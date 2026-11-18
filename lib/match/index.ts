@@ -1,18 +1,47 @@
 /**
- * explainMatch(profile, opp, options?) — 这个机会为什么适合 / 不适合这名学生（不含分数或名次）。
+ * explainMatch(profile, opp, options?: MatchOptions) — 这个机会为什么适合 / 不适合这名学生（完整实现，第二阶段第 2 层；不含分数或名次）。
  * findAlternatives(profile, opp, catalog, options?: MatchOptions) — 从传入的机会目录里找替代机会（完整实现，第二阶段第 1 层）。
  *
- * ── explainMatch ── PHASE 2 SAMPLE VERSION — replaced in layer 2
- * 示例版本：签名与返回形状和最终版一致，内容简化但如实。
- * 理由只来自三件事，按 MATCH_REASON_KINDS 顺序输出：
- * - interest：profile.interests ∩ opp.fields（用 lib/tags.ts 的 normalizeTag 比较：去首尾空格、不区分大小写、
- *   空格 / 下划线 / 连字符视为同一写法；shared_interests 按 opp.fields 原顺序与原写法）；
- *   兴趣没填或机会没有领域标签 → positive: null；有交集 → true；都填了但没交集 → false。
- * - eligibility：checkEligibility 的 overall：eligible → true，not_eligible → false，unknown → null（列出待确认的硬性要求）。
- * - reachability：analyzeReachability(profile, opp, options.grants ?? [], options) 的 reachable 与 summary——
- *   页面上同时显示 analyzeGaps 时请传同一组 grants，两者的 reachable 才一致。
- * 省略：format / time / cost 三类理由（最终版从障碍里拆出单独理由）。
- * 不输出任何分数、百分比或名次。
+ * ── explainMatch（完整实现，第二阶段第 2 层；代码在 ./explain.ts）──
+ * 只整理已有引擎的结论，不另写判断：r = analyzeReachability(profile, opp, grants, { today })（内部调用 checkEligibility），
+ * eligibility_overall 与 reachable 直接取 r。grants = options.grants 里的对象（不是数组按 []），引擎只认与该学生、
+ * 该机会匹配的 approved grant——与 analyzeGaps / findAlternatives 传同一组时三者结论一致。
+ * 理由按 MATCH_REASON_KINDS 顺序输出，每个种类最多一条，没有可说的种类不输出（条数不固定）：
+ * - interest：profile.interests ∩ opp.fields（normalizeTag 比较；shared_interests 按 opp.fields 原顺序与原写法）；
+ *   兴趣没填 / 为空数组（提示可在 Skill Passport 补充）或机会没有领域标签 → null；有交集 → true；都填了但没交集 → false。
+ * - eligibility：eligible → true；not_eligible → false，列出不满足的硬性要求（标签，最多 3 条，其余写「还有 N 条」），
+ *   每条按 ./block.ts 的 blockNature 说明走向：permanent「不是靠准备能改变的」/ improvable「升年级或长大后可能满足」
+ *   （附「届时按官网要求重新确认」）/ fixable「可以自己补上」；unknown → null，列出待确认的硬性要求（最多 3 条），
+ *   每条注明是「在 Skill Passport 补填某项」还是「向主办方确认」——以 checkEligibility 返回的 confirm_with_official
+ *   为准（引擎在档案缺该项时给 "Add your <字段> to your profile first." 提示，如缺州 / 省；其余为向主办方确认），不另猜。
+ *   偏好（非硬性）要求不列。
+ * - reachability：r.reachable 与 r.summary（引擎原文，含「可达 ≠ 录取」）。
+ * - format：online → true；in_person / hybrid（附地点）按档案交通等级：reliable → true；limited / none → false，
+ *   若交通障碍已被 approved grant 化解 → true 并写明；交通没填 → null；format 缺失或无法识别 → null。
+ *   reliable 但引擎仍有未化解的交通障碍（如需自费差旅）时仍为 true，文字加半句「差旅 / 交通问题见 transport 那条」。
+ * - time：已过截止日期 → false（引擎描述）；未化解的 time 障碍 → false（引擎描述，最多两条，pending 只提一句「尚未生效」）；
+ *   全部已被 time_support 化解 → true 并写明；否则缺 profile.hours_per_week_available / opportunity.time_commitment.hours_per_week /
+ *   opportunity.deadline / options.today → null（写出缺什么、去哪补）；否则 true：每周需要与可用小时、截止前剩几天、
+ *   必需准备小时（requiredPrepClosure，与引擎同一口径）放得下；没有截止日期时提示可能是滚动截止。
+ * - cost：未化解的 cost 障碍 → false（引擎描述；官方费用未知时引擎已写成 at least $X，与 analyzeGaps 同一口径；
+ *   官方费用已知且已批准支持只抵一部分时补一句还差多少）；已被 fee_waiver 化解 → true；缺官方费用或预算 → null
+ *   （官方费用未知、预算已填时说明必需准备费与预算的关系：放得下 / 高于预算、加上已批准的有金额减免才放得下，且总数可能更高）；
+ *   否则 true（费用 + 必需准备费，在预算内）。financial_aid_available 为 true 时注明「有资助 ≠ 你已获得」。
+ * - device：没有必需设备 → true；档案没填设备 → null；缺的设备逐个说明（被 approved device grant 化解的写
+ *   「主办方已批准的 X 借用覆盖了 X 要求」，未化解的用引擎描述 + pending 提示）；有未化解的 → false，否则 true。
+ * - transport：线上机会不输出；未化解的交通障碍 → false（引擎描述 + pending 提示）；已化解 → true（写明是交通补助 /
+ *   替代参与方式）；缺 profile.transport 或「是否自费差旅」→ null；否则 true。
+ * summary：一句话，按「资格 → 现实条件 → 兴趣」：not_eligible 时不加任何鼓励申请的话、不提兴趣——不满足的硬性要求
+ * 全部是 fixable（portfolio / prerequisite_skill）时说「现在还不满足 "X"，这是可以自己补上的」（不说本届不能申请，
+ * 也不承诺补上后会被录取）；含 permanent 或 improvable 的要求时说本届不能申请及原因；
+ * unknown 先说要向主办方确认（或补填档案）哪几条，再说现实条件；eligible 时说可达（注明不代表录取）/ 不可达的障碍类别 /
+ * 还缺哪些信息，最后一句兴趣。
+ * 档案字段损坏（有值但类型不对，./profile-issues.ts，与 analyzeGaps 同口径）：不调用引擎，eligibility / reachability 为 null，
+ * 说明是档案问题、请在 Skill Passport 更正（不归咎于机会）。机会数据不完整导致引擎出错：同样只给 interest / eligibility /
+ * reachability 三条 null 理由，提示查看官网。两种情况 eligibility_overall = 'unknown'、reachable = null。
+ * 仍然不做：不比较学生所在地与举办地的距离（只提示学生自己核对路程）；不读学生的形式偏好（档案没有这个字段）；
+ * 不预测 pending 支持获批后的效果（只说尚未生效，详细推演见 analyzeGaps）；不输出任何分数、百分比、名次或匹配等级，
+ * 也不按理由条数排序机会。
  *
  * ── findAlternatives（完整实现）──
  * 产品依据（Quest Recovery）：申请过期、费用难以承担或资格暂时不符时，找下一届或同领域的其他机会；
@@ -64,15 +93,15 @@ import type {
   EligibilityItem,
   EligibilityResult,
   EvalOptions,
-  MatchExplanation,
   MatchOptions,
-  MatchReason,
   Opportunity,
   OverallEligibility,
   ReachabilityResult,
   ResourceGrant,
   StudentProfile,
 } from '../types';
+
+export { explainMatch } from './explain';
 
 const MAX_SAME_FIELD = 3;
 
@@ -81,96 +110,6 @@ function hardLabels(e: EligibilityResult, status: 'not_satisfied' | 'unknown'): 
     .filter((i) => i.hard && i.status === status)
     .map((i) => `"${i.label}"`)
     .join(', ');
-}
-
-// ───────────────────────────── explainMatch ─────────────────────────────
-
-export function explainMatch(profile: StudentProfile, opp: Opportunity, options?: MatchOptions): MatchExplanation {
-  const p = safeProfile(profile);
-  const o = safeOpportunity(opp);
-
-  // ── interest ──
-  const interestsFilled = Array.isArray(p.interests);
-  const shared_interests = sharedTags(o.fields, normalizedTagSet(asArray<unknown>(p.interests)));
-  let interest: MatchReason;
-  if (!interestsFilled) {
-    interest = { kind: 'interest', positive: null, text: "Your profile has no interests yet, so we can't compare them with this opportunity's fields." };
-  } else if (o.fields.length === 0) {
-    interest = { kind: 'interest', positive: null, text: "This opportunity lists no fields, so we can't compare it with your interests." };
-  } else if (shared_interests.length > 0) {
-    interest = { kind: 'interest', positive: true, text: `Matches your interests: ${shared_interests.join(', ')}.` };
-  } else {
-    interest = {
-      kind: 'interest',
-      positive: false,
-      text: `None of your interests match this opportunity's fields (${o.fields.join(', ')}).`,
-    };
-  }
-
-  // ── eligibility / reachability ──
-  let r: ReachabilityResult | null = null;
-  try {
-    const grants = asArray<ResourceGrant>(options?.grants);
-    const evalOptions: EvalOptions | undefined = options?.today == null ? undefined : { today: options.today };
-    r = analyzeReachability(p, o, grants, evalOptions);
-  } catch {
-    r = null;
-  }
-
-  let eligibility_overall: OverallEligibility;
-  let eligibility: MatchReason;
-  let reachability: MatchReason;
-  let reachable: boolean | null;
-  if (r == null) {
-    eligibility_overall = 'unknown';
-    reachable = null;
-    eligibility = { kind: 'eligibility', positive: null, text: "The opportunity data is incomplete, so we can't check eligibility. Check the official page." };
-    reachability = { kind: 'reachability', positive: null, text: "The opportunity data is incomplete, so we can't tell whether this is realistic for you." };
-  } else {
-    eligibility_overall = r.eligibility.overall;
-    reachable = r.reachable;
-    if (eligibility_overall === 'eligible') {
-      eligibility = { kind: 'eligibility', positive: true, text: 'You meet every hard official requirement we can check.' };
-    } else if (eligibility_overall === 'not_eligible') {
-      eligibility = { kind: 'eligibility', positive: false, text: `You don't meet the hard requirement(s): ${hardLabels(r.eligibility, 'not_satisfied')}.` };
-    } else {
-      eligibility = {
-        kind: 'eligibility',
-        positive: null,
-        text: `Some hard requirements can't be checked yet: ${hardLabels(r.eligibility, 'unknown')}. Confirm with the organizer.`,
-      };
-    }
-    reachability = { kind: 'reachability', positive: reachable, text: r.summary };
-  }
-
-  const interestPart =
-    interest.positive === true
-      ? `Shares your interests (${shared_interests.join(', ')}).`
-      : interest.positive === false
-        ? "Doesn't overlap with your listed interests."
-        : 'Interest match unknown.';
-  const eligPart =
-    eligibility_overall === 'eligible'
-      ? 'Eligibility: you meet the checkable hard requirements.'
-      : eligibility_overall === 'not_eligible'
-        ? 'Eligibility: not eligible this round.'
-        : 'Eligibility: to be confirmed.';
-  const reachPart =
-    reachable === true
-      ? 'Realistically doable right now (not a prediction of admission).'
-      : reachable === false
-        ? 'Not realistic right now.'
-        : 'Realistic or not: unknown yet.';
-
-  return {
-    profile_id: p.id,
-    opportunity_id: o.id,
-    reasons: [interest, eligibility, reachability],
-    eligibility_overall,
-    reachable,
-    shared_interests,
-    summary: `${interestPart} ${eligPart} ${reachPart}`,
-  };
 }
 
 // ───────────────────────────── findAlternatives ─────────────────────────────
