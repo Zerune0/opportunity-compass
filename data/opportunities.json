@@ -1,6 +1,6 @@
 [
   {
-    "verified_by": "Charlie",
+    "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
     "preparation": [
@@ -34,7 +34,7 @@
     "cost": {
       "fee_usd": 0,
       "requires_travel_expense": false,
-      "note": "Free online participation."
+      "note": "Free participation confirmed at https://ghw.mlh.com/ (Global Hack Week umbrella page)."
     },
     "time_commitment": {
       "hours_per_week": null,
@@ -46,7 +46,7 @@
     "requirements": []
   },
   {
-    "verified_by": "Charlie",
+    "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
     "preparation": [],
@@ -102,7 +102,7 @@
     ]
   },
   {
-    "verified_by": "Charlie",
+    "verified_by": "Jiale Li",
     "verified_on": "2026-11-17",
     "required_devices": [],
     "preparation": [],
@@ -114,7 +114,7 @@
       "stem",
       "laboratory-research"
     ],
-    "summary": "A paid summer internship at a participating DOE laboratory. Review the eligibility page for full requirements and exceptions for recent graduates.",
+    "summary": "A paid summer internship at a participating DOE laboratory. Review the eligibility page for full requirements and exceptions for recent graduates. Eligibility source: https://science.osti.gov/wdts/suli/Eligibility",
     "official_url": "https://science.osti.gov/wdts/suli/How-to-Apply",
     "deadline": "2027-01-06",
     "deadline_note": "5:00 PM Eastern Time",
@@ -131,9 +131,17 @@
     "time_commitment": {
       "hours_per_week": 40,
       "total_weeks": 10,
-      "note": "Approximately 40 hours per week on site."
+      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations"
     },
     "requirements": [
+      {
+        "id": "postsecondary-level",
+        "min": 13,
+        "type": "grade",
+        "hard": true,
+        "label": "Postsecondary applicant (recent graduate exceptions require official confirmation)",
+        "source_text": "Currently enrolled as a full-time student at an accredited community college, two-year college, or four-year institution. Recently graduated with an undergraduate degree."
+      },
       {
         "id": "us-citizen-or-permanent-resident",
         "type": "citizenship",
@@ -154,14 +162,14 @@
       {
         "id": "enrollment",
         "label": "Full-time undergraduate or qualifying recent graduate",
-        "source_text": "Recently graduated with an undergraduate degree",
+        "source_text": "Currently enrolled as a full-time student at an accredited community college, two-year college, or four-year institution. Recently graduated with an undergraduate degree.",
         "type": "manual",
         "hard": true
       },
       {
         "id": "transcript-credits",
         "label": "At least 6 STEM and 12 total undergraduate credits by the deadline",
-        "source_text": "a minimum of 12 total undergraduate credit hours",
+        "source_text": "By the application deadline, applicants must have completed at least 6 credit hours in STEM fields and a minimum of 12 total undergraduate credit hours.",
         "type": "manual",
         "hard": true
       },
@@ -173,5 +181,365 @@
         "hard": true
       }
     ]
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "id": "cooke-transfer-scholarship-2027",
+    "title": "Cooke Undergraduate Transfer Scholarship",
+    "organizer": "Jack Kent Cooke Foundation",
+    "category": "scholarship",
+    "fields": [
+      "college-transfer",
+      "financial-aid"
+    ],
+    "summary": "Scholarship for eligible community college students transferring to a four-year institution.",
+    "official_url": "https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/",
+    "deadline": "2026-12-09",
+    "location": {
+      "format": "online",
+      "note": "Application is online. The award supports study at a four-year institution."
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The application fee was not confirmed."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "requirements": [
+      {
+        "id": "community-college-transfer",
+        "label": "Community college transfer eligibility and additional award criteria",
+        "source_text": "Undergraduate Transfer Scholarship eligibility, Jack Kent Cooke Foundation",
+        "type": "manual",
+        "hard": true
+      }
+    ]
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "id": "noaa-hollings-scholarship-2027",
+    "title": "Ernest F. Hollings Undergraduate Scholarship",
+    "organizer": "NOAA Office of Education",
+    "category": "scholarship",
+    "fields": [
+      "environmental-science",
+      "ocean-science"
+    ],
+    "summary": "An undergraduate scholarship that includes a paid summer internship at a NOAA facility.",
+    "official_url": "https://www.noaa.gov/office-education/undergraduate-scholarships",
+    "deadline": "2027-01-31",
+    "deadline_note": "11:59 PM Eastern Time",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "note": "Online application. The internship takes place at a NOAA facility."
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The application fee and candidate-specific travel expense were not confirmed."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "requirements": [
+      {
+        "id": "academic-eligibility",
+        "label": "Undergraduate sophomore or third-year student in a five-year program. Check major and GPA requirements.",
+        "source_text": "undergraduate sophomores or third year students in a five year program",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "citizenship",
+        "label": "Check the U.S. citizenship requirement on the official page.",
+        "source_text": "NOAA Hollings scholarship eligibility",
+        "type": "manual",
+        "hard": true
+      }
+    ]
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "id": "doe-cci-summer-2027",
+    "title": "DOE Community College Internships · Summer 2027",
+    "organizer": "U.S. Department of Energy Office of Science",
+    "category": "internship",
+    "fields": [
+      "stem",
+      "laboratory-research"
+    ],
+    "summary": "An on-site internship for eligible community college students at participating DOE laboratories.",
+    "official_url": "https://science.osti.gov/wdts/cci",
+    "deadline": "2027-01-06",
+    "deadline_note": "5:00 PM Eastern Time",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "note": "Host laboratory depends on placement."
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The application fee and candidate-specific travel expense were not confirmed."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "requirements": [
+      {
+        "id": "community-college-eligibility",
+        "label": "Check the current enrollment and additional eligibility requirements for community college applicants.",
+        "source_text": "DOE Community College Internships eligibility",
+        "type": "manual",
+        "hard": true
+      }
+    ]
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "id": "planet-hunters-tess",
+    "title": "Planet Hunters TESS",
+    "organizer": "Planet Hunters TESS team on Zooniverse",
+    "category": "public_service",
+    "fields": [
+      "citizen-science",
+      "astronomy"
+    ],
+    "summary": "Online citizen science project where volunteers classify data to help find exoplanets.",
+    "official_url": "https://www.zooniverse.org/projects/nora-dot-eisner/planet-hunters-tess",
+    "deadline": null,
+    "deadline_note": "The organizer provides an active participation link. No deadline was confirmed.",
+    "location": {
+      "format": "online"
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": false,
+      "note": "Participation is online. A fee was not confirmed."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "requirements": []
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "category": "public_service",
+    "deadline": null,
+    "location": {
+      "format": "online"
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "requirements": [],
+    "id": "nasa-exoplanet-watch",
+    "title": "NASA Exoplanet Watch",
+    "organizer": "NASA Exoplanet Watch",
+    "fields": [
+      "citizen-science",
+      "astronomy"
+    ],
+    "summary": "Contribute to exoplanet research by analyzing available telescope data online. A personal telescope is optional.",
+    "official_url": "https://science.nasa.gov/citizen-science/exoplanet-watch/how-to-contribute/",
+    "deadline_note": "No participation deadline was confirmed.",
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": false,
+      "note": "NASA provides free data and analysis tools for the online path."
+    }
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "category": "public_service",
+    "deadline": null,
+    "location": {
+      "format": "online",
+      "note": "Online verification is available. Firsthand observations depend on local conditions."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "requirements": [],
+    "id": "nasa-aurorasaurus",
+    "title": "Aurorasaurus",
+    "organizer": "Aurorasaurus citizen science project",
+    "fields": [
+      "citizen-science",
+      "heliophysics"
+    ],
+    "summary": "Help track auroras by verifying reports online or reporting an observation. Project activity was confirmed; the signed-in reporting flow was not tested.",
+    "official_url": "https://science.nasa.gov/citizen-science/aurorasaurus/",
+    "deadline_note": "No participation deadline was confirmed.",
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": false,
+      "note": "No travel is required for online verification. A participation fee was not confirmed."
+    }
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "Fee not confirmed during the human source review."
+    },
+    "id": "nasa-texas-aerospace-scholars-senior-2026",
+    "title": "NASA Texas Aerospace Scholars · Senior Experience",
+    "organizer": "NASA Johnson Space Center",
+    "category": "summer_program",
+    "fields": [
+      "aerospace",
+      "stem"
+    ],
+    "summary": "A STEM experience for eligible Texas high school seniors. The senior application form was accessible during review.",
+    "official_url": "https://www.nasa.gov/learning-resources/texas-aerospace-scholars/",
+    "deadline": "2026-12-04",
+    "location": {
+      "format": "hybrid",
+      "country": "US",
+      "state": "TX",
+      "note": "Virtual activities and Johnson Space Center, Houston. Confirm the senior cohort schedule."
+    },
+    "requirements": [
+      {
+        "id": "senior-cohort",
+        "type": "grade",
+        "min": 12,
+        "max": 12,
+        "hard": true,
+        "label": "High school senior application",
+        "source_text": "2026-2027 Senior Application Window"
+      },
+      {
+        "id": "texas",
+        "type": "region",
+        "countries": [
+          "US"
+        ],
+        "states": [
+          "TX"
+        ],
+        "hard": true,
+        "label": "Texas resident",
+        "source_text": "Texas Residents"
+      },
+      {
+        "id": "us-citizen",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen",
+        "source_text": "U.S Citizens"
+      }
+    ]
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "Fee not confirmed during the human source review."
+    },
+    "id": "dan-herbatschek-fellowship-2027",
+    "title": "Dan Herbatschek Fellowship · 2027 cohort",
+    "organizer": "Ramsey Theory Group",
+    "category": "fellowship",
+    "fields": [
+      "mathematics",
+      "computing",
+      "interdisciplinary-study"
+    ],
+    "summary": "A fellowship supporting study and original work. The 2027 application form was accessible during review; confirm the full eligibility and participation terms with the organizer.",
+    "official_url": "https://www.herbatschekfellowship.org/apply",
+    "deadline": "2027-01-15",
+    "deadline_note": "2:00 PM Eastern Time",
+    "location": {
+      "format": "hybrid",
+      "note": "Online application. The fellowship's required attendance locations and format need confirmation."
+    },
+    "requirements": [
+      {
+        "id": "official-review",
+        "type": "manual",
+        "hard": true,
+        "label": "Organizer review of eligibility, work evidence, and application materials",
+        "source_text": "Eligibility and completeness review"
+      }
+    ]
+  },
+  {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [],
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": false,
+      "note": "Fee not confirmed during the human source review."
+    },
+    "id": "nasa-cloudspotting-mars",
+    "title": "Cloudspotting on Mars",
+    "organizer": "NASA Cloudspotting on Mars team",
+    "category": "public_service",
+    "fields": [
+      "citizen-science",
+      "planetary-science"
+    ],
+    "summary": "Classify clouds in Mars spacecraft data. The reviewer confirmed that the classification task could be entered.",
+    "official_url": "https://science.nasa.gov/citizen-science/cloudspotting/",
+    "deadline": null,
+    "deadline_note": "No participation deadline was confirmed.",
+    "location": {
+      "format": "online"
+    },
+    "requirements": []
   }
 ]
