@@ -57,7 +57,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       {plan?.status === "blocked" && (
         <QuestCard><h2>Routes unavailable</h2>
           <ul>{plan.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
-          <ul>{plan.alternatives.map((hint, index) => <li key={index}>{hint.kind === "next_cycle" ? "Check the next cycle" : "Explore similar opportunities"}</li>)}</ul>
+          <ul>{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul>
         </QuestCard>
       )}
       {plan?.status === "routes" && (
@@ -90,6 +90,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                     {step.description && <p>{step.description}</p>}
                     <p>{step.hours} h · {money.format(step.cost_usd)}</p>
                     {prep && <p>Evidence: {prep.evidence_kind ?? "Not specified"} · {prep.required_for_application ? "Required for application" : "Preparation step"}</p>}
+                    {prep?.source_text?.trim() && <p>Source: {prep.source_text}</p>}
                     {step.depends_on.length > 0 && <p>After: {step.depends_on.map((id) => route.steps.find((item) => item.id === id)?.title ?? id).join(", ")}</p>}
                     {step.skipped && <p><StatusTag tone="success">Skipped</StatusTag> {step.skip_reason}</p>}
                   </QuestCard></li>;
