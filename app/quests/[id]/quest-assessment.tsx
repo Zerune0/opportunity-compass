@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { checkEligibility } from "../../../lib/eligibility";
 import { analyzeReachability } from "../../../lib/reachability";
+import { planRoutes } from "../../../lib/path";
 import { grantsFor, loadProfile } from "../../../lib/store";
 import type { Opportunity, ResourceGrant, StudentProfile } from "../../../lib/types";
 
@@ -34,6 +35,7 @@ export function QuestAssessment({ opportunity }: { opportunity: Opportunity }) {
   const profile = context?.profile;
   const eligibility = context && profile && checkEligibility(profile, opportunity, { today: context.today });
   const reach = context && profile && analyzeReachability(profile, opportunity, context.grants, { today: context.today });
+  const plan = context && profile && eligibility?.overall === "not_eligible" ? planRoutes(profile, opportunity, { today: context.today }) : null;
   const gaps = reach?.readiness_gaps ?? [];
   const covered = reach ? opportunity.preparation.filter((item) =>
     !gaps.some((gap) => gap.prep_item_id === item.id),
@@ -55,8 +57,8 @@ export function QuestAssessment({ opportunity }: { opportunity: Opportunity }) {
           {opportunity.requirements.length === 0 && <p>No official requirements have been entered. Confirm with the organizer.</p>}
           {opportunity.requirements.length > 0 && (
             <ul className="rpg-list">
-              {opportunity.requirements.map((rule, index) => {
-                const item = eligibility?.items[index];
+              {opportunity.requirements.map((rule) => {
+                const item = eligibility?.items.find((result) => result.requirement_id === rule.id);
                 return (
                   <li key={rule.id}>
                     <details>
@@ -112,6 +114,7 @@ export function QuestAssessment({ opportunity }: { opportunity: Opportunity }) {
           <p className="rpg-muted rpg-small">The assessment describes participation constraints. Admission decisions are made by the organizer.</p>
         </section>
       </div>
+      {plan?.status === "blocked" && <section className="rpg-card"><h2>Other options</h2><ul>{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul></section>}
       {eligibility?.overall !== "not_eligible" && (
         <Link className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunity.id)}`}>View growth routes</Link>
       )}
