@@ -244,3 +244,16 @@ body::before {
   .rpg-head h1::after, .home h1::after { animation: none; }
   .rpg-route-grid > .rpg-card { animation: none; }
 }
+
+@layer components {
+  .rpg-classic-table { width: 100%; table-layout: fixed; border-collapse: collapse; overflow-wrap: anywhere; }
+  .rpg-classic-table caption { text-align: left; font-weight: bold; margin-bottom: 0.5rem; }
+  .rpg-classic-table :is(th, td) { padding: 0.5rem; text-align: left; vertical-align: top; border-bottom: 1px solid currentColor; }
+
+  @media (max-width: 55rem) {
+    .rpg-classic-table :is(tbody, tr, th, td) { display: block; }
+    .rpg-classic-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .rpg-classic-table td::before { content: attr(data-label) ": "; font-weight: bold; }
+    .rpg-classic-table tr + tr { margin-top: 1rem; }
+  }
+}
