@@ -420,11 +420,11 @@ function Controls(props: {
                     <input
                       type="checkbox"
                       className="h-4 w-4"
-                      aria-label={`纳入方案：${iv.title}`}
+                      aria-label={`${runningCount > 0 ? "接受新分配" : "纳入方案"}：${iv.title}`}
                       checked={isOn}
                       onChange={(e) => props.onToggleEnabled(iv.id, e.target.checked)}
                     />
-                    <span aria-hidden="true">纳入方案</span>
+                    <span aria-hidden="true">{runningCount > 0 ? "接受新分配" : "纳入方案"}</span>
                   </label>
                   <label
                     className={
@@ -592,7 +592,7 @@ function Controls(props: {
               单位是（学生, 机会）组合：最多允许多少个原本可达的组合在新方案下不再可达（0 或以上的整数）。同一名学生失去两个机会算 2。
               上限为 0 也不等同保护模式：仍允许收回待审批承诺（不计入损失）和不造成损失的收回。
               {view?.loss && view.mode === "tradeoff"
-                ? ` 当前结果失去 ${view.loss.lost_pairs} 个组合，涉及 ${view.loss.affected_students} 名学生。`
+                ? ` 当前结果失去 ${view.loss.lost_pairs} 个组合，涉及 ${view.loss.affected_students} 名学生（其中 ${view.loss.affected_students_still_reachable} 名在方案后仍有其他可达的机会）。`
                 : ""}
             </p>
           </div>
@@ -817,10 +817,16 @@ function Results({ view }: { view: WhatIfView }) {
             {view.capacity_usage.map((c) => (
               <li key={c.id} className="break-words">
                 {c.title}
-                {c.frozen ? "（运行中，不再新增分配）" : c.running ? (c.selected ? "（运行中）" : "（运行中，本方案没有新增分配）") : c.selected ? "" : "（未启用）"}：
-                {c.unlimited
-                  ? "名额不限"
-                  : c.slots.map((sl) => `${sl.scope_label} 已用 ${sl.used} / ${sl.capacity}${sl.full ? "（已满）" : ""}`).join("；")}
+                {c.status_note}
+                {c.deactivated
+                  ? ""
+                  : `：${
+                      c.unlimited
+                        ? "名额不限"
+                        : c.slots
+                            .map((sl) => `${sl.scope_label} 已用 ${sl.used} / ${sl.capacity}${sl.full ? "（已满）" : ""}`)
+                            .join("；")
+                    }`}
               </li>
             ))}
           </ul>
@@ -878,9 +884,7 @@ function Results({ view }: { view: WhatIfView }) {
       {view.uncovered && (
         <div>
           <h3 className="font-semibold">仍未覆盖</h3>
-          <p className="text-sm">
-            {view.uncovered.students} 名示例学生（{view.uncovered.pairs} 个（学生, 机会）对）在方案后仍不可达。
-          </p>
+          <p className="text-sm">{view.uncovered.summary}</p>
           {view.uncovered.reasons.length > 0 && (
             <ul className="mt-1 list-disc pl-5 text-sm">
               {view.uncovered.reasons.map((r) => (
@@ -888,7 +892,7 @@ function Results({ view }: { view: WhatIfView }) {
               ))}
             </ul>
           )}
-          <p className="mt-1 text-xs text-gray-600">只给人数；一名学生可能同时缺多项条件，因此各项人数之和可能大于总人数。原因是按措施类型做的说明，仅供参考。</p>
+          <p className="mt-1 text-xs text-gray-600">按（学生, 机会）对计，人数按学生去重、只作补充；一个对可能同时缺多项条件，一名学生可能有多个对，因此各项之和可能大于总数。原因是按措施类型做的说明，仅供参考。</p>
         </div>
       )}
 
@@ -952,9 +956,9 @@ function LossBlock({ view }: { view: WhatIfView }) {
         失去可达 L：{hasLoss ? `有失去（${loss.lost_pairs} 个对）` : "没有失去"}
       </h3>
       {loss.headline && <p className="mt-1 font-semibold">{loss.headline}</p>}
-      {hasLoss && (
+      {hasLoss && loss.summary && (
         <p className="mt-1">
-          受影响的示例学生：{loss.affected_students} 名（只给人数，不列出具体学生）。
+          {loss.summary}（只给人数，不列出具体学生。）
         </p>
       )}
       {loss.groups.length > 0 && (
@@ -989,7 +993,12 @@ function FairnessTable({ rows, caption }: { rows: WhatIfFairnessRow[]; caption: 
   return (
     <div>
       <h3 className="font-semibold">{caption}</h3>
-      <div className="mt-1 overflow-x-auto">
+      <div
+        className="mt-1 max-w-full overflow-x-auto"
+        tabIndex={0}
+        role="region"
+        aria-label={`${caption}（可横向滚动）`}
+      >
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-gray-400 text-left">
@@ -1062,15 +1071,18 @@ function BaselineRowView({ r }: { r: WhatIfBaselineRow }) {
       <td className="py-1 pr-3 text-right tabular-nums">{r.claimed_reachable}</td>
       <td className="py-1 pr-3">{r.executable ? "通过" : "不通过"}</td>
       {r.verified ? (
-        metricCells(r.verified)
+        <>
+          <td className="py-1 pr-3 text-right tabular-nums">{r.verified.R1_count}</td>
+          {metricCells(r.verified)}
+        </>
       ) : (
-        <td colSpan={4} className="py-1 pr-3 font-medium text-red-900">
+        <td colSpan={5} className="py-1 pr-3 font-medium text-red-900">
           不可执行（未通过：{r.failed_checks.join("、")}），不显示原方案的数字
         </td>
       )}
       <td className="py-1 pr-3 tabular-nums">
         {r.repaired
-          ? `新增 ${r.repaired.G} / 失去 ${r.repaired.L} / 净 ${signed(r.repaired.N)} / ${usd(r.repaired.total_usd)}`
+          ? `可达 ${r.repaired.R1_count} / 新增 ${r.repaired.G} / 失去 ${r.repaired.L} / 净 ${signed(r.repaired.N)} / ${usd(r.repaired.total_usd)}`
           : "—"}
       </td>
       <td className="py-1">{r.soft_label}</td>
@@ -1084,23 +1096,29 @@ function BaselinesTable({ view }: { view: WhatIfView }) {
     <div className="rounded border border-gray-300 p-3">
       <h3 className="font-semibold">基线对比（模拟）</h3>
       <p className="text-sm text-gray-700">
-        同一场景、同一预算与名额、同一套规则，用同一个独立验证器复核每种做法给出的方案。「声称」是该做法自己以为可达的对数；「复核后」是验证器重新计算的结果。
+        同一场景、同一预算与名额、同一套规则，用同一个独立验证器复核每种做法给出的方案。「声称」是该做法自己以为可达的对数；「复核后」是验证器重新计算的结果。声称可达与复核后可达是同一口径，都包含原本就可达的对；新增 / 失去 / 净变化是相对原本可达的变化。
       </p>
       {b.rows.length === 0 ? (
         <p className="mt-2 text-sm">没有做基线对比（见下方说明）。</p>
       ) : (
-        <div className="mt-2 overflow-x-auto">
-          <table className="min-w-[44rem] border-collapse text-sm">
+        <div
+          className="mt-2 max-w-full overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="基线对比表（可横向滚动）"
+        >
+          <table className="min-w-[52rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-gray-400 text-left">
                 <th scope="col" className="py-1 pr-3 font-medium">做法</th>
                 <th scope="col" className="py-1 pr-3 text-right font-medium">声称可达（对）</th>
                 <th scope="col" className="py-1 pr-3 font-medium">可执行性复核</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">复核后新增 G</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">复核后失去 L</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">复核后净变化 N</th>
-                <th scope="col" className="py-1 pr-3 text-right font-medium">复核后成本</th>
-                <th scope="col" className="py-1 pr-3 font-medium">先到先得截断后（新增 / 失去 / 净 / 成本）</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">复核后可达（对）</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">新增 G</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">失去 L</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">净变化 N</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">成本</th>
+                <th scope="col" className="py-1 pr-3 font-medium">先到先得截断后（可达 / 新增 / 失去 / 净 / 成本）</th>
                 <th scope="col" className="py-1 font-medium">满足主办方要求</th>
               </tr>
             </thead>

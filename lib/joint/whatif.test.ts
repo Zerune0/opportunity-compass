@@ -59,9 +59,13 @@ describe('runWhatIf', () => {
     expect(v.verification.checks.every((c) => c.passed && c.label.length > 0)).toBe(true);
     expect(v.alternative).toBeNull();
     expect(v.conditional).toBeNull();
-    // 仍未覆盖的 5 人：缺设备，名额已满（只给人数）。
+    // 仍未覆盖的 5 人：缺设备，名额已满（只给人数）。单机会场景：5 个对 = 5 名学生，他们都没有任何可达的机会。
     expect(v.uncovered?.students).toBe(5);
-    expect(v.uncovered?.reasons.find((r) => r.kind === 'device')).toMatchObject({ students: 5, cause: '名额已满' });
+    expect(v.uncovered).toMatchObject({ pairs: 5, students: 5, students_with_some_reachable: 0, students_with_none_reachable: 5 });
+    expect(v.uncovered?.summary).toBe(
+      '5 个（学生, 机会）对在方案后仍不可达，涉及 5 名示例学生；其中 0 名学生在方案后仍至少有一个可达的机会，5 名学生在方案后没有任何可达的机会。',
+    );
+    expect(v.uncovered?.reasons.find((r) => r.kind === 'device')).toMatchObject({ pairs: 5, students: 5, cause: '名额已满' });
     assertNoStudentInfo(v);
   });
 
@@ -318,7 +322,15 @@ describe('runWhatIf：权衡场景（手算见 ./solve-tradeoff.test.ts 文件�
     expect(v.mode_label).toBe('保护模式');
     expect(v.mode_explanation).toBe(MODE_EXPLANATIONS.protect);
     expect(v.loss_cap).toBeNull();
-    expect(v.loss).toEqual({ lost_pairs: 0, affected_students: 0, groups: [], headline: null, protect_note: PROTECT_LOSS_NOTE });
+    expect(v.loss).toEqual({
+      lost_pairs: 0,
+      affected_students: 0,
+      affected_students_still_reachable: 0,
+      summary: null,
+      groups: [],
+      headline: null,
+      protect_note: PROTECT_LOSS_NOTE,
+    });
     expect(v.revocations).toEqual({ total: 0, forced: 0, voluntary: 0, pending: 0, items: [] });
     expect(v.fairness).toEqual([]);
     expect(v.capacity_usage.find((c) => c.id === V.weekdayShuttle)?.slots[0]).toMatchObject({ used: 3, full: true });
@@ -621,5 +633,102 @@ describe('runWhatIf：运行中的措施、底线上界、待审批收回（R2 /
     expect(t.revocations).toMatchObject({ total: 1, forced: 0, voluntary: 1, pending: 1 });
     expect(t.assumptions.some((a) => a.includes('损失上限为 0 也不等同保护模式'))).toBe(true);
     assertNoStudentInfo(t, sc);
+  });
+});
+
+describe('runWhatIf：多机会场景按（学生, 机会）对表述「仍未覆盖」与「失去」（必须修 2）', () => {
+  /*
+   * 手算（权衡场景 2 个机会 WD / WE × 9 名学生 = 18 个对；R0 = s01–s03 的 WD）：
+   * - 保护模式：R1 = s01–s05 的 WD（5 个对）→ 仍不可达 13 个对，涉及 9 名学生；
+   *   方案后至少有一个可达机会的：s01–s05 = 5 人；没有任何可达机会的：s06–s09 = 4 人。
+   * - 权衡上限 3、无底线：启用卫星会场，强制收回接驳车 3 条 → s01–s03 的 WD 失去（L = 3，涉及 3 名学生）；
+   *   卫星会场 6 个座位按编号给 s01–s06 的 WE → R1 = 6 个对。仍不可达 18 − 6 = 12 个对，涉及 9 名学生
+   *   （9 名学生的 WD 都不可达）；至少有一个可达机会的：s01–s06 = 6 人；没有任何可达机会的：s07–s09 = 3 人。
+   *   失去的 3 名学生（s01–s03）都拿到了周末场座位 → 3 名在方案后仍有其他可达的机会。
+   *   原因：revoked 3 个对 / 3 人；transport：s04–s06 的 WD + s07–s09 的 WD、WE = 9 个对 / 6 人。
+   * - 权衡上限 3 + 低收入底线（≥ 50%，低收入 s06–s09 共 4 人，至少覆盖 2 人）：6 个座位给 s01–s04、s06、s07
+   *   （先满足底线，其余按编号）→ R1 仍为 6 个对、6 名学生；没有任何可达机会的：s05、s08、s09 = 3 人；
+   *   失去的 s01–s03 都有周末场座位 → 仍有其他可达机会的 3 人。各项计数与无底线时相同。
+   */
+  it('保护模式：13 个对 / 9 名学生，其中 5 名仍有可达机会、4 名没有', () => {
+    const v = runWhatIf(VT, vtInput(), VT_FLOORS);
+    expect(v.uncovered).toMatchObject({ pairs: 13, students: 9, students_with_some_reachable: 5, students_with_none_reachable: 4 });
+    expect(v.uncovered!.summary).toContain('13 个（学生, 机会）对在方案后仍不可达，涉及 9 名示例学生');
+    expect(v.uncovered!.reasons).toEqual([expect.objectContaining({ kind: 'transport', pairs: 13, students: 9 })]);
+  });
+
+  const tradeoffCases: [string, Partial<Parameters<typeof runWhatIf>[1]>][] = [
+    ['无底线', {}],
+    ['低收入底线', { fairnessFloorIds: [LOW_INCOME] }],
+  ];
+  for (const [name, extra] of tradeoffCases) {
+    it(`权衡上限 3（${name}）：按对表述，失去的 3 名学生都仍有其他可达机会`, () => {
+      const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 3, ...extra }), VT_FLOORS);
+      expect([v.G, v.L, v.N, v.R1_count]).toEqual([6, 3, 3, 6]);
+      expect(v.uncovered).toMatchObject({ pairs: 12, students: 9, students_with_some_reachable: 6, students_with_none_reachable: 3 });
+      expect(v.uncovered!.summary).toBe(
+        '12 个（学生, 机会）对在方案后仍不可达，涉及 9 名示例学生；其中 6 名学生在方案后仍至少有一个可达的机会，3 名学生在方案后没有任何可达的机会。',
+      );
+      expect(v.uncovered!.reasons).toEqual([
+        expect.objectContaining({ kind: 'revoked', pairs: 3, students: 3 }),
+        expect.objectContaining({ kind: 'transport', pairs: 9, students: 6 }),
+      ]);
+      // 不再出现「X 人……不再可达 / 仍不可达」这类按人数的说法。
+      for (const r of v.uncovered!.reasons) expect(r.text).toMatch(/^\d+ 个（学生, 机会）对/);
+      expect(v.uncovered!.reasons[0].text).toContain('（涉及 3 名学生）');
+      expect(v.loss).toMatchObject({ lost_pairs: 3, affected_students: 3, affected_students_still_reachable: 3 });
+      expect(v.loss!.summary).toBe('失去 3 个（学生, 机会）对，涉及 3 名学生，其中 3 名在方案后仍有其他可达的机会。');
+      expect(v.loss!.groups).toEqual([expect.objectContaining({ pairs: 3, students: 3, students_still_reachable: 3 })]);
+      expect(v.loss!.groups[0].text).toContain('失去 3 个（学生, 机会）对，涉及 3 名学生，其中 3 名在方案后仍有其他可达的机会');
+      expect(JSON.stringify(v.uncovered) + JSON.stringify(v.loss)).not.toMatch(/\d+ 人[^，。]*不再可达/);
+      assertNoStudentInfo(v, VT);
+    });
+  }
+});
+
+describe('runWhatIf：名额列表中运行中措施的已有资源被收回（建议修 1）', () => {
+  it('权衡上限 3：接驳车 3 / 3 份全部收回、无新增 → 本方案中已停用', () => {
+    const v = runWhatIf(VT, vtInput({ mode: 'tradeoff', lossCap: 3 }));
+    const c = v.capacity_usage.find((x) => x.id === V.weekdayShuttle)!;
+    expect(c).toMatchObject({ running: true, existing_grants: 3, revoked_existing: 3, deactivated: true });
+    expect(c.status_note).toBe('（本方案中已停用，已有资源全部收回）');
+    expect(c.status_note).not.toContain('已用');
+  });
+
+  it('保护模式：接驳车没有收回，仍为「运行中，本方案没有新增分配」', () => {
+    const v = runWhatIf(VT, vtInput());
+    const c = v.capacity_usage.find((x) => x.id === V.weekdayShuttle)!;
+    expect(c).toMatchObject({ revoked_existing: 0, deactivated: false, status_note: '（运行中，本方案没有新增分配）' });
+  });
+
+  it('收回后又有新分配：不算停用，注明收回了几份并显示剩余占用', () => {
+    const sc: Scenario = {
+      ...VT,
+      students: VT.students.map((s, k) => (k === 0 ? { ...s, grade: 8 } : s)),
+      interventions: VT.interventions.filter((iv) => iv.id === V.weekdayShuttle).map((iv) => ({ ...iv, capacity: 1, mutually_exclusive_with: [] })),
+      existing_grants: [{ ...VT.existing_grants![0], status: 'pending' }],
+    };
+    const t = runWhatIf(sc, { ...defaultWhatIfInput(sc), mode: 'tradeoff', lossCap: 0 });
+    const c = t.capacity_usage.find((x) => x.id === V.weekdayShuttle)!;
+    expect(c).toMatchObject({ existing_grants: 1, revoked_existing: 1, deactivated: false });
+    expect(c.status_note).toBe('（运行中，本方案收回 1 / 1 份已有资源；以下为剩余占用）');
+    expect(c.slots[0]).toMatchObject({ used: 1, capacity: 1 });
+  });
+});
+
+describe('runWhatIf：基线表同口径的复核后可达（必须修 1）', () => {
+  it('权衡场景保护模式：联合求解声称 5、复核后可达 5', () => {
+    const rows = runWhatIf(VT, vtInput()).baselines!.rows;
+    // A 声称 18（全部符合资格），复核后可达 = R0 = 3；B 不可执行，截断后可达 5；C、联合求解声称与复核后都是 5。
+    expect(rows.map((r) => [r.claimed_reachable, r.verified?.R1_count ?? null, r.repaired?.R1_count ?? null])).toEqual([
+      [18, 3, null],
+      [18, null, 5],
+      [5, 5, null],
+      [5, 5, null],
+    ]);
+    const B = rows.find((r) => r.id === 'B_student_side')!;
+    const C = rows.find((r) => r.id === 'C_organizer_side')!;
+    expect(B.description).toContain('不会收回任何已有资源');
+    expect(C.description).toContain('不会收回任何已有资源');
   });
 });

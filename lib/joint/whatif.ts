@@ -18,7 +18,8 @@
  *    求解器 / 验证器文字里的措施 id 先换成标题，再把学生 id、姓名、学校替换为「某学生」/「某学校」，并注明涉及人数。
  * 5. 第 3 层：模式（保护 / 权衡）与损失上限、公平底线（从调用方传入的可用底线 availableFloors 里按 id 勾选，
  *    可覆盖最低比例）、基线对比（./baselines 的 compareBaselines，同一场景、同一选项）。
- *    视图只含汇总：失去的对数 / 受影响人数 / 按「被收回的措施 → 原因」汇总的人数，收回条数，
+ *    视图只含汇总：失去的对数 / 受影响人数（及其中方案后仍有其他可达机会的人数）/ 按「被收回的措施 → 原因」汇总的人数，收回条数，
+ *    「仍未覆盖」一律按（学生, 机会）对表述，人数（按学生去重）只作补充，并给出「仍至少有一个可达机会 / 没有任何可达机会」的人数，
  *    每条底线的分子 / 分母 / 比例与「当前启用的措施下最多可覆盖 X / Y」（solve 的 fairnessCoverageBounds），
  *    收回中待审批承诺的条数（不计入损失），基线每行的声称与复核后数字。lost_pairs、revocations、基线方案里的学生 id 不进视图。
  *    损失上限或底线比例不合法（空、负数、非整数、非有限数、tradeoff 未填上限）时**不调用求解器**，
@@ -140,6 +141,14 @@ export interface WhatIfCapacity {
   running: boolean;
   /** 运行中但本次不接受新分配（未勾选或前置依赖不全）。 */
   frozen: boolean;
+  /** 该措施的已有资源（grant）条数（收回前）。 */
+  existing_grants: number;
+  /** 本方案收回的已有资源条数。 */
+  revoked_existing: number;
+  /** 本方案中已停用：运行中的已有资源全部收回、且没有新增分配（页面不再显示名额占用）。 */
+  deactivated: boolean;
+  /** 名称后的括注（如「（运行中）」「（本方案中已停用，已有资源全部收回）」）；没有则为空字符串。 */
+  status_note: string;
   /** 不限容量时为空数组。 */
   slots: WhatIfCapacitySlot[];
   unlimited: boolean;
@@ -191,8 +200,10 @@ export interface WhatIfLossGroup {
   forced_by_title: string | null;
   /** 收回的已有 grant 条数。 */
   revoked_count: number;
-  /** 因此失去可达的不同学生人数。 */
+  /** 因此失去可达的不同学生人数（按学生去重）。 */
   students: number;
+  /** 其中方案后仍至少有一个可达机会的学生人数。 */
+  students_still_reachable: number;
   /** 因此失去可达的（学生, 机会）对数。 */
   pairs: number;
   text: string;
@@ -201,8 +212,12 @@ export interface WhatIfLossGroup {
 export interface WhatIfLoss {
   /** 失去可达的（学生, 机会）对数（= L）。 */
   lost_pairs: number;
-  /** 受影响的不同学生人数。 */
+  /** 受影响的不同学生人数（按学生去重）。 */
   affected_students: number;
+  /** 受影响的学生中，方案后仍至少有一个可达机会的人数（多机会场景下失去一个对不等于失去全部机会）。 */
+  affected_students_still_reachable: number;
+  /** 汇总句：「失去 X 个（学生, 机会）对，涉及 Y 名学生，其中 Z 名在方案后仍有其他可达的机会」；L = 0 时为 null。 */
+  summary: string | null;
   groups: WhatIfLossGroup[];
   /** tradeoff 且 L > 0 时的醒目说明；否则 null。 */
   headline: string | null;
@@ -300,19 +315,27 @@ export interface WhatIfConditional extends WhatIfOutcomeSummary {
 export interface WhatIfUncoveredReason {
   /** 障碍类型或 'eligibility' / 'unknown' / 'revoked'（原本可达、因收回已有资源而不再可达）。 */
   kind: BarrierType | 'eligibility' | 'unknown' | 'revoked';
-  /** 涉及的不同学生人数。 */
+  /** 涉及的（学生, 机会）对数。 */
+  pairs: number;
+  /** 涉及的不同学生人数（按学生去重）。 */
   students: number;
   /** 可能原因（中文）。 */
   cause: string;
-  /** 完整一句话，如「5 人仍缺设备（名额已满）」。 */
+  /** 完整一句话，按（学生, 机会）对表述，人数作补充，如「5 个（学生, 机会）对仍缺设备（涉及 5 名学生）：名额已满」。 */
   text: string;
 }
 
 export interface WhatIfUncovered {
   /** 方案后仍不可达的（学生, 机会）对数。 */
   pairs: number;
-  /** 至少有一个机会仍不可达的不同学生人数。 */
+  /** 至少有一个机会仍不可达的不同学生人数（按学生去重）。 */
   students: number;
+  /** 上述学生中，方案后仍至少有一个可达机会的人数。 */
+  students_with_some_reachable: number;
+  /** 方案后没有任何可达机会的学生人数（全部学生中；= students − students_with_some_reachable）。 */
+  students_with_none_reachable: number;
+  /** 汇总句（按对表述，人数作补充）。 */
+  summary: string;
   reasons: WhatIfUncoveredReason[];
 }
 
@@ -728,10 +751,36 @@ function capacityUsage(
   return scenario.interventions
     .filter(isApproved)
     .map((iv) => {
-      const flags = { running: running.has(iv.id), frozen: frozenSet.has(iv.id) };
       const allocs = plan.allocations.filter((a) => a.intervention_id === iv.id);
+      const allExisting = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === iv.id);
       // 被本方案收回的已有 grant 不占名额（契约第 3 条第 5 款只数 E'）。
-      const existing = (scenario.existing_grants ?? []).filter((g) => g.intervention_id === iv.id && !revoked.has(g.id));
+      const existing = allExisting.filter((g) => !revoked.has(g.id));
+      const revokedN = allExisting.length - existing.length;
+      const isRunning = running.has(iv.id);
+      const isFrozen = frozenSet.has(iv.id);
+      const isSelected = selected.has(iv.id);
+      const deactivated = isRunning && allExisting.length > 0 && revokedN === allExisting.length && allocs.length === 0;
+      const status_note = deactivated
+        ? '（本方案中已停用，已有资源全部收回）'
+        : isRunning && revokedN > 0
+          ? `（运行中，本方案收回 ${revokedN} / ${allExisting.length} 份已有资源${isFrozen ? '，不再新增分配' : allocs.length > 0 ? '' : '，没有新增分配'}；以下为剩余占用）`
+          : isFrozen
+            ? '（运行中，不再新增分配）'
+            : isRunning
+              ? isSelected
+                ? '（运行中）'
+                : '（运行中，本方案没有新增分配）'
+              : isSelected
+                ? ''
+                : '（未启用）';
+      const flags = {
+        running: isRunning,
+        frozen: isFrozen,
+        existing_grants: allExisting.length,
+        revoked_existing: revokedN,
+        deactivated,
+        status_note,
+      };
       if (iv.capacity == null) {
         return { id: iv.id, title: iv.title, selected: selected.has(iv.id), ...flags, slots: [], unlimited: true };
       }
@@ -777,11 +826,13 @@ function uncoveredSummary(
   // 按 E'（未被收回的已有 grant）分析仍未覆盖的原因。
   const existing = (scenario.existing_grants ?? []).filter((g) => !revoked.has(g.id));
   const byKind = new Map<WhatIfUncoveredReason['kind'], Set<string>>();
+  const pairsByKind = new Map<WhatIfUncoveredReason['kind'], number>();
   const kindsOf = new Map<string, Set<WhatIfUncoveredReason['kind']>>();
   const add = (k: WhatIfUncoveredReason['kind'], sid: string) => {
     const set = byKind.get(k) ?? new Set<string>();
     set.add(sid);
     byKind.set(k, set);
+    pairsByKind.set(k, (pairsByKind.get(k) ?? 0) + 1);
     const ks = kindsOf.get(sid) ?? new Set<WhatIfUncoveredReason['kind']>();
     ks.add(k);
     kindsOf.set(sid, ks);
@@ -844,21 +895,39 @@ function uncoveredSummary(
     const set = byKind.get(k);
     if (!set || set.size === 0) continue;
     const n = set.size;
+    const pc = pairsByKind.get(k) ?? 0;
+    const who = `${pc} 个（学生, 机会）对`;
+    const tail = `（涉及 ${n} 名学生）`;
     if (k === 'revoked') {
       const cause = '原本可达，因收回已有资源而在此方案下不再可达（见「失去」说明）';
-      reasons.push({ kind: k, students: n, cause, text: `${n} 人${cause}` });
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}${tail}${cause}` });
     } else if (k === 'eligibility') {
       const cause = '措施不能改变官方资格';
-      reasons.push({ kind: k, students: n, cause, text: `${n} 人不符合官方资格：${cause}` });
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}不符合官方资格${tail}：${cause}` });
     } else if (k === 'unknown') {
       const cause = '信息不足，需向官方或学生确认';
-      reasons.push({ kind: k, students: n, cause, text: `${n} 人无法判定是否可达：${cause}` });
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}无法判定是否可达${tail}：${cause}` });
     } else {
       const cause = causeFor(k, set);
-      reasons.push({ kind: k, students: n, cause, text: `${n} 人仍缺${BARRIER_ZH[k]}：${cause}` });
+      reasons.push({ kind: k, pairs: pc, students: n, cause, text: `${who}仍缺${BARRIER_ZH[k]}${tail}：${cause}` });
     }
   }
-  return { pairs, students: students.size, reasons };
+  // 按学生去重：方案后至少有一个可达机会的学生（只用于汇总人数，不进视图）。
+  const reachableStudents = new Set(outcome.R1.map((p) => p.student_id));
+  const some = [...students].filter((sid) => reachableStudents.has(sid)).length;
+  const none = scenario.students.filter((s) => !reachableStudents.has(s.id)).length;
+  const summary =
+    pairs === 0
+      ? '方案后所有（学生, 机会）对都可达。'
+      : `${pairs} 个（学生, 机会）对在方案后仍不可达，涉及 ${students.size} 名示例学生；其中 ${some} 名学生在方案后仍至少有一个可达的机会，${none} 名学生在方案后没有任何可达的机会。`;
+  return {
+    pairs,
+    students: students.size,
+    students_with_some_reachable: some,
+    students_with_none_reachable: none,
+    summary,
+    reasons,
+  };
 }
 
 // ───────────────────────────── 第 3 层：输入检查与汇总 ─────────────────────────────
@@ -914,6 +983,7 @@ function lossAndRevocations(
   const grantById = new Map((scenario.existing_grants ?? []).map((g) => [g.id, g]));
   const revs = outcome.revocations ?? [];
   const lost = outcome.lost_pairs ?? [];
+  const reachableStudents = new Set(outcome.R1.map((p) => p.student_id));
   type Group = { iv: string; by: string | null; revs: GrantRevocation[] };
   const groups: Group[] = [];
   for (const r of revs) {
@@ -931,7 +1001,9 @@ function lossAndRevocations(
         return r.student_id === p.student_id && (grant?.opportunity_id === null || grant?.opportunity_id === p.opportunity_id);
       }),
     );
-    const students = new Set(hit.map((p) => p.student_id)).size;
+    const hitStudents = new Set(hit.map((p) => p.student_id));
+    const students = hitStudents.size;
+    const stillReachable = [...hitStudents].filter((sid) => reachableStudents.has(sid)).length;
     const revTitle = ivTitle(g.iv);
     const head =
       g.by !== null
@@ -939,21 +1011,29 @@ function lossAndRevocations(
         : `自愿收回「${revTitle}」的 ${g.revs.length} 条已有资源（为腾出名额）`;
     const tail =
       hit.length > 0
-        ? `：${students} 名学生的 ${hit.length} 个（学生, 机会）对因此在此方案下不再可达。`
+        ? `：失去 ${hit.length} 个（学生, 机会）对，涉及 ${students} 名学生，其中 ${stillReachable} 名在方案后仍有其他可达的机会。`
         : '：没有因此失去可达的对（例如收回的是待审批的资源，或已由其他措施补上）。';
     return {
       revoked_title: revTitle,
       forced_by_title: g.by !== null ? ivTitle(g.by) : null,
       revoked_count: g.revs.length,
       students,
+      students_still_reachable: stillReachable,
       pairs: hit.length,
       text: head + tail,
     };
   });
   const counts = revocationCounts(scenario, revs);
+  const affected = new Set(lost.map((p) => p.student_id));
+  const affectedStill = [...affected].filter((sid) => reachableStudents.has(sid)).length;
   const loss: WhatIfLoss = {
     lost_pairs: outcome.L,
-    affected_students: new Set(lost.map((p) => p.student_id)).size,
+    affected_students: affected.size,
+    affected_students_still_reachable: affectedStill,
+    summary:
+      outcome.L > 0
+        ? `失去 ${outcome.L} 个（学生, 机会）对，涉及 ${affected.size} 名学生，其中 ${affectedStill} 名在方案后仍有其他可达的机会。`
+        : null,
     groups: lossGroups,
     headline:
       mode === 'tradeoff' && outcome.L > 0
