@@ -556,11 +556,11 @@ function allCases(): { p: StudentProfile; o: Opportunity; opts: MatchOptions | u
   return out;
 }
 
-describe('横向约束（3 个真实机会 × 4 个示例档案 + 测试夹具）', () => {
+describe('横向约束（全部真实机会 × 4 个示例档案 + 测试夹具）', () => {
   const cases = allCases();
 
-  it('覆盖了真实数据：3 个机会 × 4 个示例档案', () => {
-    expect((opportunitiesJson as unknown[]).length).toBe(3);
+  it('覆盖了真实数据：全部机会 × 4 个示例档案', () => {
+    expect((opportunitiesJson as unknown[]).length).toBeGreaterThanOrEqual(3);
     expect((profilesJson as unknown[]).length).toBe(4);
   });
 

@@ -399,7 +399,7 @@ describe('findAlternatives：示例档案 × 真实机会', () => {
 
   it('四个档案 × 三条机会 × 两个日期全部跑通，same_field 不含 not_eligible', () => {
     expect(profiles).toHaveLength(4);
-    expect(opps).toHaveLength(3);
+    expect(opps.length).toBeGreaterThanOrEqual(3);
     for (const p of profiles) {
       for (const o of opps) {
         for (const opts of [TODAY, { today: '2027-02-01' }, undefined]) {
