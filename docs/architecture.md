@@ -1,5 +1,5 @@
 # Proposed architecture
-Status: design boundaries only; no stack or implementation commitment.
+Status: original design boundaries, written before implementation. The stack has since been chosen (Next.js + TypeScript, no backend); see README "Project status" and CONTRACT.md for what is built.
 
 Student Compass is the main interface. Discovery retains source text, official URL, retrieval/verification dates and uncertainty. Eligibility evaluates individual rules; readiness records preparation; reachability checks real constraints. Pathways proposes and compares target-linked tasks. Evidence updates drive explicit recommendation replay. Applications coordinates deadlines and material reuse.
 

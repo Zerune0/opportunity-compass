@@ -1,5 +1,5 @@
 # Frozen product scope
-Authority: the user's 15-page final integrated product specification, confirmed 2026-11-17. Everything here is planned.
+Authority: the user's 15-page final integrated product specification, confirmed 2026-11-17. Everything here is the planned full product; only part of it is built. See README "Project status" for what is implemented.
 
 ## Core journey
 Real opportunity → official eligibility → gap and reachability analysis → selectable growth routes → real evidence → adaptive reassessment → application or participation.

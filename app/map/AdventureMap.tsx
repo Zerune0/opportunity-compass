@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
-import { diffRoutes, planRoutes } from "@/lib/path";
-import { loadProfile } from "@/lib/store";
+import { planRoutes } from "@/lib/path";
+import { clearPlanSnapshots, latestPlanSnapshot, loadPlanSnapshots, loadProfile, pushPlanSnapshot } from "@/lib/store";
+import { nextSnapshot } from "./plan-snapshots";
 import { RecommendationReplay } from "./RecommendationReplay";
-import type { Opportunity, StudentProfile } from "@/lib/types";
+import type { Opportunity, PlanSnapshot, StudentProfile } from "@/lib/types";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -14,6 +15,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const [context, setContext] = useState<{ profile: StudentProfile | null; today: string }>();
   const [selected, setSelected] = useState<string>();
   const [classic, setClassic] = useState(false);
+  const [snapshots, setSnapshots] = useState<PlanSnapshot[]>([]);
 
   useEffect(() => {
     function refresh() {
@@ -32,6 +34,30 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
     };
   }, []);
 
+  // Store a plan snapshot when the planning inputs changed since the latest one. Synchronous
+  // read-compare-write, so the second effect run in React strict mode finds the snapshot just
+  // stored and does not add a duplicate.
+  const syncSnapshots = useCallback(() => {
+    const current = context?.profile;
+    if (!opportunity || !context || !current) return [];
+    const plan = planRoutes(current, opportunity, { today: context.today });
+    const snapshot = nextSnapshot(latestPlanSnapshot(opportunity.id, current.id), plan, current, opportunity, context.today);
+    return snapshot ? pushPlanSnapshot(snapshot) : loadPlanSnapshots(opportunity.id, current.id);
+  }, [context, opportunity]);
+
+  useEffect(() => {
+    // localStorage is only available after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSnapshots(syncSnapshots());
+  }, [syncSnapshots]);
+
+  function clearReplay() {
+    if (!opportunity) return;
+    if (!window.confirm("Clear the replay history for this opportunity? This removes it for every profile in this browser and cannot be undone.")) return;
+    clearPlanSnapshots(opportunity.id);
+    setSnapshots(syncSnapshots());
+  }
+
   if (!opportunity) return (
     <div className="rpg-head crt">
       <h1>Adventure Map</h1>
@@ -43,11 +69,6 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const profile = context?.profile;
   const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today }) : null;
   const route = plan?.routes.find((item) => item.id === selected) ?? plan?.routes[0];
-  const latest = profile?.evidence.at(-1);
-  const before = latest && plan && profile && context
-    ? planRoutes({ ...profile, evidence: profile.evidence.slice(0, -1) }, opportunity, { today: context.today })
-    : null;
-  const replay = before && plan ? diffRoutes(before, plan) : null;
 
   return (
     <div className="rpg-stack rpg-stack--loose">
@@ -172,14 +193,8 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
           )}
         </section>
       )}
-      {replay && latest && before && plan && (
-        <RecommendationReplay
-          before={before}
-          updated={plan}
-          change={`Added evidence: ${latest.title}`}
-          reasons={replay.reasons}
-          note="This comparison uses the current profile with and without the most recently added evidence."
-        />
+      {plan && profile && snapshots.length > 0 && (
+        <RecommendationReplay snapshots={snapshots} isSample={profile.is_sample} onClear={clearReplay} />
       )}
     </div>
   );
