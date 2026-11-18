@@ -1,0 +1,615 @@
+{
+  "id": "venue-tradeoff",
+  "title": "示例 / 模拟场景：工作日接驳车与周末卫星会场的取舍",
+  "is_sample": true,
+  "evaluation_date": "2026-11-17",
+  "budget_usd": 300,
+  "opportunities": [
+    {
+      "id": "placeholder-weekday-session",
+      "title": "【示例 / 占位】工作日场：线下科学工作坊（周三下午）",
+      "organizer": "示例主办方（占位）",
+      "category": "project",
+      "fields": [
+        "science"
+      ],
+      "summary": "占位机会：同一主办方的工作日场次，仅用于演示权衡分析，不是真实机会。",
+      "official_url": "https://example.com/placeholder-weekday-session",
+      "verified_on": "2026-11-17",
+      "verified_by": "占位数据（未核实，不是真实机会）",
+      "deadline": "2026-12-15",
+      "deadline_note": "占位日期",
+      "recurring_annually": null,
+      "location": {
+        "format": "in_person",
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "note": "占位地点：主会场"
+      },
+      "cost": {
+        "fee_usd": 0,
+        "requires_travel_expense": false,
+        "financial_aid_available": null,
+        "note": "占位：免费"
+      },
+      "time_commitment": {
+        "hours_per_week": 3,
+        "total_weeks": 1,
+        "start_date": "2027-01-13",
+        "end_date": "2027-01-13",
+        "note": "占位：周三下午"
+      },
+      "required_devices": [],
+      "requirements": [
+        {
+          "id": "req-grade",
+          "type": "grade",
+          "min": 9,
+          "max": 12,
+          "hard": true,
+          "label": "高中在读（9–12 年级）",
+          "source_text": "（占位原文）Open to high school students in grades 9–12."
+        },
+        {
+          "id": "req-region",
+          "type": "region",
+          "countries": [
+            "US"
+          ],
+          "states": [
+            "CA"
+          ],
+          "hard": true,
+          "label": "加州居民",
+          "source_text": "（占位原文）Participants must live in California."
+        }
+      ],
+      "preparation": [],
+      "is_sample": true
+    },
+    {
+      "id": "placeholder-weekend-session",
+      "title": "【示例 / 占位】周末场：线下科学工作坊（周六）",
+      "organizer": "示例主办方（占位）",
+      "category": "project",
+      "fields": [
+        "science"
+      ],
+      "summary": "占位机会：同一主办方的周末场次，仅用于演示权衡分析，不是真实机会。",
+      "official_url": "https://example.com/placeholder-weekend-session",
+      "verified_on": "2026-11-17",
+      "verified_by": "占位数据（未核实，不是真实机会）",
+      "deadline": "2026-12-15",
+      "deadline_note": "占位日期",
+      "recurring_annually": null,
+      "location": {
+        "format": "in_person",
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "note": "占位地点：主会场"
+      },
+      "cost": {
+        "fee_usd": 0,
+        "requires_travel_expense": false,
+        "financial_aid_available": null,
+        "note": "占位：免费"
+      },
+      "time_commitment": {
+        "hours_per_week": 3,
+        "total_weeks": 1,
+        "start_date": "2027-01-16",
+        "end_date": "2027-01-16",
+        "note": "占位：周六一整天"
+      },
+      "required_devices": [],
+      "requirements": [
+        {
+          "id": "req-grade",
+          "type": "grade",
+          "min": 9,
+          "max": 12,
+          "hard": true,
+          "label": "高中在读（9–12 年级）",
+          "source_text": "（占位原文）Open to high school students in grades 9–12."
+        },
+        {
+          "id": "req-region",
+          "type": "region",
+          "countries": [
+            "US"
+          ],
+          "states": [
+            "CA"
+          ],
+          "hard": true,
+          "label": "加州居民",
+          "source_text": "（占位原文）Participants must live in California."
+        }
+      ],
+      "preparation": [],
+      "is_sample": true
+    }
+  ],
+  "opportunity_time_slots": {
+    "placeholder-weekday-session": "2027-01-13-wed",
+    "placeholder-weekend-session": "2027-01-16-sat"
+  },
+  "interventions": [
+    {
+      "id": "iv-weekday-shuttle",
+      "title": "工作日接驳车（示例，已在运行）",
+      "type": "transport_subsidy",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 15,
+      "fixed_cost_usd": 0,
+      "capacity": 3,
+      "opportunity_ids": [
+        "placeholder-weekday-session"
+      ],
+      "mutually_exclusive_with": [
+        "iv-weekend-satellite"
+      ],
+      "status": "approved"
+    },
+    {
+      "id": "iv-weekday-carpool",
+      "title": "工作日拼车补助（示例）",
+      "type": "transport_subsidy",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 25,
+      "fixed_cost_usd": 0,
+      "capacity": 2,
+      "amount_usd": 25,
+      "opportunity_ids": [
+        "placeholder-weekday-session"
+      ],
+      "mutually_exclusive_with": [
+        "iv-weekend-satellite"
+      ],
+      "status": "approved"
+    },
+    {
+      "id": "iv-weekend-satellite",
+      "title": "周末卫星会场（示例）",
+      "type": "alternative_access",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 10,
+      "fixed_cost_usd": 80,
+      "capacity": 6,
+      "opportunity_ids": [
+        "placeholder-weekend-session"
+      ],
+      "status": "approved"
+    }
+  ],
+  "students": [
+    {
+      "id": "vt-s01",
+      "is_sample": true,
+      "display_name": "示例学生 A（场次权衡场景）",
+      "grade": 11,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example North High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s02",
+      "is_sample": true,
+      "display_name": "示例学生 B（场次权衡场景）",
+      "grade": 12,
+      "age": 17,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "suburban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "first_generation"
+      ],
+      "school_name": "Example South High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s03",
+      "is_sample": true,
+      "display_name": "示例学生 C（场次权衡场景）",
+      "grade": 11,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example East High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s04",
+      "is_sample": true,
+      "display_name": "示例学生 D（场次权衡场景）",
+      "grade": 9,
+      "age": 14,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "suburban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example West High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s05",
+      "is_sample": true,
+      "display_name": "示例学生 E（场次权衡场景）",
+      "grade": 10,
+      "age": 15,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "first_generation"
+      ],
+      "school_name": "Example Lake High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s06",
+      "is_sample": true,
+      "display_name": "示例学生 F（场次权衡场景）",
+      "grade": 9,
+      "age": 14,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "suburban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income"
+      ],
+      "school_name": "Example Ridge High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s07",
+      "is_sample": true,
+      "display_name": "示例学生 G（场次权衡场景）",
+      "grade": 10,
+      "age": 15,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income"
+      ],
+      "school_name": "Example Mesa High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s08",
+      "is_sample": true,
+      "display_name": "示例学生 H（场次权衡场景）",
+      "grade": 11,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "suburban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "first_generation",
+        "low_income"
+      ],
+      "school_name": "Example Grove High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    },
+    {
+      "id": "vt-s09",
+      "is_sample": true,
+      "display_name": "示例学生 I（场次权衡场景）",
+      "grade": 12,
+      "age": 17,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income"
+      ],
+      "school_name": "Example Bay High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 0,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，自己去不了主会场"
+      },
+      "devices": [
+        "smartphone",
+        "laptop"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "science"
+      ]
+    }
+  ],
+  "existing_grants": [
+    {
+      "id": "shuttle-grant-1",
+      "student_id": "vt-s01",
+      "opportunity_id": "placeholder-weekday-session",
+      "intervention_id": "iv-weekday-shuttle",
+      "type": "transport_subsidy",
+      "amount_usd": null,
+      "device": null,
+      "hours_per_week": null,
+      "status": "approved",
+      "provider": "示例主办方（占位）工作日接驳车",
+      "note": "示例：已在运行的接驳车座位",
+      "is_sample": true
+    },
+    {
+      "id": "shuttle-grant-2",
+      "student_id": "vt-s02",
+      "opportunity_id": "placeholder-weekday-session",
+      "intervention_id": "iv-weekday-shuttle",
+      "type": "transport_subsidy",
+      "amount_usd": null,
+      "device": null,
+      "hours_per_week": null,
+      "status": "approved",
+      "provider": "示例主办方（占位）工作日接驳车",
+      "note": "示例：已在运行的接驳车座位",
+      "is_sample": true
+    },
+    {
+      "id": "shuttle-grant-3",
+      "student_id": "vt-s03",
+      "opportunity_id": "placeholder-weekday-session",
+      "intervention_id": "iv-weekday-shuttle",
+      "type": "transport_subsidy",
+      "amount_usd": null,
+      "device": null,
+      "hours_per_week": null,
+      "status": "approved",
+      "provider": "示例主办方（占位）工作日接驳车",
+      "note": "示例：已在运行的接驳车座位",
+      "is_sample": true
+    }
+  ]
+}

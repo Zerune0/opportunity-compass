@@ -26,11 +26,11 @@
 | `SupportType` | 支持 / 资源类型（grant 与措施共用） | `device`、`transport_subsidy`、`fee_waiver`、`time_support`、**`alternative_access`**（替代参与方式，如线上参与入口、卫星会场，让学生不必前往主会场；与 `transport_subsidy` 同等化解 transport 障碍） |
 | `Scenario` | 主办方 what-if 场景（一律示例/模拟） | `students`、`opportunities`、`interventions`、`budget_usd`、`evaluation_date`、`existing_grants`（`id` 必须唯一；带 `intervention_id` 的已有 grant 不论 status 都占用该措施的容量，按不同学生计；只有 **approved** 的已有 grant 让同一 (措施, 学生) 的分配免成本；`intervention_id` 指向场景内措施的 grant **可被方案撤回**，撤回后不计入 R1、不占容量、不免成本）、`opportunity_time_slots?`（机会 id → 非空字符串时段标签；未列出的机会归入同一个默认时段） |
 | `Intervention` | 可选支持措施 | `type`、`resolves`（障碍类型，仅展示）、`unit_cost_usd`（每服务一位**不同学生**的边际成本）、`fixed_cost_usd`（只计一次）、`capacity`（最多可服务的**不同学生**人数；null 或缺省 = 不限）、`amount_usd?` / `hours_per_week?`（给出时须非负）、`opportunity_ids?`、`mutually_exclusive_with`、`status?`（approved / pending，缺省 approved）、`requires?`（前置依赖）、`capacity_scope?`（total / per_time_slot，缺省 total）。同一学生凭同一措施参加多个机会，只占 1 个容量、只计一次成本 |
-| `SolveOptions` | `solveJoint` 的可选第二参数 | `mode?`（protect = 默认保护模式，L = 0；tradeoff = 权衡分析模式，L ≤ `loss_cap`）、`loss_cap?`、`max_search_nodes?`、`required_intervention_ids?`、`min_gain?`、`fairness_floors?`（后三项是主办方的**软要求**） |
+| `SolveOptions` | `solveJoint` 的可选第二参数 | `mode?`（protect = 默认保护模式，L = 0 且不撤回任何已有 grant；tradeoff = 权衡分析模式，允许撤回，L ≤ `loss_cap`）、`loss_cap?`、`max_search_nodes?`、`required_intervention_ids?`、`min_gain?`、`fairness_floors?`（后三项是主办方的**软要求**） |
 | `FairnessFloor` | 公平底线（软要求） | `id`、`label`、`basis`（分组依据，必填）、`statuses_any_of`（按学生自己声明的 `statuses` 定义群体）、`min_ratio`（0–1） |
 | `FairnessReport` | 一条底线在某方案下的结果 | `floor_id`、`eligible_members`（分母：群体中至少对一个机会资格 eligible 的学生）、`covered_members`（分子：其中至少有一个对在 R1 的学生）、`ratio`（分母为 0 时 null = 不适用）、`min_ratio`、`satisfied` |
 | `Allocation` | 一次资源分配（某措施用于某学生的某机会） | `intervention_id`、`student_id`、`opportunity_id`、`cost_usd`。同一 (`intervention_id`, `student_id`) 可有多条（对应不同机会）；容量与成本按不同的 (`intervention_id`, `student_id`) 计数；其中只有一条的 `cost_usd` 记 `unit_cost_usd`，其余记 0；若该 (`intervention_id`, `student_id`) 已出现在 `existing_grants` 中（grant 带相同 `intervention_id`），容量不再重复占用（已有 grant 已占 1 个，不论 status）；若该 grant 为 **approved**，其所有 `Allocation` 的 `cost_usd` 还都记 0（pending 的不免成本） |
-| `JointPlan` | 候选方案（`verifyPlan` 的输入） | `selected_intervention_ids`、`allocations`、`revoked_grant_ids?`（撤回的已有 grant；选中与措施 k 互斥的措施时，k 的已有 grant 必须全部撤回） |
+| `JointPlan` | 候选方案（`verifyPlan` 的输入） | `selected_intervention_ids`、`allocations`、`revoked_grant_ids?`（撤回的已有 grant，只在 tradeoff 模式下允许非空；选中与措施 k 互斥的措施时，k 的已有 grant 必须全部撤回，因此 protect 模式下不能选中这样的措施） |
 | `GrantRevocation` | 一条撤回明细 | `grant_id`、`intervention_id`、`student_id`、`forced_by`（导致强制撤回的选中措施 id；自愿撤回为 null） |
 | `JointOutcome` | 一个方案的结果指标（不含状态） | `JointPlan` 字段 + `R1`、`G`、`L`、`N`、`cost`；新增可选 `lost_pairs?`（R0 \ R1）、`revocations?`、`fairness?`（求解器返回时必须给出前两项；给了底线时给出 `fairness`） |
 | `SoftRequirementKey` | 可被整项放松的软要求 | `min_gain` / `fairness_floors` / `required_intervention_ids`；常量 `SOFT_REQUIREMENT_RELAX_ORDER` 是固定优先级 |
@@ -44,7 +44,7 @@
 
 `R0 / R1 / G / L / N`（出自 `docs/product-scope.md` Shared constraints）：在同一评估时间和假设下，
 `R0` = 原始覆盖（不加新措施时现实可达的学生-机会对集合），`R1` = 全局分配后的覆盖；
-`G = |R1 \ R0|`（增益），`L = |R0 \ R1|`（损失），`N = G − L`（净值）。默认 protect 模式要求 `L = 0`；tradeoff 模式必须显式给 `loss_cap`，且 `L ≤ loss_cap`。不撤回任何已有 grant 时 `L` 恒为 0，`L > 0` 只可能来自撤回。
+`G = |R1 \ R0|`（增益），`L = |R0 \ R1|`（损失），`N = G − L`（净值）。默认 protect 模式要求 `L = 0`，并且**不动任何已有承诺**（不允许撤回任何已有 grant）；tradeoff 模式必须显式给 `loss_cap`，允许撤回，且 `L ≤ loss_cap`。不撤回任何已有 grant 时 `L` 恒为 0，`L > 0` 只可能来自撤回。
 
 常量：`ELIGIBILITY_STATUSES`、`BARRIER_TYPES`、`ROUTE_TYPES`、`JOINT_STATUSES`、`SUPPORT_RESOLVES`（支持类型 → 化解的障碍类型）、`STUDENT_STATUSES`（`StudentStatus` 的全部取值）、`SOFT_REQUIREMENT_RELAX_ORDER`。
 
@@ -97,7 +97,7 @@
   `{ id: 'alloc:' + i + ':' + s + ':' + o, student_id: s, opportunity_id: o, intervention_id: i, type: I[i].type, amount_usd: I[i].amount_usd ?? null, device: I[i].device ?? null, hours_per_week: I[i].hours_per_week ?? null, status: 'approved', provider: scenario.title, is_sample: true }`。
 - **R1** = `{ pair ∈ S × O : reach(pair, E' ∪ 全部合成 grant) }`。`G = |R1 \ R0|`，`L = |R0 \ R1|`，`N = G − L`。
 - 措施只能通过 grant 化解现实障碍（设备 / 交通 / 费用 / 时间），**不能改变官方资格**。措施的效果完全由合成 grant 的 `type` 与 `amount_usd` / `device` / `hours_per_week` 经 `analyzeReachability` 决定；`Intervention.resolves` 只用于展示，求解与复核都不读它。
-- **撤回已有 grant**：方案可以在 `revoked_grant_ids` 中列出可撤回的已有 grant（规则见第 3 条第 8 款）。被撤回的 grant：
+- **撤回已有 grant**（**仅 tradeoff 模式**；protect 模式下 `revoked_grant_ids` 必须为空）：方案可以在 `revoked_grant_ids` 中列出可撤回的已有 grant（规则见第 3 条第 8 款）。被撤回的 grant：
   - 不计入 R1 的 grant 集合（上面的 `E'`）；
   - 不占该措施的容量（第 3 条第 5 款只数 `E'`）；
   - 不再让 (措施, 学生) 免成本（第 3 条第 6 款只认 `E'` 中 approved 的 grant）；
@@ -123,15 +123,17 @@
    - 对每个出现在 allocations 中的 (i, s)：若 `E'` 中有 `intervention_id === i`、`student_id === s` 且 **`status === 'approved'`** 的 grant，则这组 Allocation 的 `cost_usd` 全为 0（pending 的已有 grant 只占容量、**不免成本**）；否则这组中**恰好一条**记 `unit_cost_usd`、其余为 0（`unit_cost_usd` 为 0 时全为 0）。求解器把全额记在这组按稳定排序的第一条上；复核只检查「恰好一条为全额、其余为 0」。
    - `total_usd = fixed_usd + marginal_usd ≤ scenario.budget_usd`（`budget` 检查）。
 7. **损失**（`coverage_loss`）：`L = |R0 \ R1|`（R1 按 `E'` 计算，见第 2 条）。
-   - `mode` 缺省或 `'protect'`（默认保护模式）：要求 `L = 0`（此时忽略 `loss_cap`）——不能无提示地让原本可达的学生失去机会。
+   - `mode` 缺省或 `'protect'`（默认保护模式）：要求 `L = 0`（此时忽略 `loss_cap`）——不能无提示地让原本可达的学生失去机会；并且不允许任何撤回（第 8 款 d），所以 protect 下 `L` 必然为 0。
    - `'tradeoff'`（权衡分析模式）：只有组织者主动给出 `loss_cap` 才允许损失，要求 `L ≤ loss_cap`；没给 `loss_cap` → `UNSUPPORTED_INPUT`（求解器）/ `coverage_loss` 不通过（验证器）。
    - 受影响的对与原因通过 `lost_pairs` 与 `revocations` 说明（第 5 条）。
 8. **撤回**（`revocation`）：
    a. 撤回列表合法：`revoked_grant_ids` 缺省 / null 视为 `[]`；给出时必须是数组，每个元素是字符串、不重复，且是 `E` 中某条**可撤回** grant 的 id。
    b. **强制撤回**：对每条可撤回的 `g ∈ E`，若存在选中的措施 i（i ∈ `selected_intervention_ids` 且 i ∈ `I`）满足 `excl(i, g.intervention_id)`，则 `g.id ∈ X`——措施 `g.intervention_id` 不能与 i 同时运行，选中 i 就必须承担撤回它全部已有 grant 的后果（包括 pending 的 grant、学生不在场景内的 grant）。
    c. 撤回后不再补发同一措施：若 `X` 中有一条 grant 的 (`intervention_id`, `student_id`) = (k, s)，则 allocations 中不得有 `intervention_id === k` 且 `student_id === s` 的条目。
-   - 不是 b 要求的撤回称为**自愿撤回**（例如为腾出名额给别人），允许；它造成的不可达同样计入 `L`。
-   - 撤回 pending 的已有 grant 不影响可达性（pending 本来就不化解障碍），因此不产生损失，但会腾出容量，并照样出现在 `revocations` 里。
+   d. **保护模式不动任何已有承诺**：`mode` 缺省或 `'protect'` 时，`revoked_grant_ids` 必须为空（缺省 / null / `[]`）——不允许任何撤回，无论是 b 要求的强制撤回还是自愿撤回，也无论被撤回的 grant 是 approved 还是 pending。因此 protect 模式下，与某项「有可撤回已有 grant」的措施互斥的措施**不能被选中**（选中就违反 b，而撤回又违反 d）。
+   - 只有 tradeoff 模式（必须给出 `loss_cap`）允许撤回：强制撤回与自愿撤回都可以，约束是 `L ≤ loss_cap`（第 7 款）。
+   - 不是 b 要求的撤回称为**自愿撤回**（例如为腾出名额给别人），仅 tradeoff 模式允许；它造成的不可达同样计入 `L`。
+   - tradeoff 模式下撤回 pending 的已有 grant 不影响可达性（pending 本来就不化解障碍），因此不产生损失，但会腾出容量，并照样出现在 `revocations` 里。protect 模式下 pending 的已有 grant 同样不能撤回（照常占容量）。
 - 原有口径（保留）：`Intervention.capacity` = 最多可服务的**不同学生**人数；`unit_cost_usd` = 每服务一位不同学生的边际成本；同一学生凭同一措施参加多个机会只占 1 个容量、只计一次成本；同一 (`intervention_id`, `student_id`) 可有多条 Allocation（对应不同机会），`JointCost.marginal_usd` 仍等于各 Allocation 的 `cost_usd` 之和；未撤回的 existing grant 已覆盖的 (`intervention_id`, `student_id`) 不重复占容量，其中 approved 的还让成本记 0。
 
 **4. 软要求**（主办方自己提的；只有 INFEASIBLE 时才可放松，并且必须明示。`required_intervention_ids` 与 `min_gain` 的检查名为 `organizer_requirements`，公平底线的检查名为 `fairness`）
@@ -151,14 +153,14 @@
 **5. 目标与确定性**
 在满足全部硬约束和软要求的方案中，依次比较：
 1. `N = G − L` 最大；
-2. `L` 最小（protect 模式下 `L` 恒为 0，此步不起作用；默认 `L = 0` 时减少损失已经是硬约束）；
+2. `L` 最小（protect 模式不允许撤回，`L` 与撤回数恒为 0，此步与第 6 步都不起作用）；
 3. `cost.total_usd` 最小；
 4. Allocation 条数最少；
 5. 选中措施数（`selected_intervention_ids.length`）最少；
-6. 撤回的 grant 数（`revoked_grant_ids.length`）最少；
+6. 撤回的 grant 数（`revoked_grant_ids.length`）最少（protect 模式下恒为 0）；
 7. 字典序最小：先逐元素比较排序后的 `selected_intervention_ids`（前缀更短者更小），再逐元素比较排序后的 allocations（按 (`intervention_id`, `student_id`, `opportunity_id`) 元组比较，前缀更短者更小），再逐元素比较排序后的 `revoked_grant_ids`（前缀更短者更小）。
 同输入必须同输出；返回的数组都按第 0 条的稳定顺序排序。
-- **规范化（由第 5 步保证）**：求解器返回的任何方案（主结果、`alternative`、`conditional`）中，每个选中措施要么至少有一条 Allocation，要么在（该方案仍要求的）`required_intervention_ids` 里，要么是前两类措施的（传递）前置依赖；其余措施不会被选中（去掉它们得到的方案同样可行——强制撤回只会变少，自愿撤回可以原样保留——R1 不变或更大、成本不变或更低、分配条数不变、措施数更少）。
+- **规范化（由第 5 步保证）**：求解器返回的任何方案（主结果、`alternative`、`conditional`）中，每个选中措施要么至少有一条 Allocation，要么在（该方案仍要求的）`required_intervention_ids` 里，要么是前两类措施的（传递）前置依赖；其余措施不会被选中（去掉它们得到的方案同样可行——强制撤回只会变少；tradeoff 模式下原来的撤回可以作为自愿撤回原样保留，protect 模式下本来就没有撤回——R1 不变或更大、成本不变或更低、分配条数不变、措施数更少）。
 - 名额或预算不够、多名学生条件相同时，按学生编号顺序（字典序）决定——这是模拟中的确定性规则，**不代表谁更需要**；`notes` 中写明这一点。
 - **结果中的撤回与损失明细**（求解器返回的每个方案都必须给出，可为空数组；`UNSUPPORTED_INPUT` 的空方案及占位方案为 `revoked_grant_ids = []`、`lost_pairs = []`、`revocations = []`，省略 `fairness`）：
   - `revoked_grant_ids`：按 id 升序。
@@ -186,7 +188,7 @@
   - `conditional`：不给出该方案，`conditional.status = 'UNSUPPORTED_INPUT'`、方案为空方案占位，`note` 写明内部复核未通过；
   - `alternative`：舍弃复核不通过的候选，从其余放松方式中选；都不可用时给出空方案占位，`note` 写明内部复核未通过。
   - 合法输入下求解器与验证器应当一致，这条兜底不应被触发；触发即说明场景数据或实现有问题。
-- **`INFEASIBLE`**：搜索完成，证明没有方案同时满足硬约束和软要求。由于空方案总满足全部硬约束（预算 ≥ 0；不选措施就没有强制撤回；不撤回则 R1 = R0、L = 0），INFEASIBLE 只可能由软要求造成（例如：必须启用的措施的固定成本超出预算、必须启用的措施是 pending、两个必须启用的措施互斥、`min_gain` 达不到、公平底线在预算 / 名额 / 资格下达不到）。**不得为了得到可行结果而暗中降低任何阈值**。
+- **`INFEASIBLE`**：搜索完成，证明没有方案同时满足硬约束和软要求。由于空方案总满足全部硬约束（预算 ≥ 0；不选措施就没有强制撤回；不撤回则 R1 = R0、L = 0），INFEASIBLE 只可能由软要求造成（例如：必须启用的措施的固定成本超出预算、必须启用的措施是 pending、两个必须启用的措施互斥、protect 模式下必须启用的措施与某项有可撤回已有 grant 的措施互斥、`min_gain` 达不到、公平底线在预算 / 名额 / 资格下达不到）。**不得为了得到可行结果而暗中降低任何阈值**。
   - 主结果为空方案（`R1 = R0`，`G = L = N = 0`，成本 0；给了底线时带 `fairness`），`verification = null`。
   - `alternative`（必须非空）= 只放松软要求后的最优方案，`relaxed` 写明放松了哪些、`note` 写明原要求为何达不到。放松 = 整项不再要求（不做部分放松、不降低阈值）。规则：
     - `K` = options 中给出（非 null，含空数组）的软要求项，取自 `min_gain`、`fairness_floors`、`required_intervention_ids`。
@@ -211,7 +213,7 @@
 - 重算时 `X` 只取 `revoked_grant_ids` 中合法的部分（是字符串、是可撤回 grant 的 id，去重）；不合法的部分只让 `revocation` 不通过。
 - 输出的每项检查一条 `VerifyCheck`，`passed` = 全部检查都通过。检查项（名称固定）：
   - `input_validity`：scenario / options 是否命中第 6 条 UNSUPPORTED_INPUT 的任一条件（`max_search_nodes` 除外），或 `assume_approved_intervention_ids` 引用了不存在的措施。命中则不通过（其余检查仍尽量给出）。规则与求解器相同，但在验证器文件里**独立实现**（不共用校验函数）；对任一输入，「求解器返回 UNSUPPORTED_INPUT（输入校验）」⇔「`input_validity` 不通过」（有对照测试）。
-  - `approval`、`mutual_exclusion`、`prerequisite`、`allocation_validity`、`capacity`、`cost_accounting`、`budget`、`coverage_loss`、`revocation`：对应第 3 条的硬约束 1–8（`approval` 中 `assume_approved_intervention_ids` 列出的 pending 措施算已批准；`capacity` 只数 `E'`；`cost_accounting` 的免成本只认 `E'` 中 approved 的 grant；`coverage_loss` 的 R1 按 `E'` 计算，按 `options.mode` / `loss_cap` 判定，不传按 protect，tradeoff 缺 `loss_cap` 判不通过；`revocation` 始终输出，按第 3 条第 8 款 a、b、c 检查，`detail` 写明非法 id、该撤回而没撤回的 grant、撤回后又分配的 (措施, 学生)）。
+  - `approval`、`mutual_exclusion`、`prerequisite`、`allocation_validity`、`capacity`、`cost_accounting`、`budget`、`coverage_loss`、`revocation`：对应第 3 条的硬约束 1–8（`approval` 中 `assume_approved_intervention_ids` 列出的 pending 措施算已批准；`capacity` 只数 `E'`；`cost_accounting` 的免成本只认 `E'` 中 approved 的 grant；`coverage_loss` 的 R1 按 `E'` 计算，按 `options.mode` / `loss_cap` 判定，不传按 protect，tradeoff 缺 `loss_cap` 判不通过；`revocation` 始终输出，按第 3 条第 8 款 a、b、c、d 检查：`options.mode` 缺省或 `'protect'` 时，任何非空的 `revoked_grant_ids`（不论其中 id 是否合法、是否强制、grant 是 approved 还是 pending）都判不通过；`detail` 写明非法 id、该撤回而没撤回的 grant、撤回后又分配的 (措施, 学生)、protect 模式下出现的撤回）。
   - `eligibility`（交叉检查）：`R1 \ R0` 中每个对的 `checkEligibility(student, opp, { today: evaluation_date }).overall === 'eligible'`。
   - `deadline`（交叉检查）：`R1 \ R0` 中每个对的机会 `deadline` 为 null 或不早于 `evaluation_date`。
   - `barrier_resolution`（交叉检查）：`R1 \ R0` 中每个对，在带 `E'` ∪ 全部合成 grant 的 `analyzeReachability` 结果里所有障碍 `resolved === true`，且至少一条障碍的 `resolved_by_grant_ids` 含 `'alloc:'` 开头的合成 grant。
@@ -397,4 +399,5 @@ npm run build      # 生产构建（提交前必须通过）
   - `JointAlternative.relaxed` 的取值并集新增 `'fairness_floors'`（类型改写为 `SoftRequirementKey[]`）。**如果你的代码对它做了穷尽式映射（如 `Record<…, string>`），需要补一个 `fairness_floors` 键**（`lib/joint/whatif.ts` 已补）。
   - 模型变化（「联合求解模型」）：第 2、3 条新增撤回已有 grant 与硬约束第 8 条 `revocation`；第 4 条新增公平底线；第 5 条目标顺序改为 N → L → 成本 → 分配条数 → 措施数 → 撤回数 → 字典序；第 6 条新增 UNSUPPORTED_INPUT 条件（existing grant 的 `id` 必须是唯一字符串；`fairness_floors` 格式）与三项软要求统一的放松规则（两项时与原规则一致）；第 8 条新增检查项 `revocation`、`fairness`，`capacity` / `cost_accounting` / `coverage_loss` / `metrics` 按撤回更新；新增第 10 条基线对比。删去「合法输入下 L 恒为 0」「tradeoff 仅为向前兼容」的说法。
   - **行为变化**：选中与「已有 grant 所属措施」互斥的措施时，现在必须撤回那些 grant（此前不要求，那些 grant 照样生效）。由此可能产生 `L > 0`，protect 模式下这样的方案不可行。existing grant 的 `id` 不唯一的场景现在是 `UNSUPPORTED_INPUT`。
+  - **补充（用户决定）**：**保护模式不动任何已有承诺**——`mode` 为 protect（默认）时 `revoked_grant_ids` 必须为空，强制与自愿撤回都不允许（approved 与 pending 一样）；因此 protect 下与「有可撤回已有 grant 的措施」互斥的措施不能被选中。只有 tradeoff 模式（给出 `loss_cap`）允许撤回，约束 `L ≤ loss_cap`。验证器的 `revocation` 检查在 protect 下对任何非空 `revoked_grant_ids` 判不通过（第 3 条第 8 款 d、第 5 条、第 8 条已同步）。
   - 现有 `solveJoint` / `verifyPlan` 尚未实现这些规则（下一步实现）；`compareBaselines` 待实现。

@@ -652,10 +652,12 @@ export interface RouteDiff {
  * - 方案生效方式：每条 Allocation (i, s, o) 合成一条 approved ResourceGrant
  *   （id = 'alloc:' + i + ':' + s + ':' + o，字段取自措施 i，见 Allocation 注释）。
  *   措施只能通过 grant 化解现实障碍，不能改变官方资格。
- *   方案还可以撤回「可撤回」的已有 grant（JointPlan.revoked_grant_ids；可撤回 = intervention_id 指向场景内措施）。
+ *   tradeoff 模式下方案还可以撤回「可撤回」的已有 grant（JointPlan.revoked_grant_ids；可撤回 = intervention_id 指向场景内措施）；
+ *   protect 模式（默认）不动任何已有承诺：revoked_grant_ids 必须为空。
  * - 硬约束（任何情况下不放松）：措施存在 / 不重复 / approved；互斥；前置依赖；分配合法；
  *   容量（按 capacity_scope 与不同学生计）；成本与预算；损失（protect: L = 0；tradeoff: L ≤ loss_cap）；
- *   撤回（选中与措施 k 互斥的措施时，k 的全部已有 grant 必须撤回；撤回列表合法）。
+ *   撤回（选中与措施 k 互斥的措施时，k 的全部已有 grant 必须撤回；撤回列表合法；protect 模式下不允许任何撤回，
+ *   因此 protect 下与「有可撤回已有 grant 的措施」互斥的措施不能被选中）。
  * - 软要求（主办方自己提的，INFEASIBLE 时可整项放松并明示）：required_intervention_ids、min_gain、fairness_floors。
  * - 目标：最大化 N = G − L；再 L 小；再 total_usd 小；再 Allocation 条数少；再选中措施数少；再撤回数少；
  *   再字典序最小。因此选中的每项措施要么有分配，要么必须启用，要么是这两类措施的（传递）前置依赖。
@@ -779,8 +781,9 @@ export interface Scenario {
 /** 下列字段值为 null 时一律视同未给（求解器与验证器同一口径）。 */
 export interface SolveOptions {
   /**
-   * protect（默认保护模式）= 不允许任何原有覆盖损失（L 必须为 0）；
-   * tradeoff（权衡分析模式）= 组织者主动给出明确的损失上限 loss_cap 后，允许 0 ≤ L ≤ loss_cap。
+   * protect（默认保护模式）= 不允许任何原有覆盖损失（L 必须为 0），并且不动任何已有承诺：
+   *   revoked_grant_ids 必须为空（强制、自愿撤回都不允许，approved / pending 都一样）；
+   * tradeoff（权衡分析模式）= 组织者主动给出明确的损失上限 loss_cap 后，允许撤回（强制与自愿），0 ≤ L ≤ loss_cap。
    * 其他取值 → UNSUPPORTED_INPUT。两种模式都不能突破任何硬约束。
    * 不撤回任何已有 grant 时 L 恒为 0；L > 0 只可能来自撤回（JointPlan.revoked_grant_ids），
    * 受影响的对与撤回明细见 JointOutcome.lost_pairs / revocations。
@@ -922,9 +925,11 @@ export interface JointPlan {
   allocations: Allocation[];
   /**
    * 本方案撤回的已有 grant（Scenario.existing_grants 中的 id），按 id 升序。缺省 / null = 不撤回。
+   * **只有 tradeoff 模式允许非空**；protect 模式（默认）下必须为空（验证器 revocation 检查判不通过），
+   * 所以 protect 下不能选中与「有可撤回已有 grant 的措施」互斥的措施。
    * 只能是可撤回的 grant（intervention_id 指向场景内措施），不得重复。
    * 强制撤回：选中的措施 i 与措施 k 互斥（对称）时，所有 intervention_id === k 的已有 grant 都必须在这里。
-   * 自愿撤回（如为别人腾名额）也允许。撤回的效果与损失见 CONTRACT「联合求解模型」第 2、3 条。
+   * tradeoff 模式下自愿撤回（如为别人腾名额）也允许。撤回的效果与损失见 CONTRACT「联合求解模型」第 2、3 条。
    * 求解器返回的方案（主结果、alternative、conditional）一律给出该字段（可为空数组）。
    */
   revoked_grant_ids?: string[];

@@ -1,52 +1,84 @@
 /**
- * 交叉检查：求解器（./solve，只 import、不读源码）对照独立验证器（./verify）与朴素穷举（./exhaustive）。
+ * 交叉检查：求解器（./solve，只 import、不读源码）对照独立验证器（./verify）与穷举（./exhaustive）。
  * 这是唯一允许 import 求解器的测试文件。全部是虚构示例数据，结果是模拟。
+ *
+ * 断言（按 CONTRACT「联合求解模型」）：
+ * - 穷举可行 ⇔ 求解器 OPTIMAL；OPTIMAL 方案通过 verifyPlan，前六级指标（N、L、成本、分配条数、措施数、撤回数）与穷举一致；
+ * - 穷举不可行 ⇔ 求解器 INFEASIBLE；主结果是空方案；alternative 的放松项按第 6 条规则（逐个规模 m、固定优先级），
+ *   且通过「去掉放松项」的 verifyPlan，指标与对应的穷举一致；
+ * - 每个方案的 revoked_grant_ids / lost_pairs / revocations / fairness 与验证器重算完全一致；protect 模式下撤回为空；
+ * - 规范化（第 5 条）；conditional（第 7 条）；朴素枚举对极小场景逐字段比较完整方案（含撤回）。
  */
 import { describe, expect, it } from 'vitest';
 import type {
   DeviceType,
+  FairnessFloor,
+  FairnessReport,
   Intervention,
   JointOutcome,
+  JointPlan,
   JointResult,
   Opportunity,
   ResourceGrant,
   Scenario,
   SolveOptions,
   StudentProfile,
+  StudentStatus,
   SupportType,
   VerifyOptions,
 } from '../types';
 import { exhaustiveBest, NAIVE_LIMITS, naiveBest, type ExhaustiveResult, type NaiveResult } from './exhaustive';
 import { solveJoint } from './solve';
 import { lcg, makeIntervention, makeOpp, makeScenario, makeStudent } from './testing/fixtures';
-import { verifyPlan } from './verify';
+import { createJointEvaluator, verifyAndMeasure, verifyPlan } from './verify';
 
 const EPS = 1e-6;
 
-type Soft = 'required_intervention_ids' | 'min_gain';
+type Soft = 'min_gain' | 'fairness_floors' | 'required_intervention_ids';
+/** 放松的固定优先级（第 6 条）。 */
+const SOFT_ORDER: Soft[] = ['min_gain', 'fairness_floors', 'required_intervention_ids'];
 
+/** 「复核选项」：与求解相同的 mode / loss_cap / 软要求；条件性方案另传 assume。 */
 function verifyOpts(o: SolveOptions, assume?: string[]): VerifyOptions {
   const v: VerifyOptions = {};
   if (o.mode !== undefined) v.mode = o.mode;
   if (o.loss_cap !== undefined) v.loss_cap = o.loss_cap;
   if (o.required_intervention_ids !== undefined) v.required_intervention_ids = o.required_intervention_ids;
   if (o.min_gain !== undefined) v.min_gain = o.min_gain;
+  if (o.fairness_floors !== undefined) v.fairness_floors = o.fairness_floors;
   if (assume) v.assume_approved_intervention_ids = assume;
   return v;
 }
 
-function without(o: VerifyOptions, relaxed: Soft[]): VerifyOptions {
+function without(o: VerifyOptions, relaxed: readonly Soft[]): VerifyOptions {
   const v = { ...o };
   for (const r of relaxed) delete v[r];
   return v;
 }
 
-/** 按第 5 条比较指标（不含字典序）：负数 = a 更优，0 = 指标完全并列。 */
+/** options 中给出（非 null，含空数组）的软要求项，按固定优先级。 */
+function givenSoft(v: VerifyOptions): Soft[] {
+  return SOFT_ORDER.filter((k) => v[k] != null);
+}
+
+/** K 的全部 m 元子集，按固定优先级的字典序（每个子集内部也按优先级排列）。 */
+function combos(items: Soft[], m: number): Soft[][] {
+  if (m === 0) return [[]];
+  const out: Soft[][] = [];
+  items.forEach((x, k) => {
+    for (const rest of combos(items.slice(k + 1), m - 1)) out.push([x, ...rest]);
+  });
+  return out;
+}
+
+/** 按第 5 条前六级比较指标：负数 = a 更优，0 = 指标完全并列。 */
 function cmpMetrics(a: ExhaustiveResult, b: ExhaustiveResult): number {
   if (a.N !== b.N) return b.N - a.N;
+  if (a.L !== b.L) return a.L - b.L;
   if (Math.abs(a.total_usd - b.total_usd) > EPS) return a.total_usd - b.total_usd;
   if (a.allocationCount !== b.allocationCount) return a.allocationCount - b.allocationCount;
-  return a.selectedCount - b.selectedCount;
+  if (a.selectedCount !== b.selectedCount) return a.selectedCount - b.selectedCount;
+  return a.revokedCount - b.revokedCount;
 }
 
 /**
@@ -77,8 +109,9 @@ function outcomeSummary(r: JointOutcome & { status?: string }) {
     G: r.G,
     L: r.L,
     total_usd: r.cost?.total_usd,
-    allocations: r.allocations?.length,
+    allocations: r.allocations?.map((a) => `${a.intervention_id}:${a.student_id}:${a.opportunity_id}`),
     selected: r.selected_intervention_ids,
+    revoked: r.revoked_grant_ids,
   };
 }
 
@@ -91,10 +124,79 @@ function exSummary(e: ExhaustiveResult) {
     total_usd: e.total_usd,
     allocationCount: e.allocationCount,
     selectedCount: e.selectedCount,
+    revokedCount: e.revokedCount,
     selected: e.plan?.selected_intervention_ids,
     allocations: e.plan?.allocations.map((a) => `${a.intervention_id}:${a.student_id}:${a.opportunity_id}`),
+    revoked: e.plan?.revoked_grant_ids,
   };
 }
+
+/** 只取方案字段（不带求解器自带的指标），交给验证器重算。 */
+function planOnly(o: JointPlan): JointPlan {
+  return { selected_intervention_ids: o.selected_intervention_ids, allocations: o.allocations, revoked_grant_ids: o.revoked_grant_ids ?? [] };
+}
+
+function fairnessEqual(a: FairnessReport[] | undefined | null, b: FairnessReport[] | null): boolean {
+  if (b === null) return a === undefined;
+  if (!Array.isArray(a) || a.length !== b.length) return false;
+  return a.every((x, k) => {
+    const y = b[k];
+    const ratioOk = y.ratio === null ? x.ratio === null : typeof x.ratio === 'number' && Math.abs(x.ratio - y.ratio) <= EPS;
+    return (
+      x.floor_id === y.floor_id &&
+      x.eligible_members === y.eligible_members &&
+      x.covered_members === y.covered_members &&
+      x.satisfied === y.satisfied &&
+      ratioOk &&
+      Math.abs(x.min_ratio - y.min_ratio) <= EPS
+    );
+  });
+}
+
+/**
+ * 撤回与损失明细、公平报告：必须给出，且与验证器对同一方案的重算完全一致（含顺序）；protect 模式下不撤回。
+ * fairnessFloors：本方案应当报告的底线（原 options 的 fairness_floors；alternative 放松了底线时也照样报告）。
+ */
+function detailIssues(label: string, scenario: Scenario, outcome: JointOutcome, vopts: VerifyOptions, fairnessFloors: FairnessFloor[] | undefined): string[] {
+  const issues: string[] = [];
+  if (!Array.isArray(outcome.revoked_grant_ids)) issues.push(`${label}：没有给出 revoked_grant_ids`);
+  if (!Array.isArray(outcome.lost_pairs)) issues.push(`${label}：没有给出 lost_pairs`);
+  if (!Array.isArray(outcome.revocations)) issues.push(`${label}：没有给出 revocations`);
+  if (vopts.mode !== 'tradeoff' && (outcome.revoked_grant_ids ?? []).length > 0) {
+    issues.push(`${label}：protect 模式下撤回了 ${JSON.stringify(outcome.revoked_grant_ids)}`);
+  }
+  const m = verifyAndMeasure(createJointEvaluator(scenario), planOnly(outcome), { ...vopts, fairness_floors: fairnessFloors }).metrics;
+  if (JSON.stringify(outcome.revoked_grant_ids ?? []) !== JSON.stringify(m.revoked_grant_ids)) {
+    issues.push(`${label}：revoked_grant_ids ${JSON.stringify(outcome.revoked_grant_ids)} 未排序或含非法 id（合法部分 ${JSON.stringify(m.revoked_grant_ids)}）`);
+  }
+  if (JSON.stringify(outcome.lost_pairs ?? null) !== JSON.stringify(m.lost_pairs)) {
+    issues.push(`${label}：lost_pairs 与验证器重算不一致 solver=${JSON.stringify(outcome.lost_pairs)} verifier=${JSON.stringify(m.lost_pairs)}`);
+  }
+  if (JSON.stringify(outcome.revocations ?? null) !== JSON.stringify(m.revocations)) {
+    issues.push(`${label}：revocations 与验证器重算不一致 solver=${JSON.stringify(outcome.revocations)} verifier=${JSON.stringify(m.revocations)}`);
+  }
+  if (!fairnessEqual(outcome.fairness, m.fairness)) {
+    issues.push(`${label}：fairness 与验证器重算不一致 solver=${JSON.stringify(outcome.fairness)} verifier=${JSON.stringify(m.fairness)}`);
+  }
+  if (outcome.L !== m.L || outcome.G !== m.G || outcome.N !== m.N) {
+    issues.push(`${label}：G / L / N 与验证器重算不一致 solver=${outcome.G}/${outcome.L}/${outcome.N} verifier=${m.G}/${m.L}/${m.N}`);
+  }
+  return issues;
+}
+
+/** 统计：保证对照真的覆盖到了各种情况（不是全部空方案）。 */
+const STATS = {
+  optimal: 0,
+  optimalPositiveN: 0,
+  optimalPositiveL: 0,
+  optimalWithRevocation: 0,
+  infeasible: 0,
+  infeasibleByFloors: 0,
+  conditional: 0,
+  multiAllocGroups: 0,
+  tradeoff: 0,
+  withFloors: 0,
+};
 
 /**
  * 对比一次「求解（主结果或条件性结果）」与穷举；返回不一致描述列表。
@@ -111,6 +213,7 @@ function compareOne(
   const issues: string[] = [];
   const ex = exhaustiveBest(scenario, vopts);
   const ctx = () => JSON.stringify({ solver: outcomeSummary({ ...outcome, status }), exhaustive: exSummary(ex) });
+  issues.push(...detailIssues(label, scenario, outcome, vopts, vopts.fairness_floors));
   if (ex.feasible) {
     if (status !== 'OPTIMAL') {
       issues.push(`${label}：穷举可行，求解器状态为 ${status} ${ctx()}`);
@@ -121,9 +224,11 @@ function compareOne(
       issues.push(`${label}：OPTIMAL 方案未通过 verifyPlan：${v.checks.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join(' | ')}`);
     }
     if (outcome.N !== ex.N) issues.push(`${label}：N 不一致 ${ctx()}`);
+    if (outcome.L !== ex.L) issues.push(`${label}：L 不一致 ${ctx()}`);
     if (Math.abs(outcome.cost.total_usd - ex.total_usd) > EPS) issues.push(`${label}：total_usd 不一致 ${ctx()}`);
     if (outcome.allocations.length !== ex.allocationCount) issues.push(`${label}：分配条数不一致 ${ctx()}`);
     if (outcome.selected_intervention_ids.length !== ex.selectedCount) issues.push(`${label}：选中措施数不一致 ${ctx()}`);
+    if ((outcome.revoked_grant_ids ?? []).length !== ex.revokedCount) issues.push(`${label}：撤回数不一致 ${ctx()}`);
     issues.push(...normalizationIssues(label, scenario, outcome, vopts.required_intervention_ids));
     return issues;
   }
@@ -133,7 +238,14 @@ function compareOne(
     issues.push(`${label}：穷举不可行，求解器状态为 ${status} ${ctx()}`);
     return issues;
   }
-  if (outcome.selected_intervention_ids.length !== 0 || outcome.allocations.length !== 0 || outcome.cost.total_usd !== 0) {
+  if (
+    outcome.selected_intervention_ids.length !== 0 ||
+    outcome.allocations.length !== 0 ||
+    (outcome.revoked_grant_ids ?? []).length !== 0 ||
+    outcome.cost.total_usd !== 0 ||
+    outcome.G !== 0 ||
+    outcome.L !== 0
+  ) {
     issues.push(`${label}：INFEASIBLE 主结果不是空方案 ${ctx()}`);
   }
   if (alternative === undefined) return issues; // 条件性结果没有 alternative 字段
@@ -142,56 +254,68 @@ function compareOne(
     return issues;
   }
   const relaxed = alternative.relaxed as Soft[];
-  const v = verifyPlan(scenario, alternative, without(vopts, relaxed));
+  const relaxedOpts = without(vopts, relaxed);
+  // 放松了底线时，alternative 仍报告原底线的 fairness；复核「去掉放松项」时不带这份报告（否则 metrics 会因 options 没给底线而不通过）。
+  const altPlan = relaxed.includes('fairness_floors') ? { ...alternative, fairness: undefined } : alternative;
+  const v = verifyPlan(scenario, altPlan, relaxedOpts);
   if (!v.passed) {
     issues.push(`${label}：alternative 未通过去掉 ${relaxed.join('+')} 后的 verifyPlan：${v.checks.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join(' | ')}`);
   }
-  // 期望的放松方式（第 6 条）：只尝试 options 里给出的项；都可行取更优，完全并列取只放松 min_gain；都不可行两项都放松。
-  const given: Soft[] = (['min_gain', 'required_intervention_ids'] as Soft[]).filter((k) => vopts[k] !== undefined);
-  const tries = given.map((k) => ({ relaxed: [k], ex: exhaustiveBest(scenario, without(vopts, [k])) })).filter((t) => t.ex.feasible);
-  let expected: { relaxed: Soft[]; ex: ExhaustiveResult }[];
-  if (tries.length === 0) expected = [{ relaxed: given, ex: exhaustiveBest(scenario, without(vopts, given)) }];
-  else {
-    tries.sort((a, b) => cmpMetrics(a.ex, b.ex));
-    expected = tries.filter((t) => cmpMetrics(t.ex, tries[0].ex) === 0);
+  issues.push(...detailIssues(`${label} alternative`, scenario, alternative, relaxedOpts, vopts.fairness_floors));
+
+  // 期望的放松方式（第 6 条）：m = 1, 2, … 依次尝试 K 的 m 元子集；第一个有可行子集的 m 中取指标最优者；
+  // 指标完全并列时（第 7 级字典序穷举不比较）接受任一并列的子集。
+  const K = givenSoft(vopts);
+  let expected: { relaxed: Soft[]; ex: ExhaustiveResult }[] = [];
+  for (let m = 1; m <= K.length && expected.length === 0; m++) {
+    const tries = combos(K, m)
+      .map((T) => ({ relaxed: T, ex: exhaustiveBest(scenario, without(vopts, T)) }))
+      .filter((t) => t.ex.feasible);
+    if (tries.length === 0) continue;
+    const best = [...tries].sort((a, b) => cmpMetrics(a.ex, b.ex))[0];
+    expected = tries.filter((t) => cmpMetrics(t.ex, best.ex) === 0);
   }
-  const match = expected.find(
-    (e) => [...e.relaxed].sort().join(',') === [...relaxed].sort().join(','),
-  );
+  const match = expected.find((e) => e.relaxed.join(',') === relaxed.join(','));
   const altCtx = JSON.stringify({
     solverAlternative: { relaxed, ...outcomeSummary(alternative) },
     expected: expected.map((e) => ({ relaxed: e.relaxed, ...exSummary(e.ex) })),
   });
   if (!match) {
-    // 指标完全并列时契约要求取只放松 min_gain；但字典序（第 5 条第 4 步）不同的方案指标也可能并列，这里只在指标层面比较。
-    issues.push(`${label}：alternative 放松项与期望不符 ${altCtx}`);
+    issues.push(`${label}：alternative 放松项与期望不符（或未按固定优先级排列） ${altCtx}`);
   } else {
     if (alternative.N !== match.ex.N) issues.push(`${label}：alternative N 不一致 ${altCtx}`);
+    if (alternative.L !== match.ex.L) issues.push(`${label}：alternative L 不一致 ${altCtx}`);
     if (Math.abs(alternative.cost.total_usd - match.ex.total_usd) > EPS) issues.push(`${label}：alternative total_usd 不一致 ${altCtx}`);
     if (alternative.allocations.length !== match.ex.allocationCount) issues.push(`${label}：alternative 分配条数不一致 ${altCtx}`);
     if (alternative.selected_intervention_ids.length !== match.ex.selectedCount) issues.push(`${label}：alternative 选中措施数不一致 ${altCtx}`);
+    if ((alternative.revoked_grant_ids ?? []).length !== match.ex.revokedCount) issues.push(`${label}：alternative 撤回数不一致 ${altCtx}`);
     const keptRequired = relaxed.includes('required_intervention_ids') ? undefined : vopts.required_intervention_ids;
     issues.push(...normalizationIssues(`${label} alternative`, scenario, alternative, keptRequired));
   }
   return issues;
 }
 
-/** 覆盖面统计：保证对照真的覆盖到了各种情况（不是全部空方案）。 */
-const STATS = { optimal: 0, optimalPositiveN: 0, infeasible: 0, conditional: 0, multiAllocGroups: 0 };
-
 function crossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[] {
   const issues: string[] = [];
   const res = solveJoint(scenario, sopts);
+  const vopts = verifyOpts(sopts);
+  if (sopts.mode === 'tradeoff') STATS.tradeoff++;
+  if (sopts.fairness_floors != null) STATS.withFloors++;
   if (res.status === 'OPTIMAL') {
     STATS.optimal++;
     if (res.N > 0) STATS.optimalPositiveN++;
+    if (res.L > 0) STATS.optimalPositiveL++;
+    if ((res.revoked_grant_ids ?? []).length > 0) STATS.optimalWithRevocation++;
     const groups = new Set(res.allocations.map((a) => a.intervention_id + '|' + a.student_id));
     if (groups.size < res.allocations.length) STATS.multiAllocGroups++;
   }
-  if (res.status === 'INFEASIBLE') STATS.infeasible++;
+  if (res.status === 'INFEASIBLE') {
+    STATS.infeasible++;
+    if (vopts.fairness_floors != null && exhaustiveBest(scenario, without(vopts, ['fairness_floors'])).feasible) STATS.infeasibleByFloors++;
+  }
   if (res.conditional) STATS.conditional++;
   if (res.status === 'UNSUPPORTED_INPUT') return [`求解器返回 UNSUPPORTED_INPUT（场景应合法）：${res.notes.join(' / ')}`];
-  issues.push(...compareOne('主结果', scenario, res.status, res, verifyOpts(sopts), res.alternative ?? null));
+  issues.push(...compareOne('主结果', scenario, res.status, res, vopts, res.alternative ?? null));
 
   const pending = scenario.interventions.filter((i) => i.status === 'pending').map((i) => i.id).sort();
   if (pending.length > 0) {
@@ -467,30 +591,306 @@ describe('交叉检查：手工场景（求解器 vs verifyPlan + 穷举）', ()
   }
 });
 
+
+// ───────────────────────────── 第 3 层手工场景：撤回与公平底线（带手算期望） ─────────────────────────────
+
+const TRADE = (loss_cap: number): SolveOptions => ({ mode: 'tradeoff', loss_cap });
+const OLD = makeIntervention('old', { unit_cost_usd: 100, capacity: 1 });
+const NEW = makeIntervention('new', { unit_cost_usd: 60, capacity: 2, mutually_exclusive_with: ['old'] });
+/** a 已借到 old 的笔记本（对所有机会有效）→ (a, o1) ∈ R0；old 容量 1 已满。 */
+const swapScenario = (o: Partial<Scenario> = {}) =>
+  makeScenario({
+    students: [need('a'), need('b')],
+    opportunities: [O1],
+    interventions: [OLD, NEW],
+    existing_grants: [grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' })],
+    ...o,
+  });
+
+/** busy：有笔记本、每周可用 0 小时，靠 old（时间支持 5 小时）的已有 grant 可达；new（笔记本）帮不了他。 */
+const busy = (id: string, statuses: StudentStatus[] = ['high_school_student']) =>
+  makeStudent(id, { devices: ['smartphone', 'home_internet', 'laptop'], hours_per_week_available: 0, statuses });
+const OLD_TIME = makeIntervention('old', { type: 'time_support', resolves: ['time'], hours_per_week: 5, device: null, unit_cost_usd: 0, capacity: 1 });
+const timeGrant = (id: string, student: string): ResourceGrant =>
+  grant({ id, student_id: student, intervention_id: 'old', type: 'time_support', device: null, hours_per_week: 5 });
+const lossScenario = (o: Partial<Scenario> = {}) =>
+  makeScenario({
+    students: [busy('a'), need('b'), need('c'), need('d')],
+    opportunities: [O1],
+    interventions: [OLD_TIME, makeIntervention('new', { unit_cost_usd: 10, capacity: 3, mutually_exclusive_with: ['old'] })],
+    existing_grants: [timeGrant('e-a', 'a')],
+    ...o,
+  });
+
+const O2_UPPER = makeOpp('o2', {
+  requirements: [{ id: 'req-grade', type: 'grade', min: 11, max: 12, label: '11–12 年级', hard: true, source_text: 'Open to grades 11-12. (fictional example)' }],
+});
+
+const fl = (id: string, statuses: StudentStatus[], min_ratio: number): FairnessFloor => ({
+  id,
+  label: `示例群体 ${id}`,
+  basis: '虚构的分组依据（示例）',
+  statuses_any_of: statuses,
+  min_ratio,
+});
+const FG = fl('fg', ['first_generation'], 1);
+const fairStudents = () => [
+  need('f1', { statuses: ['low_income'] }),
+  need('f2', { statuses: ['first_generation'] }),
+  makeStudent('f5', { statuses: ['first_generation'], devices: ['laptop'] }),
+];
+const GALA = makeIntervention('gala', { type: 'alternative_access', resolves: ['transport'], device: null, unit_cost_usd: 0, fixed_cost_usd: 0, mutually_exclusive_with: ['loan'] });
+
+interface Expect {
+  status: string;
+  N: number;
+  L: number;
+  revoked: string[];
+  relaxed: Soft[];
+  allocatedStudents: string[];
+}
+const HAND3: { name: string; scenario: Scenario; options?: SolveOptions; expect: Partial<Expect> }[] = [
+  {
+    name: 'tradeoff 强制撤回：换用 new，撤回 e-a，由 new 给 a 补位（loss_cap 0）',
+    scenario: swapScenario(),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-a'], allocatedStudents: ['a', 'b'] },
+  },
+  {
+    name: 'protect 下与已有 grant 所属措施互斥的措施不可选 → 空方案',
+    scenario: swapScenario(),
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [], allocatedStudents: [] },
+  },
+  {
+    name: 'loss_cap 恰好够：撤回 a 的时间支持换笔记本给 3 人（G 3，L 1）',
+    scenario: lossScenario(),
+    options: TRADE(1),
+    expect: { status: 'OPTIMAL', N: 2, L: 1, revoked: ['e-a'], allocatedStudents: ['b', 'c', 'd'] },
+  },
+  {
+    name: 'loss_cap 差一个（0）：不能撤回 → 空方案',
+    scenario: lossScenario(),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [] },
+  },
+  {
+    name: '自愿撤回使 N 更好：撤回 a 的 o1 设备，改给 b（o1、o2 两个机会）',
+    scenario: makeScenario({
+      students: [need('a'), need('b', { grade: 11 })],
+      opportunities: [O1, O2_UPPER],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-a', student_id: 'a', opportunity_id: 'o1', intervention_id: 'old' })],
+    }),
+    options: TRADE(1),
+    expect: { status: 'OPTIMAL', N: 1, L: 1, revoked: ['e-a'], allocatedStudents: ['b', 'b'] },
+  },
+  {
+    name: '自愿撤回不值得（N 不变、L 变大）→ 空方案',
+    scenario: makeScenario({
+      students: [need('a'), need('b')],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' })],
+    }),
+    options: TRADE(1),
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [] },
+  },
+  {
+    name: '撤回 pending 的已有 grant（学生不在场景内）腾名额：L 0',
+    scenario: makeScenario({
+      students: [need('a')],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' })],
+    }),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-out'], allocatedStudents: ['a'] },
+  },
+  {
+    name: '同上但 protect：pending 的已有 grant 也不能撤回 → 空方案',
+    scenario: makeScenario({
+      students: [need('a')],
+      opportunities: [O1],
+      interventions: [OLD],
+      existing_grants: [grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' })],
+    }),
+    expect: { status: 'OPTIMAL', N: 0, revoked: [] },
+  },
+  {
+    name: '强制撤回包括场景外学生的 pending grant',
+    // old 单价 200：否则「撤回 e-out（pending，无损失）+ old 给 b」只要 $100，比换用 new（$120）便宜
+    scenario: swapScenario({
+      interventions: [{ ...OLD, capacity: 2, unit_cost_usd: 200 }, NEW],
+      existing_grants: [
+        grant({ id: 'e-a', student_id: 'a', intervention_id: 'old' }),
+        grant({ id: 'e-out', student_id: 'outsider', intervention_id: 'old', status: 'pending' }),
+      ],
+    }),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 1, L: 0, revoked: ['e-a', 'e-out'] },
+  },
+  {
+    name: 'protect 下必须启用互斥措施 → INFEASIBLE，放松 required',
+    scenario: swapScenario(),
+    options: { required_intervention_ids: ['new'] },
+    expect: { status: 'INFEASIBLE', relaxed: ['required_intervention_ids'] },
+  },
+  {
+    name: 'tradeoff 下必须启用互斥措施 → 可行（强制撤回 + 补位）',
+    scenario: swapScenario(),
+    options: { ...TRADE(0), required_intervention_ids: ['new'] },
+    expect: { status: 'OPTIMAL', N: 1, revoked: ['e-a'] },
+  },
+  {
+    name: '底线改变人选：第一代学生底线 → 名额给 f2（不按编号给 f1）',
+    scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }),
+    options: { fairness_floors: [FG] },
+    expect: { status: 'OPTIMAL', N: 1, allocatedStudents: ['f2'] },
+  },
+  {
+    name: '底线不可行（名额 0）→ INFEASIBLE，放松 fairness_floors',
+    scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 0 }] }),
+    options: { fairness_floors: [FG] },
+    expect: { status: 'INFEASIBLE', relaxed: ['fairness_floors'] },
+  },
+  {
+    name: '分母为 0 的底线不适用，不影响结果',
+    scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }] }),
+    options: { fairness_floors: [fl('ug', ['undergraduate'], 1)] },
+    expect: { status: 'OPTIMAL', N: 1, allocatedStudents: ['f1'] },
+  },
+  {
+    name: '三项软要求同时存在：只需放松 required（m = 1）',
+    scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }, GALA] }),
+    options: { required_intervention_ids: ['gala'], min_gain: 1, fairness_floors: [FG] },
+    expect: { status: 'INFEASIBLE', relaxed: ['required_intervention_ids'] },
+  },
+  {
+    name: '三项软要求同时存在：需要放松两项，{min_gain, required} 优于 {min_gain, fairness_floors}',
+    scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }, GALA] }),
+    options: { required_intervention_ids: ['gala'], min_gain: 2, fairness_floors: [FG] },
+    expect: { status: 'INFEASIBLE', relaxed: ['min_gain', 'required_intervention_ids'] },
+  },
+  {
+    name: '底线阻止撤回：低收入的 a 会因撤回失去机会 → 不撤回',
+    scenario: lossScenario({ students: [busy('a', ['low_income']), need('b'), need('c')] }),
+    options: { ...TRADE(1), fairness_floors: [fl('low', ['low_income'], 1)] },
+    expect: { status: 'OPTIMAL', N: 0, L: 0, revoked: [] },
+  },
+  {
+    name: '同上但没有底线：撤回换来 N = 1',
+    scenario: lossScenario({ students: [busy('a', ['low_income']), need('b'), need('c')] }),
+    options: TRADE(1),
+    expect: { status: 'OPTIMAL', N: 1, L: 1, revoked: ['e-a'] },
+  },
+  {
+    name: 'pending 的互斥措施：主结果不变，conditional 中强制撤回并补位',
+    scenario: swapScenario({ interventions: [OLD, { ...NEW, status: 'pending' }] }),
+    options: TRADE(0),
+    expect: { status: 'OPTIMAL', N: 0, revoked: [] },
+  },
+];
+
+describe('交叉检查：第 3 层手工场景（撤回、权衡模式、公平底线；含手算期望）', () => {
+  for (const { name, scenario, options, expect: want } of HAND3) {
+    it(name, () => {
+      const opts = options ?? {};
+      // 先确认穷举参考本身符合手算（先怀疑自己）
+      const ex = exhaustiveBest(scenario, verifyOpts(opts));
+      if (want.status === 'OPTIMAL') {
+        expect(ex.feasible).toBe(true);
+        if (want.N !== undefined) expect(ex.N).toBe(want.N);
+        if (want.L !== undefined) expect(ex.L).toBe(want.L);
+        if (want.revoked !== undefined) expect(ex.revokedCount).toBe(want.revoked.length);
+      } else if (want.status === 'INFEASIBLE') {
+        expect(ex.feasible).toBe(false);
+      }
+      const res = solveJoint(scenario, opts);
+      const got = {
+        status: res.status,
+        N: res.N,
+        L: res.L,
+        revoked: res.revoked_grant_ids,
+        relaxed: res.alternative?.relaxed,
+        allocatedStudents: res.allocations.map((a) => a.student_id),
+      };
+      const picked = Object.fromEntries(Object.keys(want).map((k) => [k, got[k as keyof typeof got]]));
+      expect({ picked, notes: picked.status === want.status ? undefined : res.notes }).toEqual({ picked: want, notes: undefined });
+      expect(crossCheck(scenario, opts)).toEqual([]);
+    });
+  }
+  it('pending 互斥措施的 conditional：换用 new、撤回 e-a', () => {
+    const res = solveJoint(swapScenario({ interventions: [OLD, { ...NEW, status: 'pending' }] }), TRADE(0));
+    expect({ status: res.conditional?.status, N: res.conditional?.N, revoked: res.conditional?.revoked_grant_ids }).toEqual({
+      status: 'OPTIMAL',
+      N: 1,
+      revoked: ['e-a'],
+    });
+  });
+});
+
+describe('对照器自检：篡改求解结果必须被发现（防止断言形同虚设）', () => {
+  const scenario = swapScenario();
+  const opts = TRADE(0);
+  const vopts = verifyOpts(opts);
+  const res = solveJoint(scenario, opts);
+  it('未篡改时没有问题', () => {
+    expect(compareOne('自检', scenario, res.status, res, vopts, res.alternative ?? null)).toEqual([]);
+  });
+  const tampered: [string, (r: JointResult) => JointResult][] = [
+    ['forced_by 改为 null', (r) => ({ ...r, revocations: (r.revocations ?? []).map((x) => ({ ...x, forced_by: null })) })],
+    ['缺少 revocations', (r) => ({ ...r, revocations: undefined })],
+    ['缺少 lost_pairs', (r) => ({ ...r, lost_pairs: undefined })],
+    ['lost_pairs 造假', (r) => ({ ...r, lost_pairs: [{ student_id: 'a', opportunity_id: 'o1' }] })],
+    ['去掉撤回（违反强制撤回）', (r) => ({ ...r, revoked_grant_ids: [], revocations: [] })],
+    ['N 少报', (r) => ({ ...r, N: r.N - 1 })],
+    ['多带 fairness', (r) => ({ ...r, fairness: [] })],
+  ];
+  for (const [name, f] of tampered) {
+    it(name, () => {
+      expect(compareOne('自检', scenario, res.status, f(res), vopts, res.alternative ?? null).length).toBeGreaterThan(0);
+    });
+  }
+  it('protect 下有撤回、缺少 fairness 报告都会被发现', () => {
+    const p = solveJoint(scenario);
+    expect(compareOne('自检', scenario, p.status, { ...p, revoked_grant_ids: ['e-a'] }, verifyOpts({}), null).join(' ')).toContain('protect');
+    const withFloor = { fairness_floors: [FG] };
+    const q = solveJoint(scenario, withFloor);
+    expect(compareOne('自检', scenario, q.status, { ...q, fairness: undefined }, verifyOpts(withFloor), q.alternative ?? null).join(' ')).toContain('fairness');
+  });
+});
+
 // ───────────────────────────── 随机场景 ─────────────────────────────
 
 const SUPPORT: SupportType[] = ['device', 'transport_subsidy', 'fee_waiver', 'time_support', 'alternative_access'];
+const GROUP_STATUSES: StudentStatus[] = ['low_income', 'first_generation', 'underrepresented_in_stem'];
 
 function pick<T>(rnd: () => number, xs: readonly T[]): T {
   return xs[Math.floor(rnd() * xs.length)];
 }
 
 /**
- * shape = 'small'：单机会 2–6 人、两机会 2–4 人，1–4 项措施（与 exhaustiveBest 对照）；
- * shape = 'tiny'：≤ 3 人、≤ 2 个机会、≤ 3 项措施，且「措施 × 学生 × 机会」≤ 12（与朴素枚举 naiveBest 对照）。
+ * shape = 'small'：单机会 2–6 人、两机会 2–4 人，1–4 项措施，0–2 条可撤回的已有 grant（与 exhaustiveBest 对照）；
+ * shape = 'tiny'：≤ 3 人、≤ 2 个机会、≤ 3 项措施，「措施 × 学生 × 机会」+ 可撤回 grant 数 ≤ 12（与朴素枚举 naiveBest 对照）。
+ * 第 3 层新增：带 intervention_id 的已有 grant（approved / pending，可能指向场景外学生）、更多互斥关系
+ * （常常指向有已有 grant 的措施，从而触发强制撤回）、tradeoff 模式与随机 loss_cap、基于随机 statuses 的公平底线。
  */
 function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scenario: Scenario; options: SolveOptions } {
   const rnd = lcg(seed);
   const nOpp = rnd() < 0.6 ? 1 : 2;
+  const r = rnd();
+  const nGrants = r < 0.35 ? 0 : r < 0.75 ? 1 : 2;
   let nStu: number;
   let nInt: number;
   if (shape === 'small') {
     nStu = 2 + Math.floor(rnd() * (nOpp === 1 ? 5 : 3)); // 单机会 2–6 人，两机会 2–4 人
     nInt = 1 + Math.floor(rnd() * 4); // 1–4 项措施
-    if (nInt === 4 && nStu * nOpp > 4) nStu = Math.max(2, Math.floor(4 / nOpp)); // 4 项措施时控制规模，保持整套测试几秒内
+    if (nInt === 4 && nStu * nOpp > 4) nStu = Math.max(2, Math.floor(4 / nOpp)); // 4 项措施时控制规模
+    if (nGrants === 2 && nInt >= 3 && nStu * nOpp > 4) nStu = Math.max(2, Math.floor(4 / nOpp)); // 两条可撤回 grant 时同样控制
   } else {
     nInt = 1 + Math.floor(rnd() * NAIVE_LIMITS.interventions);
-    const maxStu = Math.min(NAIVE_LIMITS.students, Math.floor(NAIVE_LIMITS.triples / (nInt * nOpp)));
+    const budget = Math.min(NAIVE_LIMITS.triples, NAIVE_LIMITS.triplesPlusRevocable - nGrants);
+    const maxStu = Math.max(1, Math.min(NAIVE_LIMITS.students, Math.floor(budget / (nInt * nOpp))));
     nStu = 1 + Math.floor(rnd() * maxStu);
   }
 
@@ -509,6 +909,8 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
   }
   const students: StudentProfile[] = [];
   for (let k = 0; k < nStu; k++) {
+    const statuses: StudentStatus[] | null =
+      rnd() < 0.15 ? null : ['high_school_student', ...GROUP_STATUSES.filter(() => rnd() < 0.4)];
     students.push(
       makeStudent(`st${k}`, {
         grade: rnd() < 0.12 ? 7 : 10,
@@ -516,11 +918,12 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
         transport: { level: pick(rnd, ['reliable', 'reliable', 'limited', 'none'] as const) },
         budget_usd: pick(rnd, [0, 20, 100]),
         hours_per_week_available: pick(rnd, [6, 10, 20]),
+        statuses,
       }),
     );
   }
   const ids = Array.from({ length: nInt }, (_, k) => `iv${k}`);
-  const interventions: Intervention[] = ids.map((id, k) => {
+  const interventions: Intervention[] = ids.map((id) => {
     const type = pick(rnd, SUPPORT);
     const iv: Intervention = {
       id,
@@ -537,19 +940,19 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
     if (type === 'time_support') iv.hours_per_week = pick(rnd, [2, 7, 12]);
     if (rnd() < 0.3) iv.capacity_scope = 'per_time_slot';
     if (nOpp > 1 && rnd() < 0.25) iv.opportunity_ids = [pick(rnd, opps).id];
-    if (k > 0 && rnd() < 0.2) iv.mutually_exclusive_with = [ids[k - 1]];
-    else if (k > 0 && rnd() < 0.2) iv.requires = [ids[0]];
     if (rnd() < 0.15) iv.status = 'pending';
     return iv;
   });
+  // 已有 grant：多数指向场景内措施（可撤回），少数无 intervention_id；学生偶尔在场景外。
   const existing: ResourceGrant[] = [];
-  if (rnd() < 0.35) {
+  for (let k = 0; k < nGrants; k++) {
     const iv = pick(rnd, interventions);
+    const linked = rnd() < 0.85;
     existing.push({
-      id: 'eg0',
-      student_id: pick(rnd, students).id,
+      id: `eg${k}`,
+      student_id: rnd() < 0.15 ? 'outsider' : pick(rnd, students).id,
       opportunity_id: rnd() < 0.5 ? null : pick(rnd, opps).id,
-      intervention_id: iv.id,
+      intervention_id: linked ? iv.id : null,
       type: iv.type,
       amount_usd: iv.amount_usd ?? null,
       device: iv.device ?? null,
@@ -559,14 +962,72 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
       is_sample: true,
     });
   }
+  // 「换用」结构（约一半）：eg0 是 approved、对所有机会有效的 grant，所属措施容量 1（已满），
+  // 另一项措施与它互斥且名额更多——tradeoff 下可能值得撤回 eg0（L > 0），也可能补位（L = 0）。
+  const swap = existing.length > 0 && !!existing[0].intervention_id && nInt >= 2 && rnd() < 0.5;
+  if (swap) {
+    // holder = 时间支持（每周 +7 小时），st0 有笔记本、每周 0 小时，只靠 eg0 可达 5 小时的机会；
+    // rival = 借笔记本，帮不了 st0（撤回 eg0 后 st0 无法补位 → L > 0），但可能帮到其他人。
+    const holder = interventions.find((iv) => iv.id === existing[0].intervention_id)!;
+    Object.assign(holder, { type: 'time_support', hours_per_week: 7, device: null, amount_usd: null, capacity: 1, capacity_scope: 'total' });
+    delete holder.status;
+    Object.assign(existing[0], {
+      status: 'approved',
+      opportunity_id: null,
+      student_id: students[0].id,
+      type: 'time_support',
+      hours_per_week: 7,
+      device: null,
+      amount_usd: null,
+    });
+    Object.assign(students[0], { devices: ['smartphone', 'laptop'], hours_per_week_available: 0, grade: 10, transport: { level: 'reliable' }, budget_usd: 100 });
+    for (const g of existing.slice(1)) if (g.intervention_id === holder.id) g.intervention_id = null; // 保持容量预检合法
+    const rival = interventions.find((iv) => iv.id !== holder.id)!;
+    Object.assign(rival, { type: 'device', device: 'laptop', amount_usd: null, hours_per_week: null, mutually_exclusive_with: [holder.id], capacity: pick(rnd, [null, 2, 3]) });
+    delete rival.requires;
+    delete rival.status;
+    delete rival.opportunity_ids;
+    // 第一个机会：线上、免费、每周 5 小时、需要笔记本；其他学生多半缺笔记本——让「换用」真正有得有失。
+    Object.assign(opps[0], {
+      location: { format: 'online' },
+      cost: { fee_usd: 0, requires_travel_expense: false },
+      time_commitment: { hours_per_week: 5, total_weeks: 4 },
+      required_devices: ['laptop'],
+      deadline: '2027-03-01',
+    });
+    for (const st of students.slice(1)) if (rnd() < 0.7) Object.assign(st, { devices: ['smartphone'], grade: 10, hours_per_week_available: 10 });
+  }
+  // 互斥 / 依赖：互斥常常指向有已有 grant 的措施（触发强制撤回）。
+  const granted = [...new Set(existing.map((g) => g.intervention_id).filter((x): x is string => typeof x === 'string'))];
+  interventions.forEach((iv, k) => {
+    if (iv.mutually_exclusive_with) return; // 已由「换用」结构设定
+    const others = granted.filter((g) => g !== iv.id);
+    if (others.length > 0 && rnd() < 0.35) iv.mutually_exclusive_with = [pick(rnd, others)];
+    else if (k > 0 && rnd() < 0.2) iv.mutually_exclusive_with = [ids[k - 1]];
+    else if (k > 0 && rnd() < 0.2) iv.requires = [ids[0]];
+  });
   const slots: Record<string, string> = {};
   if (nOpp > 1 && rnd() < 0.6) {
     slots[opps[0].id] = 'AM';
     if (rnd() < 0.5) slots[opps[1].id] = rnd() < 0.5 ? 'AM' : 'PM';
   }
   const options: SolveOptions = {};
+  if (rnd() < (swap ? 0.8 : 0.4)) {
+    options.mode = 'tradeoff';
+    options.loss_cap = pick(rnd, [0, 1, 2, 2]);
+  }
   if (rnd() < 0.2) options.required_intervention_ids = [pick(rnd, ids)];
-  if (rnd() < 0.25) options.min_gain = Math.floor(rnd() * 4);
+  if (rnd() < 0.2) options.min_gain = Math.floor(rnd() * 4);
+  if (rnd() < 0.3) {
+    const n = rnd() < 0.7 ? 1 : 2;
+    options.fairness_floors = Array.from({ length: n }, (_, k) => ({
+      id: `floor${k}`,
+      label: `随机示例群体 ${k}`,
+      basis: '虚构的分组依据（示例）',
+      statuses_any_of: rnd() < 0.8 ? [pick(rnd, GROUP_STATUSES)] : [pick(rnd, GROUP_STATUSES), pick(rnd, GROUP_STATUSES)],
+      min_ratio: pick(rnd, [0.34, 0.5, 0.67, 1]),
+    }));
+  }
   const scenario = makeScenario({
     id: `random-${seed}`,
     students,
@@ -579,18 +1040,22 @@ function randomScenario(seed: number, shape: 'small' | 'tiny' = 'small'): { scen
   return { scenario, options };
 }
 
+function inputValid(scenario: Scenario, options: SolveOptions): boolean {
+  return (
+    verifyPlan(scenario, { selected_intervention_ids: [], allocations: [] }, verifyOpts(options)).checks.find((c) => c.name === 'input_validity')
+      ?.passed === true
+  );
+}
+
 describe('交叉检查：随机小场景（固定种子线性同余）', () => {
-  const N_RANDOM = 200;
+  const N_RANDOM = 260;
   let checked = 0;
   for (let k = 0; k < N_RANDOM; k++) {
     const seed = 1000 + k * 7919;
     it(`随机场景 seed=${seed}`, () => {
       const { scenario, options } = randomScenario(seed);
-      // 生成器保证 existing grant 不超容量的检查交给 verifyPlan：输入不合法的随机场景跳过对照，但要求求解器同样判 UNSUPPORTED_INPUT。
-      const valid = verifyPlan(scenario, { selected_intervention_ids: [], allocations: [] }, verifyOpts(options)).checks.find(
-        (c) => c.name === 'input_validity',
-      )?.passed;
-      if (!valid) {
+      // 输入不合法的随机场景（如已有 grant 超容量）跳过对照，但要求求解器同样判 UNSUPPORTED_INPUT。
+      if (!inputValid(scenario, options)) {
         expect(solveJoint(scenario, options).status).toBe('UNSUPPORTED_INPUT');
         return;
       }
@@ -602,16 +1067,22 @@ describe('交叉检查：随机小场景（固定种子线性同余）', () => {
     });
   }
   it('随机场景中合法、参与对照的不少于 150 个', () => {
+    console.info('[crosscheck random] 合法并参与对照', checked, '/', N_RANDOM);
     expect(checked).toBeGreaterThanOrEqual(150);
   });
 });
 
 describe('交叉检查覆盖面', () => {
-  it('对照覆盖了 OPTIMAL（含 N > 0）、INFEASIBLE、conditional', () => {
+  it('对照覆盖了 OPTIMAL（含 N > 0、L > 0、有撤回）、INFEASIBLE（含因底线）、conditional、tradeoff、底线', () => {
     console.info('[crosscheck stats]', JSON.stringify(STATS));
     expect(STATS.optimalPositiveN).toBeGreaterThanOrEqual(20);
+    expect(STATS.optimalPositiveL).toBeGreaterThanOrEqual(8);
+    expect(STATS.optimalWithRevocation).toBeGreaterThanOrEqual(12);
     expect(STATS.infeasible).toBeGreaterThanOrEqual(4);
+    expect(STATS.infeasibleByFloors).toBeGreaterThanOrEqual(10);
     expect(STATS.conditional).toBeGreaterThanOrEqual(3);
+    expect(STATS.tradeoff).toBeGreaterThanOrEqual(30);
+    expect(STATS.withFloors).toBeGreaterThanOrEqual(20);
   });
 });
 
@@ -619,9 +1090,15 @@ describe('交叉检查覆盖面', () => {
 
 const cmpS = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-/** 第 5 条完整目标（含字典序）：负数 = a 更优，0 = 同一方案。两者都必须可行。 */
+function cmpSArr(a: readonly string[], b: readonly string[]): number {
+  for (let k = 0; k < Math.min(a.length, b.length); k++) if (a[k] !== b[k]) return cmpS(a[k], b[k]);
+  return a.length - b.length;
+}
+
+/** 第 5 条完整七级目标（含字典序）：负数 = a 更优，0 = 同一方案。两者都必须可行。 */
 function cmpNaive(a: NaiveResult, b: NaiveResult): number {
   if (a.N !== b.N) return b.N - a.N;
+  if (a.L !== b.L) return a.L - b.L;
   if (Math.abs(a.total_usd - b.total_usd) > EPS) return a.total_usd - b.total_usd;
   const pa = a.plan!;
   const pb = b.plan!;
@@ -629,29 +1106,43 @@ function cmpNaive(a: NaiveResult, b: NaiveResult): number {
   const sa = pa.selected_intervention_ids;
   const sb = pb.selected_intervention_ids;
   if (sa.length !== sb.length) return sa.length - sb.length;
-  for (let k = 0; k < sa.length; k++) if (sa[k] !== sb[k]) return cmpS(sa[k], sb[k]);
+  const ra = pa.revoked_grant_ids ?? [];
+  const rb = pb.revoked_grant_ids ?? [];
+  if (ra.length !== rb.length) return ra.length - rb.length;
+  const c = cmpSArr(sa, sb);
+  if (c !== 0) return c;
   for (let k = 0; k < pa.allocations.length; k++) {
     const x = pa.allocations[k];
     const y = pb.allocations[k];
     const d = cmpS(x.intervention_id, y.intervention_id) || cmpS(x.student_id, y.student_id) || cmpS(x.opportunity_id, y.opportunity_id);
     if (d !== 0) return d;
   }
-  return 0;
+  return cmpSArr(ra, rb);
 }
 
 function fullPlan(o: JointOutcome) {
-  return { selected: o.selected_intervention_ids, allocations: o.allocations, cost: o.cost };
+  return {
+    selected: o.selected_intervention_ids,
+    allocations: o.allocations,
+    revoked: o.revoked_grant_ids,
+    cost: o.cost,
+    lost_pairs: o.lost_pairs,
+    revocations: o.revocations,
+  };
 }
 
 function naivePlan(n: NaiveResult) {
   return {
     selected: n.plan!.selected_intervention_ids,
     allocations: n.plan!.allocations,
+    revoked: n.plan!.revoked_grant_ids,
     cost: { fixed_usd: n.fixed_usd, marginal_usd: n.marginal_usd, total_usd: n.total_usd },
+    lost_pairs: n.lost_pairs,
+    revocations: n.revocations,
   };
 }
 
-const NAIVE_STATS = { feasible: 0, infeasible: 0, nonEmpty: 0, evaluated: 0 };
+const NAIVE_STATS = { feasible: 0, infeasible: 0, nonEmpty: 0, withRevocation: 0, evaluated: 0 };
 
 function naiveCompareOne(
   label: string,
@@ -666,26 +1157,31 @@ function naiveCompareOne(
   if (nv.feasible) {
     NAIVE_STATS.feasible++;
     if (nv.plan!.selected_intervention_ids.length > 0) NAIVE_STATS.nonEmpty++;
+    if (nv.revokedCount > 0) NAIVE_STATS.withRevocation++;
     if (status !== 'OPTIMAL') return [`${label}：朴素枚举可行，求解器状态为 ${status}`];
     const a = JSON.stringify(fullPlan(outcome));
     const b = JSON.stringify(naivePlan(nv));
-    return a === b ? [] : [`${label}：完整方案不一致 solver=${a} naive=${b}`];
+    const issues = a === b ? [] : [`${label}：完整方案不一致 solver=${a} naive=${b}`];
+    if (!fairnessEqual(outcome.fairness, nv.fairness)) issues.push(`${label}：fairness 不一致 solver=${JSON.stringify(outcome.fairness)} naive=${JSON.stringify(nv.fairness)}`);
+    return issues;
   }
   NAIVE_STATS.infeasible++;
   if (status !== 'INFEASIBLE') return [`${label}：朴素枚举不可行，求解器状态为 ${status}`];
   if (alternative === undefined) return [];
   if (!alternative) return [`${label}：INFEASIBLE 但 alternative 为空`];
-  // 期望的放松方式：按 [min_gain, required] 顺序尝试 options 里给出的项，取完整目标最优；完全并列取先尝试的；都不可行两项都放松。
-  const given: Soft[] = (['min_gain', 'required_intervention_ids'] as Soft[]).filter((k) => vopts[k] !== undefined);
+  // 期望的放松方式（第 6 条）：m = 1, 2, …；同一 m 内按固定优先级的字典序依次尝试，按完整目标取最优，完全并列取靠前的子集。
+  const K = givenSoft(vopts);
   let expected: { relaxed: Soft[]; nv: NaiveResult } | null = null;
-  for (const k of given) {
-    const r = naiveBest(scenario, without(vopts, [k]));
-    if (!r.feasible) continue;
-    if (!expected || cmpNaive(r, expected.nv) < 0) expected = { relaxed: [k], nv: r };
+  for (let m = 1; m <= K.length && !expected; m++) {
+    for (const T of combos(K, m)) {
+      const r = naiveBest(scenario, without(vopts, T));
+      if (!r.feasible) continue;
+      if (!expected || cmpNaive(r, expected.nv) < 0) expected = { relaxed: T, nv: r };
+    }
   }
-  if (!expected) expected = { relaxed: given, nv: naiveBest(scenario, without(vopts, given)) };
   const issues: string[] = [];
-  if ([...alternative.relaxed].sort().join(',') !== [...expected.relaxed].sort().join(',')) {
+  if (!expected) return [`${label}：朴素枚举在放松全部软要求后仍不可行（不应发生）`];
+  if (alternative.relaxed.join(',') !== expected.relaxed.join(',')) {
     issues.push(`${label}：alternative 放松项 ${alternative.relaxed.join('+')}，期望 ${expected.relaxed.join('+')}`);
   } else {
     const a = JSON.stringify(fullPlan(alternative));
@@ -699,6 +1195,7 @@ function naiveCrossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[]
   const res = solveJoint(scenario, sopts);
   if (res.status === 'UNSUPPORTED_INPUT') return [`求解器返回 UNSUPPORTED_INPUT：${res.notes.join(' / ')}`];
   const issues = naiveCompareOne('主结果', scenario, res.status, res, verifyOpts(sopts), res.alternative ?? null);
+  if (sopts.mode !== 'tradeoff' && (res.revoked_grant_ids ?? []).length > 0) issues.push('protect 模式下主结果有撤回');
   const pending = scenario.interventions.filter((i) => i.status === 'pending').map((i) => i.id).sort();
   if (pending.length > 0 && res.conditional) {
     issues.push(...naiveCompareOne('条件性结果', scenario, res.conditional.status, res.conditional, verifyOpts(sopts, pending), undefined));
@@ -706,7 +1203,7 @@ function naiveCrossCheck(scenario: Scenario, sopts: SolveOptions = {}): string[]
   return issues;
 }
 
-describe('交叉检查：朴素枚举（每个 (措施, 学生, 机会) 是否分配），比较完整方案', () => {
+describe('交叉检查：朴素枚举（每个撤回子集 × 每个 (措施, 学生, 机会) 是否分配），比较完整方案', () => {
   const TINY_HAND: { name: string; scenario: Scenario; options?: SolveOptions }[] = [
     {
       name: '两人、容量 1：并列时按学生编号取 a',
@@ -733,6 +1230,16 @@ describe('交叉检查：朴素枚举（每个 (措施, 学生, 机会) 是否�
       }),
     },
     {
+      name: '同上但 tradeoff：撤回 pending grant 腾名额（并列时撤回更少者优先 → 仍给 t）',
+      scenario: makeScenario({
+        students: [need('t'), need('u')],
+        opportunities: [O1],
+        interventions: [makeIntervention('loan', { unit_cost_usd: 100, capacity: 1 })],
+        existing_grants: [grant({ id: 'p', student_id: 't', opportunity_id: 'o1', intervention_id: 'loan', status: 'pending' })],
+      }),
+      options: TRADE(0),
+    },
+    {
       name: '两机会两时段 per_time_slot + 前置依赖',
       scenario: makeScenario({
         students: [need('a'), need('b')],
@@ -756,6 +1263,23 @@ describe('交叉检查：朴素枚举（每个 (措施, 学生, 机会) 是否�
       }),
       options: { required_intervention_ids: ['x', 'y'], min_gain: 1 },
     },
+    { name: '换用互斥措施（tradeoff 0）：完整方案含撤回', scenario: swapScenario(), options: TRADE(0) },
+    { name: '换用互斥措施（protect）', scenario: swapScenario() },
+    {
+      name: '自愿撤回使 N 更好（完整方案）',
+      scenario: makeScenario({
+        students: [need('a'), need('b', { grade: 11 })],
+        opportunities: [O1, O2_UPPER],
+        interventions: [OLD],
+        existing_grants: [grant({ id: 'e-a', student_id: 'a', opportunity_id: 'o1', intervention_id: 'old' })],
+      }),
+      options: TRADE(1),
+    },
+    {
+      name: '三项软要求的放松（完整方案）',
+      scenario: makeScenario({ students: fairStudents(), opportunities: [O1], interventions: [{ ...LOAN, capacity: 1 }, GALA] }),
+      options: { required_intervention_ids: ['gala'], min_gain: 2, fairness_floors: [FG] },
+    },
   ];
   for (const { name, scenario, options } of TINY_HAND) {
     it(name, () => {
@@ -763,15 +1287,12 @@ describe('交叉检查：朴素枚举（每个 (措施, 学生, 机会) 是否�
     });
   }
 
-  const N_TINY = 60;
+  const N_TINY = 100;
   for (let k = 0; k < N_TINY; k++) {
     const seed = 50_000 + k * 104_729;
     it(`随机极小场景 seed=${seed}`, () => {
       const { scenario, options } = randomScenario(seed, 'tiny');
-      const valid = verifyPlan(scenario, { selected_intervention_ids: [], allocations: [] }, verifyOpts(options)).checks.find(
-        (c) => c.name === 'input_validity',
-      )?.passed;
-      if (!valid) {
+      if (!inputValid(scenario, options)) {
         expect(solveJoint(scenario, options).status).toBe('UNSUPPORTED_INPUT');
         return;
       }
@@ -780,9 +1301,10 @@ describe('交叉检查：朴素枚举（每个 (措施, 学生, 机会) 是否�
     });
   }
 
-  it('朴素对照覆盖了可行（含非空方案）与不可行，且确实枚举了大量候选', () => {
+  it('朴素对照覆盖了可行（含非空方案、含撤回）与不可行，且确实枚举了大量候选', () => {
     console.info('[naive stats]', JSON.stringify(NAIVE_STATS));
     expect(NAIVE_STATS.nonEmpty).toBeGreaterThanOrEqual(20);
+    expect(NAIVE_STATS.withRevocation).toBeGreaterThanOrEqual(3);
     expect(NAIVE_STATS.infeasible).toBeGreaterThanOrEqual(3);
     expect(NAIVE_STATS.evaluated).toBeGreaterThan(10_000);
   });
@@ -798,6 +1320,7 @@ describe('边界输入对照：求解器返回 UNSUPPORTED_INPUT ⇔ 验证器 i
   const eg = (patch: Record<string, unknown>) =>
     base({ existing_grants: [{ ...grant({ id: 'e1', student_id: 'a', opportunity_id: 'o1' }), ...patch } as ResourceGrant] });
   const cast = <T,>(x: unknown) => x as T;
+  const FLOOR_OK: FairnessFloor = { id: 'f1', label: '示例群体', basis: '虚构依据（示例）', statuses_any_of: ['low_income'], min_ratio: 0.5 };
 
   const cases: [string, Scenario, Record<string, unknown>, boolean][] = [
     // [名称, 场景, options, 期望合法?]
@@ -857,6 +1380,29 @@ describe('边界输入对照：求解器返回 UNSUPPORTED_INPUT ⇔ 验证器 i
     ['students 含没有 id 的条目', base({ students: cast<StudentProfile[]>([{ grade: 10 }]) }), {}, false],
     ['interventions 含 null', base({ interventions: cast<Intervention[]>([null]) }), {}, false],
     ['学生 id 重复', base({ students: [need('a'), need('a')] }), {}, false],
+    // 第 3 层：existing grant 的 id、公平底线格式
+    ['已有 grant id 重复', base({ existing_grants: [grant({ id: 'e1', student_id: 'a' }), grant({ id: 'e1', student_id: 'b' })] }), {}, false],
+    ['已有 grant id 是数字', eg({ id: 7 }), {}, false],
+    ['已有 grant id 缺失', eg({ id: undefined }), {}, false],
+    ['已有 grant 指向场景外措施（合法、不可撤回）', eg({ intervention_id: 'gone' }), {}, true],
+    ['fairness_floors 为 null', base(), { fairness_floors: null }, true],
+    ['fairness_floors 为空数组', base(), { fairness_floors: [] }, true],
+    ['fairness_floors 合法', base(), { fairness_floors: [FLOOR_OK] }, true],
+    ['fairness_floors 合法（min_ratio 0 与 1）', base(), { fairness_floors: [{ ...FLOOR_OK, min_ratio: 0 }, { ...FLOOR_OK, id: 'f2', min_ratio: 1 }] }, true],
+    ['fairness_floors 不是数组', base(), { fairness_floors: FLOOR_OK }, false],
+    ['fairness_floors 含 null', base(), { fairness_floors: [null] }, false],
+    ['底线 id 为空', base(), { fairness_floors: [{ ...FLOOR_OK, id: '' }] }, false],
+    ['底线 id 重复', base(), { fairness_floors: [FLOOR_OK, FLOOR_OK] }, false],
+    ['底线 label 为空格', base(), { fairness_floors: [{ ...FLOOR_OK, label: ' ' }] }, false],
+    ['底线 basis 缺失', base(), { fairness_floors: [{ ...FLOOR_OK, basis: undefined }] }, false],
+    ['底线 basis 不是字符串', base(), { fairness_floors: [{ ...FLOOR_OK, basis: 3 }] }, false],
+    ['底线 statuses_any_of 为空', base(), { fairness_floors: [{ ...FLOOR_OK, statuses_any_of: [] }] }, false],
+    ['底线 statuses_any_of 含非法值', base(), { fairness_floors: [{ ...FLOOR_OK, statuses_any_of: ['wealthy'] }] }, false],
+    ['底线 statuses_any_of 有重复值（合法）', base(), { fairness_floors: [{ ...FLOOR_OK, statuses_any_of: ['low_income', 'low_income'] }] }, true],
+    ['底线 min_ratio 大于 1', base(), { fairness_floors: [{ ...FLOOR_OK, min_ratio: 1.01 }] }, false],
+    ['底线 min_ratio 为负', base(), { fairness_floors: [{ ...FLOOR_OK, min_ratio: -0.5 }] }, false],
+    ['底线 min_ratio NaN', base(), { fairness_floors: [{ ...FLOOR_OK, min_ratio: Number.NaN }] }, false],
+    ['底线 min_ratio 为 null', base(), { fairness_floors: [{ ...FLOOR_OK, min_ratio: null }] }, false],
   ];
   for (const [name, scenario, options, expectValid] of cases) {
     it(name, () => {

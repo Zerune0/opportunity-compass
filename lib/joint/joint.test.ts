@@ -679,9 +679,13 @@ describe('第 1 层评审修复', () => {
     expect(r.cost.total_usd).toBe(10);
   });
 
-  it('S2：合法输入下 L 恒为 0（措施额度非负 → grant 只帮忙）', () => {
+  it('S2（第 3 层改写）：不撤回已有 grant 时 L 恒为 0（措施额度非负 → grant 只帮忙）', () => {
+    // 第 3 层契约起 L > 0 可能来自撤回（见 solve-tradeoff.test.ts）；本场景没有可撤回的已有 grant，L 仍为 0。
     for (const r of [solveJoint(deviceLoanScenario), solveJoint(laptopOnly(), { mode: 'tradeoff', loss_cap: 3 })]) {
       expect(r.L).toBe(0);
+      expect(r.revoked_grant_ids).toEqual([]);
+      expect(r.lost_pairs).toEqual([]);
+      expect(r.revocations).toEqual([]);
       expect(r.conditional?.L ?? 0).toBe(0);
     }
   });

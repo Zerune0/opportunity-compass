@@ -231,7 +231,8 @@
         "US"
       ],
       "statuses": [
-        "high_school_student"
+        "high_school_student",
+        "first_generation"
       ],
       "school_name": "Example Hills High School（虚构）",
       "hours_per_week_available": 6,
@@ -351,7 +352,8 @@
         "US"
       ],
       "statuses": [
-        "high_school_student"
+        "high_school_student",
+        "first_generation"
       ],
       "school_name": "Example Hills High School（虚构）",
       "hours_per_week_available": 6,
@@ -391,7 +393,8 @@
         "US"
       ],
       "statuses": [
-        "high_school_student"
+        "high_school_student",
+        "low_income"
       ],
       "school_name": "Example Harbor High School（虚构）",
       "hours_per_week_available": 6,
@@ -431,7 +434,9 @@
         "US"
       ],
       "statuses": [
-        "high_school_student"
+        "high_school_student",
+        "first_generation",
+        "low_income"
       ],
       "school_name": "Example Valley High School（虚构）",
       "hours_per_week_available": 6,
@@ -471,7 +476,8 @@
         "US"
       ],
       "statuses": [
-        "high_school_student"
+        "high_school_student",
+        "low_income"
       ],
       "school_name": "Example Hills High School（虚构）",
       "hours_per_week_available": 6,
@@ -511,7 +517,8 @@
         "US"
       ],
       "statuses": [
-        "high_school_student"
+        "high_school_student",
+        "low_income"
       ],
       "school_name": "Example Harbor High School（虚构）",
       "hours_per_week_available": 6,
