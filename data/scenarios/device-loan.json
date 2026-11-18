@@ -1,0 +1,540 @@
+{
+  "id": "device-loan",
+  "title": "示例 / 模拟场景：线下活动的笔记本借用",
+  "is_sample": true,
+  "evaluation_date": "2026-11-17",
+  "budget_usd": 400,
+  "opportunities": [
+    {
+      "id": "placeholder-inperson-event",
+      "title": "【示例 / 占位】线下编程工作坊（真实机会待队友 A 提供）",
+      "organizer": "示例主办方（占位）",
+      "category": "project",
+      "fields": [
+        "computer_science"
+      ],
+      "summary": "占位机会：一场需要自带笔记本电脑的线下编程工作坊，仅用于演示联合求解，不是真实机会。",
+      "official_url": "https://example.com/placeholder-inperson-event",
+      "verified_on": "2026-11-17",
+      "verified_by": "占位数据（未核实，不是真实机会）",
+      "deadline": "2026-12-15",
+      "deadline_note": "占位日期",
+      "recurring_annually": null,
+      "location": {
+        "format": "in_person",
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "note": "占位地点"
+      },
+      "cost": {
+        "fee_usd": 0,
+        "requires_travel_expense": false,
+        "financial_aid_available": null,
+        "note": "占位：免费"
+      },
+      "time_commitment": {
+        "hours_per_week": 4,
+        "total_weeks": 1,
+        "start_date": "2027-01-09",
+        "end_date": "2027-01-09",
+        "note": "占位：周六一整天"
+      },
+      "required_devices": [
+        "laptop"
+      ],
+      "requirements": [
+        {
+          "id": "req-grade",
+          "type": "grade",
+          "min": 9,
+          "max": 12,
+          "hard": true,
+          "label": "高中在读（9–12 年级）",
+          "source_text": "（占位原文）Open to high school students in grades 9–12."
+        },
+        {
+          "id": "req-region",
+          "type": "region",
+          "countries": [
+            "US"
+          ],
+          "states": [
+            "CA"
+          ],
+          "hard": true,
+          "label": "加州居民",
+          "source_text": "（占位原文）Participants must live in California."
+        }
+      ],
+      "preparation": [],
+      "is_sample": true
+    }
+  ],
+  "opportunity_time_slots": {
+    "placeholder-inperson-event": "2027-01-09-day"
+  },
+  "interventions": [
+    {
+      "id": "iv-laptop-loan",
+      "title": "笔记本电脑借用（示例）",
+      "type": "device",
+      "resolves": [
+        "device"
+      ],
+      "unit_cost_usd": 20,
+      "fixed_cost_usd": 100,
+      "capacity": 5,
+      "capacity_scope": "per_time_slot",
+      "device": "laptop",
+      "status": "approved"
+    },
+    {
+      "id": "iv-transport-subsidy",
+      "title": "交通补助（示例）",
+      "type": "transport_subsidy",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 25,
+      "fixed_cost_usd": 0,
+      "capacity": null,
+      "amount_usd": 25,
+      "status": "approved"
+    },
+    {
+      "id": "iv-online-entry",
+      "title": "线上参与入口（示例）",
+      "type": "alternative_access",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 0,
+      "fixed_cost_usd": 150,
+      "capacity": null,
+      "requires": [
+        "iv-laptop-loan"
+      ],
+      "mutually_exclusive_with": [
+        "iv-satellite-venue"
+      ],
+      "status": "approved"
+    },
+    {
+      "id": "iv-satellite-venue",
+      "title": "卫星会场（示例，待审批）",
+      "type": "alternative_access",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 10,
+      "fixed_cost_usd": 60,
+      "capacity": 3,
+      "capacity_scope": "per_time_slot",
+      "status": "pending"
+    }
+  ],
+  "students": [
+    {
+      "id": "dl-s01",
+      "is_sample": true,
+      "display_name": "示例学生 A（设备借用场景）",
+      "grade": 9,
+      "age": 14,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Harbor High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s02",
+      "is_sample": true,
+      "display_name": "示例学生 B（设备借用场景）",
+      "grade": 10,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Valley High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s03",
+      "is_sample": true,
+      "display_name": "示例学生 C（设备借用场景）",
+      "grade": 11,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Hills High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，家里无人接送"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s04",
+      "is_sample": true,
+      "display_name": "示例学生 D（设备借用场景）",
+      "grade": 12,
+      "age": 18,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Harbor High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s05",
+      "is_sample": true,
+      "display_name": "示例学生 E（设备借用场景）",
+      "grade": 10,
+      "age": 15,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Valley High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s06",
+      "is_sample": true,
+      "display_name": "示例学生 F（设备借用场景）",
+      "grade": 11,
+      "age": 17,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Hills High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "limited",
+        "max_one_way_minutes": null,
+        "note": "示例：公交班次很少，周末基本停运"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s07",
+      "is_sample": true,
+      "display_name": "示例学生 G（设备借用场景）",
+      "grade": 9,
+      "age": 14,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Harbor High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s08",
+      "is_sample": true,
+      "display_name": "示例学生 H（设备借用场景）",
+      "grade": 12,
+      "age": 18,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Valley High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s09",
+      "is_sample": true,
+      "display_name": "示例学生 I（设备借用场景）",
+      "grade": 11,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Hills High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "示例：附近没有公共交通，家里无人接送"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "dl-s10",
+      "is_sample": true,
+      "display_name": "示例学生 J（设备借用场景）",
+      "grade": 10,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Harbor High School（虚构）",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "示例：可以坐公交到市中心"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    }
+  ],
+  "existing_grants": []
+}

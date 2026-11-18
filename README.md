@@ -9,8 +9,8 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 **Work in progress for Bridge The Gap Hacks; not yet deployed.** The four-day scope is defined in `CONTRACT.md`. This is an independent project; no ExamPilot code is included.
 
 - **Implemented (student-side engine):** four pure functions in `lib/` — `checkEligibility`, `analyzeReachability`, `planRoutes` and `diffRoutes` — with Vitest unit tests, including fairness control tests (`lib/fairness.test.ts`) showing results do not change when only the school name or display name changes.
-- **Still mocks:** `solveJoint` / `verifyPlan` (organizer-side joint optimizer and independent verifier) are placeholder mocks with final signatures; they are being implemented by Charles.
-- **Still placeholders:** the four pages (`/quests`, `/map`, `/passport`, `/organizer`).
+- **Implemented (organizer side, simulation only):** `solveJoint` (exact search over support measures and shared-resource allocation, with honest statuses OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT) and `verifyPlan` (an independent verifier that does not import the solver), cross-checked in Vitest against brute-force enumeration; plus the `/organizer` what-if page, which runs on a sample scenario (`data/scenarios/device-loan.json`) and shows only aggregate counts, never individual students. All organizer results are simulated and are not real-world impact.
+- **Still placeholders:** the `/quests`, `/map` and `/passport` pages, and the opportunity used in the sample organizer scenario (a clearly marked placeholder event).
 - **No verified opportunities yet:** `data/opportunities.json` does not yet contain verified real opportunities; tests use clearly fictional fixtures (example.com, `is_sample: true`).
 - **Not deployed** yet.
 
@@ -60,12 +60,12 @@ Organizer tools support the student journey; they do not replace it.
 Stack: Next.js (App Router) + TypeScript + Tailwind + Vitest, deployed on Vercel. No backend or database: opportunities and sample profiles live in `data/*.json`; student input stays in browser localStorage.
 
 ```text
-app/                    Next.js routes: /, /quests, /map, /passport, /organizer (placeholders for now)
+app/                    Next.js routes: /, /quests, /map, /passport (placeholders for now), /organizer (what-if page, simulated)
 lib/                    Pure decision functions and shared types (tested with Vitest)
 components/             Shared UI components (planned)
 data/profiles.json      Sample student profiles (is_sample: true)
 data/opportunities.json Verified opportunity records (planned)
-data/scenarios/         Simulated organizer scenarios (planned)
+data/scenarios/         Simulated organizer scenarios (is_sample: true)
 data/examples/          Explicitly synthetic fixtures
 tests/                  Reserved for future behavioral tests
 docs/                   Product and engineering plans
@@ -77,7 +77,6 @@ Not built in the four-day competition scope and **not implemented**:
 - Quest Creator (verified organizer publishing)
 - Talent Board (optional field-level sharing)
 - Consent-based two-way matching
-- Time-slotted capacity for interventions, and prerequisite / approval relationships between them (the current model only has a single capacity number and mutual exclusion).
 - Data loading with runtime validation (a `lib/data.ts` layer that checks `data/*.json` against the shared types at load time).
 - Exact age calculation from date of birth (age on the reference date is currently inferred as a range from the student's current age, so age checks near a birthday can come out `unknown`).
 - Automatic recommendation of same-field alternative opportunities (currently only a text hint is shown).
