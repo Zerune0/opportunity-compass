@@ -42,6 +42,7 @@ import type {
   JointStatus,
   ResourceGrant,
   Scenario,
+  SoftRequirementKey,
   SolveOptions,
   VerifyOptions,
 } from '../types';
@@ -285,9 +286,10 @@ const BARRIER_ZH: Record<BarrierType, string> = {
   time: '时间',
 };
 
-const RELAXED_ZH: Record<'required_intervention_ids' | 'min_gain', string> = {
+const RELAXED_ZH: Record<SoftRequirementKey, string> = {
   required_intervention_ids: '不再要求「必须启用」的措施',
   min_gain: '不再要求最低新增目标',
+  fairness_floors: '不再要求公平底线',
 };
 
 /** INFEASIBLE 时「仍未覆盖」的障碍原因。 */

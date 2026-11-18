@@ -123,6 +123,18 @@ export type StudentStatus =
   | 'low_income'
   | 'underrepresented_in_stem';
 
+/** StudentStatus 的全部合法取值（用于输入校验，如 FairnessFloor.statuses_any_of）。 */
+export const STUDENT_STATUSES: readonly StudentStatus[] = [
+  'middle_school_student',
+  'high_school_student',
+  'undergraduate',
+  'graduate_student',
+  'not_enrolled',
+  'first_generation',
+  'low_income',
+  'underrepresented_in_stem',
+] as const;
+
 /** 证据种类（Skill Passport 里的作品 / 经历）。 */
 export type EvidenceKind =
   | 'project'
@@ -635,17 +647,21 @@ export interface RouteDiff {
  * - 评估：对场景内每个（学生, 机会）对，reach(pair, grants) =
  *   analyzeReachability(student, opp, grants, { today: scenario.evaluation_date }).reachable === true；
  *   null（信息不足）一律当作不可达，不猜。
- * - R0 = 只带 existing_grants 时可达的对；R1 = 带 existing_grants + 方案合成的 grant 时可达的对。
+ * - R0 = 带**全部** existing_grants 时可达的对；
+ *   R1 = 带（existing_grants 去掉本方案撤回的 grant）+ 方案合成的 grant 时可达的对。
  * - 方案生效方式：每条 Allocation (i, s, o) 合成一条 approved ResourceGrant
  *   （id = 'alloc:' + i + ':' + s + ':' + o，字段取自措施 i，见 Allocation 注释）。
  *   措施只能通过 grant 化解现实障碍，不能改变官方资格。
+ *   方案还可以撤回「可撤回」的已有 grant（JointPlan.revoked_grant_ids；可撤回 = intervention_id 指向场景内措施）。
  * - 硬约束（任何情况下不放松）：措施存在 / 不重复 / approved；互斥；前置依赖；分配合法；
- *   容量（按 capacity_scope 与不同学生计）；成本与预算；损失（protect: L = 0；tradeoff: L ≤ loss_cap）。
- * - 软要求（主办方自己提的，INFEASIBLE 时可放松并明示）：required_intervention_ids、min_gain。
- * - 目标：最大化 N = G − L；并列取 total_usd 小的；再并列取 Allocation 条数少的；再并列取选中措施数少的；
- *   再并列取字典序最小。因此选中的每项措施要么有分配，要么必须启用，要么是这两类措施的（传递）前置依赖。
- * - 输入里措施与已有 grant 的额度（amount_usd / hours_per_week）必须非负，grant 只会帮忙：合法输入下 L 恒为 0。
+ *   容量（按 capacity_scope 与不同学生计）；成本与预算；损失（protect: L = 0；tradeoff: L ≤ loss_cap）；
+ *   撤回（选中与措施 k 互斥的措施时，k 的全部已有 grant 必须撤回；撤回列表合法）。
+ * - 软要求（主办方自己提的，INFEASIBLE 时可整项放松并明示）：required_intervention_ids、min_gain、fairness_floors。
+ * - 目标：最大化 N = G − L；再 L 小；再 total_usd 小；再 Allocation 条数少；再选中措施数少；再撤回数少；
+ *   再字典序最小。因此选中的每项措施要么有分配，要么必须启用，要么是这两类措施的（传递）前置依赖。
+ * - 额度非负时 grant 只会帮忙：不撤回任何已有 grant 时 L 恒为 0；L > 0 只可能来自撤回。
  * - 求解器不会返回「OPTIMAL 但复核不通过」：内部复核不通过时按 UNSUPPORTED_INPUT 处理（见 CONTRACT 第 6 条）。
+ * - 基线对比（BaselineComparison）：A 只看资格 / B 学生端 / C 机构端 / joint，同一场景、同一选项、同一验证器。
  * - 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
  */
 
@@ -733,7 +749,11 @@ export interface Scenario {
   /** 总预算（美元）。 */
   budget_usd: number;
   /**
-   * 场景开始前已存在的 grants（计入 R0，也照样计入 R1；方案不能撤销它们）。
+   * 场景开始前已存在的 grants（全部计入 R0；未被方案撤回的照样计入 R1）。
+   * 每条的 id 必须是字符串且在 existing_grants 内唯一（方案按 id 撤回），否则 UNSUPPORTED_INPUT。
+   * 「可撤回」= intervention_id 是场景内某项措施的 id；其余（无 intervention_id 或指向场景外）不可撤回。
+   * 被方案撤回（JointPlan.revoked_grant_ids）的 grant：不计入 R1、不占容量、不再免成本；撤回不退款。
+   * 以下「占容量 / 免成本」规则只对**未被撤回**的已有 grant 适用（UNSUPPORTED_INPUT 的容量预检按全部已有 grant）。
    * 带 intervention_id 的已有 grant 占用该措施的容量（按不同学生计）：
    * - 占容量**不看** status 和 student_id 是否在场景内（已有承诺就占位，保守）；该 (intervention_id, student_id)
    *   在本方案中再分配时不重复占容量（已有 grant 已占 1 个）。
@@ -759,12 +779,14 @@ export interface Scenario {
 /** 下列字段值为 null 时一律视同未给（求解器与验证器同一口径）。 */
 export interface SolveOptions {
   /**
-   * protect（默认）= 不允许任何原有覆盖损失（L 必须为 0）；
-   * tradeoff = 允许损失，但必须给出 loss_cap。其他取值 → UNSUPPORTED_INPUT。
-   * 注：合法输入下（措施额度非负）grant 只会帮忙，L 恒为 0；tradeoff / loss_cap 仅为向前兼容保留。
+   * protect（默认保护模式）= 不允许任何原有覆盖损失（L 必须为 0）；
+   * tradeoff（权衡分析模式）= 组织者主动给出明确的损失上限 loss_cap 后，允许 0 ≤ L ≤ loss_cap。
+   * 其他取值 → UNSUPPORTED_INPUT。两种模式都不能突破任何硬约束。
+   * 不撤回任何已有 grant 时 L 恒为 0；L > 0 只可能来自撤回（JointPlan.revoked_grant_ids），
+   * 受影响的对与撤回明细见 JointOutcome.lost_pairs / revocations。
    */
   mode?: 'protect' | 'tradeoff';
-  /** tradeoff 模式下允许的最大损失 L（非负有限数）。 */
+  /** tradeoff 模式下允许的最大损失 L（非负有限数）；protect 模式下忽略。 */
   loss_cap?: number;
   /**
    * 搜索上限（节点数），达到即返回 SEARCH_LIMIT_REACHED。
@@ -783,6 +805,54 @@ export interface SolveOptions {
    * 达不到时状态为 INFEASIBLE，并在 JointResult.alternative 中给出放松后的方案。
    */
   min_gain?: number;
+  /**
+   * 软要求：公平底线（见 FairnessFloor）。每条底线的 FairnessReport.satisfied 必须为 true；
+   * 达不到时状态为 INFEASIBLE，alternative 可整项放松（relaxed 含 'fairness_floors'），不做部分放松、不降低阈值。
+   * 给出（非 null，含空数组）时，求解器返回的每个已评估方案都带 JointOutcome.fairness。
+   * 格式不合法 → UNSUPPORTED_INPUT（条件见 CONTRACT 第 6 条）。
+   */
+  fairness_floors?: FairnessFloor[];
+}
+
+/**
+ * 公平底线：对有明确、合法、可说明分组依据的支持群体，预先设定最低有效支持覆盖比例。
+ * 只看学生自己声明的 statuses，不得读取学校名、显示名。
+ * 一个学生属于多个群体时，每条底线各自独立计算，同一学生在每个所属群体里各计一次（事先声明的方法）。
+ */
+export interface FairnessFloor {
+  /** 场景内唯一的非空字符串。 */
+  id: string;
+  /** 面向界面的群体名称，如「低收入学生」。非空字符串（trim 后非空）。 */
+  label: string;
+  /** 分组依据的说明（必填，trim 后非空）：为什么对这个群体设底线、依据是什么。 */
+  basis: string;
+  /**
+   * 群体定义：档案 statuses 是数组、且与 any_of 至少有一个相同取值的学生。
+   * statuses 没填（null / undefined / 非数组）的学生不计入该群体。
+   * 必须是非空数组，每个元素是 STUDENT_STATUSES 中的取值（重复取值允许，无影响）。
+   */
+  statuses_any_of: StudentStatus[];
+  /** 最低覆盖比例，0–1（含两端）的有限数。 */
+  min_ratio: number;
+}
+
+/** 一条公平底线在某个方案下的计算结果。 */
+export interface FairnessReport {
+  floor_id: string;
+  /**
+   * 分母：属于该群体、且至少对场景内一个机会官方资格为 eligible
+   * （checkEligibility(student, opp, { today: evaluation_date }).overall === 'eligible'）的学生数
+   * （「符合该项支持条件的档案」）。
+   */
+  eligible_members: number;
+  /** 分子：分母中的学生里，方案后至少有一个对在 R1 中的学生数（按学生计，不按对计）。 */
+  covered_members: number;
+  /** covered_members / eligible_members；分母为 0 时为 null（不计算比例）。 */
+  ratio: number | null;
+  /** 抄自 FairnessFloor.min_ratio。 */
+  min_ratio: number;
+  /** ratio === null（不适用，自动满足）或 ratio ≥ min_ratio − 1e-9。 */
+  satisfied: boolean;
 }
 
 /**
@@ -804,6 +874,8 @@ export interface VerifyOptions {
   required_intervention_ids?: SolveOptions['required_intervention_ids'];
   /** 与 SolveOptions.min_gain 同义；传了才检查（organizer_requirements）。 */
   min_gain?: SolveOptions['min_gain'];
+  /** 与 SolveOptions.fairness_floors 同义；给出（非 null，含空数组）时才输出 fairness 检查。 */
+  fairness_floors?: SolveOptions['fairness_floors'];
 }
 
 export type JointStatus = 'OPTIMAL' | 'INFEASIBLE' | 'SEARCH_LIMIT_REACHED' | 'UNSUPPORTED_INPUT';
@@ -832,8 +904,10 @@ export const JOINT_STATUSES: readonly JointStatus[] = [
  * - 同一 (intervention_id, student_id) 的多条 Allocation 中，cost_usd 只在其中一条记
  *   unit_cost_usd，其余记 0（这样 JointCost.marginal_usd 仍等于各 Allocation 的 cost_usd 之和）；
  * - 若该 (intervention_id, student_id) 已出现在 Scenario.existing_grants 中（该 grant 带相同的
- *   intervention_id），容量不再重复占用（已有 grant 已占 1 个，不论 status）；若该 grant 的
+ *   intervention_id，且**未被本方案撤回**），容量不再重复占用（已有 grant 已占 1 个，不论 status）；若该 grant 的
  *   status = 'approved'，它在本方案中的所有 Allocation 的 cost_usd 还都记 0（pending 的不免成本）。
+ * - 本方案撤回了某条 (intervention_id, student_id) 的已有 grant 时，不得再有该 (intervention_id, student_id)
+ *   的 Allocation（检查项 revocation）。
  */
 export interface Allocation {
   intervention_id: string;
@@ -846,6 +920,28 @@ export interface Allocation {
 export interface JointPlan {
   selected_intervention_ids: string[];
   allocations: Allocation[];
+  /**
+   * 本方案撤回的已有 grant（Scenario.existing_grants 中的 id），按 id 升序。缺省 / null = 不撤回。
+   * 只能是可撤回的 grant（intervention_id 指向场景内措施），不得重复。
+   * 强制撤回：选中的措施 i 与措施 k 互斥（对称）时，所有 intervention_id === k 的已有 grant 都必须在这里。
+   * 自愿撤回（如为别人腾名额）也允许。撤回的效果与损失见 CONTRACT「联合求解模型」第 2、3 条。
+   * 求解器返回的方案（主结果、alternative、conditional）一律给出该字段（可为空数组）。
+   */
+  revoked_grant_ids?: string[];
+}
+
+/** 一条被撤回的已有 grant 的明细。 */
+export interface GrantRevocation {
+  grant_id: string;
+  /** 该 grant 的 intervention_id。 */
+  intervention_id: string;
+  /** 该 grant 的 student_id。 */
+  student_id: string;
+  /**
+   * 导致强制撤回的被选中措施 id（与 intervention_id 互斥的选中措施；有多个时取 id 最小者）；
+   * 自愿撤回为 null。
+   */
+  forced_by: string | null;
 }
 
 export interface JointCost {
@@ -869,20 +965,42 @@ export interface JointOutcome extends JointPlan {
   R1: CoveragePair[];
   /** 增益 G = |R1 \ R0|（新变为可达的对数）。 */
   G: number;
-  /** 损失 L = |R0 \ R1|（原本可达、方案后不可达的对数；protect 模式必须为 0）。 */
+  /**
+   * 损失 L = |R0 \ R1|（原本可达、方案后不可达的对数；protect 模式必须为 0，tradeoff 模式 ≤ loss_cap）。
+   * 不撤回任何已有 grant 时恒为 0。
+   */
   L: number;
   /** 净值 N = G − L。 */
   N: number;
   cost: JointCost;
+  /** R0 \ R1（受损失影响的对），按 (student_id, opportunity_id) 升序。求解器返回时必须给出（可为空数组）。 */
+  lost_pairs?: CoveragePair[];
+  /** 每条被撤回 grant 的明细，按 grant_id 升序，与 revoked_grant_ids 一一对应。求解器返回时必须给出（可为空数组）。 */
+  revocations?: GrantRevocation[];
+  /** 公平底线结果：options 给出 fairness_floors（非 null）时给出，顺序同输入；否则缺省。UNSUPPORTED_INPUT 时缺省。 */
+  fairness?: FairnessReport[];
 }
 
+/** 可被 INFEASIBLE 的 alternative 整项放松的软要求。 */
+export type SoftRequirementKey = 'min_gain' | 'fairness_floors' | 'required_intervention_ids';
+
 /**
- * INFEASIBLE 时给出的受约束替代方案：只放松主办方自己的软要求（required_intervention_ids / min_gain），
- * 绝不放松硬约束。放松 = 整项不再要求（不做部分放松）。它不是主结果，界面必须写明放松了什么。
+ * 放松的固定优先级（完全并列时靠前者优先被放松），也是 JointAlternative.relaxed 的排列顺序。
+ */
+export const SOFT_REQUIREMENT_RELAX_ORDER: readonly SoftRequirementKey[] = [
+  'min_gain',
+  'fairness_floors',
+  'required_intervention_ids',
+] as const;
+
+/**
+ * INFEASIBLE 时给出的受约束替代方案：只放松主办方自己的软要求
+ * （required_intervention_ids / min_gain / fairness_floors），绝不放松硬约束。
+ * 放松 = 整项不再要求（不做部分放松、不降低阈值）。它不是主结果，界面必须写明放松了什么。
  */
 export interface JointAlternative extends JointOutcome {
-  /** 放松了哪些软要求（非空）。 */
-  relaxed: ('required_intervention_ids' | 'min_gain')[];
+  /** 放松了哪些软要求（非空，按 SOFT_REQUIREMENT_RELAX_ORDER 排列）。 */
+  relaxed: SoftRequirementKey[];
   /** 面向界面的说明：放松了什么、为什么原要求达不到。 */
   note: string;
 }
@@ -940,7 +1058,7 @@ export interface JointResult extends JointOutcome {
   conditional?: JointConditional | null;
   /**
    * 求解器对自己返回的主方案调用 verifyPlan 的独立复核结果（传入与求解相同的 mode / loss_cap /
-   * required_intervention_ids / min_gain）。
+   * required_intervention_ids / min_gain / fairness_floors）。
    * OPTIMAL 时必须非空且通过。SEARCH_LIMIT_REACHED 时必须非空：只有复核通过的方案才能作为主方案返回
    * （从搜索中记录的若干改进候选里按目标顺序依次复核，取第一个通过的），都不通过则返回空方案
    * （此时 verification 为空方案的复核结果）。INFEASIBLE 时为 null。UNSUPPORTED_INPUT 时：输入不合法为 null；
@@ -952,9 +1070,10 @@ export interface JointResult extends JointOutcome {
 export interface VerifyCheck {
   /**
    * 检查项名称，建议取值（含义见 CONTRACT.md「联合求解模型」的 verifyPlan 一节）：
-   * input_validity / approval / mutual_exclusion / prerequisite / allocation_validity / capacity /
+   * input_validity / approval / mutual_exclusion / prerequisite / revocation / allocation_validity / capacity /
    * cost_accounting / budget / eligibility / deadline / barrier_resolution / coverage_loss /
-   * organizer_requirements / metrics。
+   * organizer_requirements / fairness / metrics。
+   * 其中 organizer_requirements 与 fairness 是软要求检查，其余为「可执行性检查」（见 BaselineRow）。
    * capacity 与 cost_accounting 按 Allocation 注释里的口径复核（按不同 (intervention_id, student_id) 计）。
    */
   name: string;
@@ -968,4 +1087,61 @@ export interface VerifyResult {
   /** 所有检查都通过才为 true。 */
   passed: boolean;
   checks: VerifyCheck[];
+}
+
+// ───────────────────────────── 基线对比（lib/joint/baselines.ts）─────────────────────────────
+
+/**
+ * 基线：A 只看资格；B 学生端约束规划器；C 机构端干预规划器；joint 联合求解。
+ * 说明书中的基线 D（充分协调的分离式规划器）未实现。
+ */
+export type BaselineId = 'A_eligibility_only' | 'B_student_side' | 'C_organizer_side' | 'joint';
+
+/** 独立重算的方案指标（来自验证器的重算，不信任方案自带的数字）。 */
+export interface BaselineMetrics {
+  R1_count: number;
+  G: number;
+  L: number;
+  N: number;
+  total_usd: number;
+}
+
+/**
+ * 基线对比的一行。算法与字段口径见 CONTRACT.md「联合求解模型」第 10 条。
+ * 「可执行性检查」= VerifyResult.checks 中除 organizer_requirements、fairness 以外的全部检查项。
+ */
+export interface BaselineRow {
+  id: BaselineId;
+  /** 中文名（固定文本，见 CONTRACT 第 10 条）。 */
+  label: string;
+  /** 这个做法是什么、缺什么（一两句）。 */
+  description: string;
+  /** 该做法自己声称的可达对数（不经复核）。 */
+  claimed_reachable: number;
+  /** 该做法产生的方案（只含 JointPlan 字段；A 为空方案）。 */
+  plan: JointPlan;
+  /** 用同一个独立验证器、按相同选项复核 plan 的结果（含软要求检查）。 */
+  verification: VerifyResult;
+  /** 可执行性检查全部通过时：独立重算的 R1 数量、G、L、N、成本；否则 null（方案不可执行，不能把它的数字当真）。 */
+  verified: BaselineMetrics | null;
+  /**
+   * 软要求是否满足：options 给出了 required_intervention_ids / min_gain / fairness_floors 中任一项时，
+   * = verification 中 organizer_requirements 与 fairness 检查（输出了的）全部通过；都没给时为 null。
+   * 与 verified 相互独立（可执行但没达到主办方目标的方案，verified 非 null、此项为 false）。
+   */
+  soft_requirements_met: boolean | null;
+  /**
+   * 原方案可执行性检查不通过时：按该做法自身的顺序截断到可执行版本后的指标与说明；
+   * 原方案可执行、或该做法没有截断规则（A、joint）时为 null。
+   */
+  repaired: (BaselineMetrics & { note: string }) | null;
+}
+
+/**
+ * compareBaselines(scenario, options?) 的返回：`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`。
+ * rows 固定顺序 A、B、C、joint；输入不合法时 rows 为空、notes 写明原因。全部为模拟结果。
+ */
+export interface BaselineComparison {
+  rows: BaselineRow[];
+  notes: string[];
 }
