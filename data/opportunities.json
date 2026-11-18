@@ -3,7 +3,19 @@
     "verified_by": "Charlie",
     "verified_on": "2026-11-17",
     "required_devices": [],
-    "preparation": [],
+    "preparation": [
+      {
+        "id": "practice-open-source-pr",
+        "title": "Practice opening a pull request",
+        "skill": "git",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion — not an official requirement"
+      }
+    ],
     "id": "mlh-open-source-week-2026",
     "title": "Global Hack Week: Open Source Week",
     "organizer": "Major League Hacking",

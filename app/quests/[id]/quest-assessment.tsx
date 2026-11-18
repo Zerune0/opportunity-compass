@@ -24,6 +24,8 @@ export function QuestAssessment({ opportunity }: { opportunity: Opportunity }) {
       date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"),
       String(date.getDate()).padStart(2, "0"),
     ].join("-");
+    // Browser-only data (localStorage, local date) can only be read after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setContext({ profile, today, grants: profile ? grantsFor(profile.id, opportunity.id) : [] });
   }, [opportunity.id]);
 
