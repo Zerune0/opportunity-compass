@@ -157,6 +157,8 @@ const OPP_CASES: [string, Mut, RegExp][] = [
   ['source_tier 不在枚举内', (o) => (o.source_tier = 'blog'), /source_tier: expected one of: official \/ trusted_aggregator \/ user_posted.*got "blog"/],
   ['source_tier 为 null（只能缺省）', (o) => (o.source_tier = null), /source_tier: expected one of/],
   ['posted_by 不是字符串', (o) => (o.posted_by = 42), /posted_by: expected a string or null/],
+  ['user_posted 但 is_sample 为 false', (o) => Object.assign(o, { source_tier: 'user_posted', is_sample: false }), /is_sample: expected true when source_tier is "user_posted".*got false/],
+  ['user_posted 但缺 is_sample', (o) => { o.source_tier = 'user_posted'; delete o.is_sample; }, /is_sample: expected true when source_tier is "user_posted"/],
   ['preparation material_kind 不合法', (o) => (prep(o, 'prep-b').material_kind = 'cv'), /prep-b\]\.material_kind: expected one of.*"cv"/],
   ['preparation reusable_across_opportunities 不是布尔', (o) => (prep(o, 'prep-b').reusable_across_opportunities = 'yes'), /prep-b\]\.reusable_across_opportunities: expected true \/ false or null/],
 ];

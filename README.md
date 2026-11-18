@@ -13,11 +13,17 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 - **Implemented (student-side engine):** four pure functions in `lib/` — `checkEligibility`, `analyzeReachability`, `planRoutes` and `diffRoutes` — with Vitest unit tests, including fairness control tests (`lib/fairness.test.ts`) showing results do not change when only the school name or display name changes.
 - **Implemented (organizer side, simulation only):** `solveJoint` (exact search over support measures and shared-resource allocation, with honest statuses OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT) and `verifyPlan` (an independent verifier that does not import the solver), cross-checked in Vitest against brute-force enumeration; plus the `/organizer` what-if page, which runs on two sample scenarios (`data/scenarios/device-loan.json` and `data/scenarios/venue-tradeoff.json`) and shows only aggregate counts, never individual students. All organizer results are simulated and are not real-world impact.
 - **Implemented (organizer side, layer 3, simulation only):** a tradeoff mode (the organizer sets an explicit loss cap before any existing commitment may be revoked; the default protect mode never revokes anything), fairness floors based only on students' self-declared statuses, and a baseline comparison (`compareBaselines`) of A eligibility-only, B student-side planner and C organizer-side planner against the joint solver, all re-checked by the same verifier. Baseline D (a fully coordinated separate planner) from the product docs is **not implemented**. The `/organizer` page can switch between two sample scenarios (`device-loan.json`, `venue-tradeoff.json`). Baselines are deterministic simplifications, not models of any real system; all numbers are simulated.
-- **Implemented (student pages):** `/quests` (Quest Board and quest details with official eligibility, preparation readiness and practical reachability shown separately), `/map` (Adventure Map with 2–3 routes and a recommendation replay) and `/passport` (Skill Passport: load one of three clearly labelled sample profiles, add evidence). Student data stays in the browser's localStorage; there is no backend or account system.
+- **Implemented (student pages):** `/quests` (Quest Board and quest details with official eligibility, preparation readiness and practical reachability shown separately), `/map` (Adventure Map with 2–3 routes and a recommendation replay) and `/passport` (Skill Passport: load one of four clearly labelled sample profiles, add evidence). Student data stays in the browser's localStorage; there is no backend or account system.
 - **Opportunities:** `data/opportunities.json` currently holds 3 real opportunities, each with an official link, a verification date and the verifier's name. Anything the official page does not state is left as `null` and shown as "unknown"; it is not guessed.
 - **Still a placeholder:** the opportunity used in the two sample organizer scenarios is a clearly marked placeholder event, not a real opportunity.
-- **Known demo limits:** with the current 3 opportunities and 3 sample profiles, no combination evaluates to "reachable" (one lacks published weekly hours, the other two have unresolved barriers or unmet requirements), so the "barrier resolved by a grant" step is shown on the organizer page with sample data.
+- **Sample profiles:** `data/profiles.json` holds 4 sample profiles (`is_sample: true`, labelled "Sample"): three high-school students and one first-year undergraduate (`sample-noor`, added in phase 2 so undergraduate opportunities can be checked).
+- **Known demo limits:** real opportunity data is still 3 records. Whether a student–opportunity combination can evaluate to "reachable" depends on the opportunity record stating both its fee and its weekly hours; each of the 3 current records leaves at least one of these as `null` (unknown, not guessed), so the "barrier resolved by a grant" step is shown on the organizer page with sample data.
 - **Live demo:** https://opportunity-compass-six.vercel.app (deployed on Vercel from `main`). The app is a static-friendly Next.js build with no environment variables; see "Deploying" below.
+
+### Phase 2 (in progress)
+- **Available in `lib/` now:** new shared types (source tier, application materials, gap analysis, alternatives, match explanation, cross-opportunity plan, Quest Journal, plan snapshots, Connect sample types) and new `lib/store.ts` functions (profile and evidence editing, a per-profile Quest Journal, application materials stored once and shared between entries, plan snapshots for replay, and local Connect sample data that refers to students only by an opaque share handle), with Vitest tests. The Quest Journal records four separate things — the student's application, official eligibility confirmation, the admission decision and participation — because submitting is not the same as being confirmed eligible or being admitted. Field and interest tags are compared with `normalizeTag` (`lib/tags.ts`), so `data-science`, `data_science` and `Data Science` count as the same tag.
+- **Sample versions only:** `analyzeGaps`, `findAlternatives`, `explainMatch` and `planAcrossOpportunities` are **sample versions**: their signatures are final and their output is simplified but does not invent anything. The full implementations and the pages that use them are **not done yet**. `explainMatch` gives reasons only, never a score or a ranking.
+- **Connect (Quest Creator / Talent Board / invitations)** will be a **local sample demo** only: sample publishers, data kept in the browser, no accounts, no backend and no real connection between people. It is not built yet.
 
 All capabilities described below are product goals unless stated otherwise above.
 
@@ -73,11 +79,11 @@ Organizer tools support the student journey; they do not replace it.
 Stack: Next.js (App Router) + TypeScript + Tailwind + Vitest, deployed on Vercel. No backend or database: opportunities and sample profiles live in `data/*.json`; student input stays in browser localStorage.
 
 ```text
-app/                    Next.js routes: /, /quests, /map, /passport (placeholders for now), /organizer (what-if page, simulated)
-lib/                    Pure decision functions and shared types (tested with Vitest)
-components/             Shared UI components (planned)
+app/                    Next.js routes: /, /quests, /map, /passport, /organizer (what-if page, simulated)
+lib/                    Pure decision functions, shared types and the localStorage wrapper (tested with Vitest)
+components/rpg/         Shared UI components (navigation, quest cards, buttons, status tags)
 data/profiles.json      Sample student profiles (is_sample: true)
-data/opportunities.json Verified opportunity records (planned)
+data/opportunities.json Verified opportunity records (3 so far)
 data/scenarios/         Simulated organizer scenarios (is_sample: true)
 data/examples/          Explicitly synthetic fixtures
 tests/                  Reserved for future behavioral tests
@@ -87,12 +93,13 @@ docs/                   Product and engineering plans
 ## 后续计划 / Future work
 Not built in the four-day competition scope and **not implemented**:
 - Accounts and a database
-- Quest Creator (verified organizer publishing)
-- Talent Board (optional field-level sharing)
-- Consent-based two-way matching
+- Real Quest Creator publishing, a real Talent Board and real consent-based two-way connection (phase 2 plans only a local sample demo of these)
+- Opportunity Blind Spots
+- Impact Measurement
+- Baseline D (a fully coordinated separate planner) in the baseline comparison
 - Data loading with runtime validation (a `lib/data.ts` layer that checks `data/*.json` against the shared types at load time).
 - Exact age calculation from date of birth (age on the reference date is currently inferred as a range from the student's current age, so age checks near a birthday can come out `unknown`).
-- Automatic recommendation of same-field alternative opportunities (currently only a text hint is shown).
+- Same-field alternative opportunities shown in the pages (a sample version of `findAlternatives` exists in `lib/`; the pages currently show only a text hint).
 - Integration with real organizer data (all organizer scenarios are currently sample / simulated).
 
 ## Boundaries

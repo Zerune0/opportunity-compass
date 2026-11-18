@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 import opportunitiesJson from '@/data/opportunities.json';
 import profilesJson from '@/data/profiles.json';
 import { checkEligibility } from '../eligibility';
+import { analyzeGaps } from '../gap';
 import { explainMatch, findAlternatives } from '.';
-import { MATCH_REASON_KINDS, type Opportunity, type StudentProfile } from '../types';
+import { MATCH_REASON_KINDS, type Opportunity, type ResourceGrant, type StudentProfile } from '../types';
 
 const TODAY = { today: '2026-11-17' };
 
@@ -194,5 +195,96 @@ describe('示例档案 × 真实机会', () => {
         }
       }
     }
+  });
+});
+
+describe('标签写法归一化（连字符 / 下划线 / 空格 / 大小写）', () => {
+  const WRITINGS = ['data-science', 'data_science', 'data science', ' Data-Science '];
+
+  it.each(WRITINGS)('explainMatch：兴趣写成 %j 时结果一致，shared_interests 用机会原本的写法', (w) => {
+    const target = opp('fictional-tag-target', { fields: ['Data-Science', 'climate'] });
+    const base = explainMatch({ ...STUDENT, interests: ['data_science'] }, target, TODAY);
+    const r = explainMatch({ ...STUDENT, interests: [w] }, target, TODAY);
+    expect(r).toEqual(base);
+    expect(r.shared_interests).toEqual(['Data-Science']);
+    expect(r.reasons[0].positive).toBe(true);
+  });
+
+  it.each(WRITINGS)('findAlternatives：机会领域写成 %j 时同领域结果一致，shared_fields 用候选机会原本的写法', (w) => {
+    const target = opp('fictional-tag-target', { fields: [w] });
+    const cand = opp('fictional-tag-cand', { fields: ['data-science'] });
+    const r = findAlternatives(STUDENT, target, [cand], TODAY).filter((a) => a.kind === 'same_field');
+    expect(r.map((a) => a.opportunity_id)).toEqual(['fictional-tag-cand']);
+    expect(r[0].shared_fields).toEqual(['data-science']);
+  });
+
+  it('示例档案（下划线）× 真实机会（连字符）：至少有一个组合的 shared_interests 非空', () => {
+    const opps = opportunitiesJson as unknown as Opportunity[];
+    const hits: string[] = [];
+    for (const p of profilesJson as unknown as StudentProfile[]) {
+      for (const o of opps) {
+        const m = explainMatch(p, o, TODAY);
+        if (m.shared_interests.length > 0) hits.push(`${p.id}×${o.id}:${m.shared_interests.join(',')}`);
+        for (const t of m.shared_interests) expect(o.fields).toContain(t); // 原写法
+      }
+    }
+    expect(hits.length).toBeGreaterThan(0);
+    // 具体组合：sample-noor 的 biomedical_research（下划线）对上 Rutgers 的 biomedical-research（连字符）
+    const noor = (profilesJson as unknown as StudentProfile[]).find((p) => p.id === 'sample-noor');
+    const rutgers = opps.find((o) => o.id === 'rutgers-newark-summer-research-2027');
+    if (noor && rutgers) expect(explainMatch(noor, rutgers, TODAY).shared_interests).toEqual(['biomedical-research']);
+  });
+
+  it('示例档案的 interests 统一用下划线写法', () => {
+    for (const p of profilesJson as unknown as StudentProfile[]) {
+      for (const t of p.interests ?? []) expect(t).toMatch(/^[a-z0-9]+(_[a-z0-9]+)*$/);
+    }
+  });
+});
+
+describe('explainMatch：options.grants 与 analyzeGaps 一致', () => {
+  const NEEDS_LAPTOP = opp('fictional-needs-laptop', { required_devices: ['laptop'] });
+  const PHONE_ONLY: StudentProfile = { ...STUDENT, devices: ['smartphone'] };
+  const GRANT: ResourceGrant = {
+    id: 'g-laptop',
+    student_id: PHONE_ONLY.id,
+    opportunity_id: NEEDS_LAPTOP.id,
+    type: 'device',
+    device: 'laptop',
+    status: 'approved',
+    provider: 'Example Org (fictional)',
+    is_sample: true,
+  };
+
+  it('没传 grants：设备障碍使其不可达；传入 approved grant：可达，且与 analyzeGaps 的 reachable 相同', () => {
+    const without = explainMatch(PHONE_ONLY, NEEDS_LAPTOP, TODAY);
+    expect(without.reachable).toBe(false);
+    expect(without.reachable).toBe(analyzeGaps(PHONE_ONLY, NEEDS_LAPTOP, [], TODAY).reachable);
+    const withG = explainMatch(PHONE_ONLY, NEEDS_LAPTOP, { ...TODAY, grants: [GRANT] });
+    const gaps = analyzeGaps(PHONE_ONLY, NEEDS_LAPTOP, [GRANT], TODAY);
+    expect(withG.reachable).toBe(true);
+    expect(withG.reachable).toBe(gaps.reachable);
+    expect(withG.reasons.find((r) => r.kind === 'reachability')?.positive).toBe(true);
+  });
+
+  it('grants 不是数组时按 [] 处理，不抛错', () => {
+    expect(() => explainMatch(PHONE_ONLY, NEEDS_LAPTOP, { ...TODAY, grants: 'x' as unknown as ResourceGrant[] })).not.toThrow();
+    expect(explainMatch(PHONE_ONLY, NEEDS_LAPTOP, { ...TODAY, grants: 'x' as unknown as ResourceGrant[] }).reachable).toBe(false);
+  });
+});
+
+describe('findAlternatives：给了 today 时不推荐截止日期已过的同领域机会', () => {
+  const PAST = opp('fictional-a-past', { fields: ['climate'], deadline: '2026-11-16' });
+  const TODAY_DL = opp('fictional-b-today', { fields: ['climate'], deadline: '2026-11-17' });
+  const ROLLING = opp('fictional-c-rolling', { fields: ['climate'], deadline: null });
+
+  it('截止已过的跳过；截止就是今天、滚动招生（null）的保留', () => {
+    const r = findAlternatives(STUDENT, TARGET, [PAST, TODAY_DL, ROLLING], TODAY).filter((a) => a.kind === 'same_field');
+    expect(r.map((a) => a.opportunity_id)).toEqual(['fictional-b-today', 'fictional-c-rolling']);
+  });
+
+  it('没给 today 时不按日期过滤', () => {
+    const r = findAlternatives(STUDENT, TARGET, [PAST], undefined).filter((a) => a.kind === 'same_field');
+    expect(r.map((a) => a.opportunity_id)).toEqual(['fictional-a-past']);
   });
 });

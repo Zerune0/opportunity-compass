@@ -468,6 +468,10 @@ function validateOpportunityInto(r: Reporter, value: unknown): void {
   if (o.source_tier !== undefined && !includes(SOURCE_TIERS, o.source_tier)) {
     r.add('source_tier', `${oneOf(SOURCE_TIERS)}, or leave it out (= official)`, o.source_tier);
   }
+  // user_posted 的机会是 Connect 的本地示例，没有经过官网核实，必须标为示例。
+  if (o.source_tier === 'user_posted' && o.is_sample !== true) {
+    r.add('is_sample', 'true when source_tier is "user_posted" (user-posted opportunities are local samples, not verified on an official site)', o.is_sample);
+  }
   r.optStr(o, 'posted_by');
 
   // location

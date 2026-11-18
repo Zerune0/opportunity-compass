@@ -6,44 +6,47 @@
  * 示例版本：签名与返回形状和最终版一致，内容简化但如实。
  *
  * explainMatch 示例版本实际做的：理由只来自三件事，按 MATCH_REASON_KINDS 顺序输出：
- * - interest：profile.interests ∩ opp.fields（去首尾空格、不区分大小写；shared_interests 按 opp.fields 原顺序与原写法）；
+ * - interest：profile.interests ∩ opp.fields（用 lib/tags.ts 的 normalizeTag 比较：去首尾空格、不区分大小写、
+ *   空格 / 下划线 / 连字符视为同一写法；shared_interests 按 opp.fields 原顺序与原写法）；
  *   兴趣没填或机会没有领域标签 → positive: null；有交集 → true；都填了但没交集 → false。
  * - eligibility：checkEligibility 的 overall：eligible → true，not_eligible → false，unknown → null（列出待确认的硬性要求）。
- * - reachability：analyzeReachability（grants 传 []：explainMatch 不知道主办方资源）的 reachable 与 summary。
- * 省略：format / time / cost 三类理由（最终版从障碍里拆出单独理由）；不考虑已批准的 grants。
+ * - reachability：analyzeReachability(profile, opp, options.grants ?? [], options) 的 reachable 与 summary——
+ *   页面上同时显示 analyzeGaps 时请传同一组 grants，两者的 reachable 才一致。
+ * 省略：format / time / cost 三类理由（最终版从障碍里拆出单独理由）。
  * 不输出任何分数、百分比或名次。
  *
  * findAlternatives 示例版本实际做的：
  * - next_cycle：仅当 opp.recurring_annually === true 时给一条（opportunity_id = opp.id，eligibility_overall: null，
  *   shared_fields = opp.fields）。示例版本不判断阻断原因「是否会随时间改善」，理由文字也不承诺下一届能申请；
  *   最终版会收紧为：只在阻断原因会随时间改善（如年级低于下限）时才给。
- * - same_field：catalog 中与 opp.fields 有交集（精确匹配标签）、id 不是 opp.id、且
- *   checkEligibility(...).overall !== 'not_eligible' 的机会（目录内重复 id 只取第一条；数据不完整、判断抛错的跳过），
+ * - same_field：catalog 中与 opp.fields 有交集（normalizeTag 比较；shared_fields 用候选机会原本的写法）、id 不是 opp.id、
+ *   checkEligibility(...).overall !== 'not_eligible'、且（给了 options.today 时）截止日期没过的机会
+ *   （截止日期为 null = 滚动招生，保留；目录内重复 id 只取第一条；数据不完整、判断抛错的跳过），
  *   按 id 排序，最多 3 条。user_posted 的机会在理由里注明是示例发布、未经官网核实。
- * 省略：不看截止日期是否已过、不看现实可达性、不按兴趣进一步筛选（最终版会补）。
+ * 省略：不看现实可达性、不按兴趣进一步筛选（最终版会补）。
  *
  * 公平性：不读取学校名、显示名。纯函数：不读系统时钟、无随机、无 IO、不调 AI。永不抛异常。
  */
 import { checkEligibility } from '../eligibility';
 import { analyzeReachability } from '../reachability';
-import { asArray, asStringArray, safeOpportunity, safeProfile } from '../gap/inputs';
+import { dayNumber, parseISODate } from '../eligibility/dates';
+import { asArray, safeOpportunity, safeProfile } from '../gap/inputs';
+import { normalizedTagSet, sharedTags } from '../tags';
 import type {
   AlternativeSuggestion,
   EligibilityResult,
   EvalOptions,
   MatchExplanation,
+  MatchOptions,
   MatchReason,
   Opportunity,
   OverallEligibility,
   ReachabilityResult,
+  ResourceGrant,
   StudentProfile,
 } from '../types';
 
 const MAX_SAME_FIELD = 3;
-
-function norm(s: string): string {
-  return s.trim().toLowerCase();
-}
 
 function hardLabels(e: EligibilityResult, status: 'not_satisfied' | 'unknown'): string {
   return e.items
@@ -54,14 +57,13 @@ function hardLabels(e: EligibilityResult, status: 'not_satisfied' | 'unknown'): 
 
 // ───────────────────────────── explainMatch ─────────────────────────────
 
-export function explainMatch(profile: StudentProfile, opp: Opportunity, options?: EvalOptions): MatchExplanation {
+export function explainMatch(profile: StudentProfile, opp: Opportunity, options?: MatchOptions): MatchExplanation {
   const p = safeProfile(profile);
   const o = safeOpportunity(opp);
 
   // ── interest ──
   const interestsFilled = Array.isArray(p.interests);
-  const interests = asStringArray(p.interests).map(norm);
-  const shared_interests = o.fields.filter((f) => interests.includes(norm(f)));
+  const shared_interests = sharedTags(o.fields, normalizedTagSet(asArray<unknown>(p.interests)));
   let interest: MatchReason;
   if (!interestsFilled) {
     interest = { kind: 'interest', positive: null, text: "Your profile has no interests yet, so we can't compare them with this opportunity's fields." };
@@ -80,7 +82,9 @@ export function explainMatch(profile: StudentProfile, opp: Opportunity, options?
   // ── eligibility / reachability ──
   let r: ReachabilityResult | null = null;
   try {
-    r = analyzeReachability(p, o, [], options);
+    const grants = asArray<ResourceGrant>(options?.grants);
+    const evalOptions: EvalOptions | undefined = options?.today == null ? undefined : { today: options.today };
+    r = analyzeReachability(p, o, grants, evalOptions);
   } catch {
     r = null;
   }
@@ -165,15 +169,23 @@ export function findAlternatives(
     });
   }
 
-  if (o.fields.length > 0) {
+  const todayYMD = parseISODate(options?.today);
+  const todayDay = todayYMD ? dayNumber(todayYMD) : null;
+  const targetTags = normalizedTagSet(o.fields);
+
+  if (targetTags.size > 0) {
     const seen = new Set<string>();
     const candidates: AlternativeSuggestion[] = [];
     for (const raw of asArray<unknown>(catalog)) {
       const c = safeOpportunity(raw);
       if (c.id === '' || c.id === o.id || seen.has(c.id)) continue;
       seen.add(c.id);
-      const shared = c.fields.filter((f) => o.fields.includes(f));
+      const shared = sharedTags(c.fields, targetTags);
       if (shared.length === 0) continue;
+      if (todayDay != null && c.deadline != null) {
+        const d = parseISODate(c.deadline);
+        if (d != null && dayNumber(d) < todayDay) continue; // 截止日期已过，不再推荐。
+      }
       let overall: OverallEligibility;
       try {
         overall = checkEligibility(p, c, options).overall;

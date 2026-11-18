@@ -8,23 +8,28 @@
  *
  * 归属：主导（lib/store.ts）。需要新增键请找主导。
  */
+import { applyJournalEvent, isJournalEvent } from './journal';
 import {
-  JOURNAL_STATUSES,
+  MATERIAL_KINDS,
+  MATERIAL_STATUSES,
   PLAN_TRIGGERS,
   type EvidenceItem,
   type Invitation,
   type InvitationStatus,
   type ISODate,
   type JournalEntry,
-  type JournalStatus,
+  type JournalEvent,
+  type JournalHistoryItem,
   type JournalTask,
   type Material,
+  type MaterialStatus,
   type Opportunity,
   type PlanSnapshot,
   type ResourceGrant,
   type ShareSettings,
   type SharedProfileView,
   type StudentProfile,
+  type StudentSkill,
 } from './types';
 
 export const STORE_PREFIX = 'oc';
@@ -38,8 +43,10 @@ export const STORE_KEYS = {
   savedOpportunityIds: 'saved_opportunity_ids',
   /** 主办方分配的 grants（演示用，示例 / 模拟）。 */
   grants: 'grants',
-  /** （第二阶段）Quest Journal 条目列表，按 opportunity_id 唯一。 */
+  /** （第二阶段）Quest Journal 条目列表，按 (profile_id, opportunity_id) 唯一。 */
   journal: 'journal',
+  /** （第二阶段）申请材料列表（按 id 唯一）；Journal 条目用 material_ids 引用，可复用材料只存一份。 */
+  materials: 'materials',
   /** （第二阶段）规划快照列表（回放用），每个 (profile_id, opportunity_id) 保留最近几条。 */
   planSnapshots: 'plan_snapshots',
   /** （第二阶段）Connect：用户发布的机会（本地示例，强制 user_posted + is_sample）。 */
@@ -339,7 +346,8 @@ function mapEvidence(evidenceId: string, fn: (e: EvidenceItem) => EvidenceItem):
 /**
  * 修改一条证据（状态、标题、技能、链接、prep_item_ids 等），返回更新后的档案。
  * 找不到档案或该证据时返回 null，且不写存储。
- * undefined = 不改；null = 清空（只对可空字段 url / description / prep_item_ids 生效，必填字段忽略 null）；id 不能改。
+ * undefined = 不改；null = 清空（只对可空字段 url / description 生效；必填字段 title / kind / skills / status / added_on
+ * 忽略 null）；id 不能改。要清空 prep_item_ids，传空数组 `[]`（它的类型不接受 null）。
  */
 export function updateEvidence(
   evidenceId: string,
@@ -388,105 +396,175 @@ export function unlinkEvidenceFromPrep(
 }
 
 // ───────────── Quest Journal ─────────────
+//
+// 条目按 (profile_id, opportunity_id) 唯一；同一浏览器里可能切换示例档案，各档案的 Journal 互不影响。
+// 材料单独存（见下一节），条目只存 material_ids。
 
-function isJournalStatus(v: unknown): v is JournalStatus {
-  return typeof v === 'string' && (JOURNAL_STATUSES as readonly string[]).includes(v);
+const APPLICATION_STATUSES = ['preparing', 'submitted', 'withdrawn'] as const;
+const ELIGIBILITY_CONFIRMATIONS = ['unconfirmed', 'confirmed', 'rejected'] as const;
+const DECISIONS = ['pending', 'admitted', 'not_admitted'] as const;
+
+function oneOf<T extends string>(list: readonly T[], v: unknown): v is T {
+  return typeof v === 'string' && (list as readonly string[]).includes(v);
 }
 
-function isStatusHistoryItem(v: unknown): v is { status: JournalStatus; on: ISODate } {
-  return isRecord(v) && isJournalStatus(v.status) && typeof v.on === 'string';
+function isHistoryItem(v: unknown): v is JournalHistoryItem {
+  return isRecord(v) && isJournalEvent(v.event) && typeof v.on === 'string';
 }
 
 function isJournalTask(v: unknown): v is JournalTask {
   return isRecord(v) && typeof v.id === 'string' && typeof v.title === 'string' && typeof v.done === 'boolean';
 }
 
-function isMaterial(v: unknown): v is Material {
-  return (
-    isRecord(v) &&
-    typeof v.id === 'string' &&
-    typeof v.kind === 'string' &&
-    typeof v.title === 'string' &&
-    typeof v.reusable === 'boolean' &&
-    isStringOrNull(v.opportunity_id) &&
-    typeof v.status === 'string'
-  );
-}
-
 function isJournalEntryShape(v: unknown): v is JournalEntry {
   return (
     isRecord(v) &&
     typeof v.id === 'string' &&
+    typeof v.profile_id === 'string' &&
     typeof v.opportunity_id === 'string' &&
     typeof v.added_on === 'string' &&
-    isJournalStatus(v.status) &&
-    Array.isArray(v.status_history) &&
+    oneOf(APPLICATION_STATUSES, v.application) &&
+    isStringOrNull(v.submitted_on) &&
+    oneOf(ELIGIBILITY_CONFIRMATIONS, v.eligibility_confirmation) &&
+    oneOf(DECISIONS, v.decision) &&
+    (typeof v.participated === 'boolean' || v.participated === null) &&
+    Array.isArray(v.history) &&
     Array.isArray(v.tasks) &&
-    Array.isArray(v.materials) &&
+    Array.isArray(v.material_ids) &&
     typeof v.official_url === 'string'
   );
 }
 
-/** 条目内的子列表也逐条过滤非法项。 */
+/** 条目内的子列表也逐条过滤非法项（material_ids 只留字符串并去重）。 */
 function sanitizeJournalEntry(e: JournalEntry): JournalEntry {
   return {
     ...e,
-    status_history: e.status_history.filter(isStatusHistoryItem),
+    history: e.history.filter(isHistoryItem),
     tasks: e.tasks.filter(isJournalTask),
-    materials: e.materials.filter(isMaterial),
+    material_ids: Array.from(new Set(e.material_ids.filter((x): x is string => typeof x === 'string'))),
   };
 }
 
-/** 读取 Journal；损坏回退 []，非法条目逐条丢弃；同 opportunity_id 重复时保留第一条。 */
-export function loadJournal(): JournalEntry[] {
+/** 损坏输入的 profile_id（若有），供写入失败时返回「该档案现有列表」；没有时返回 undefined（= 不过滤）。 */
+function profileIdOf(v: unknown): string | undefined {
+  return isRecord(v) && typeof v.profile_id === 'string' ? v.profile_id : undefined;
+}
+
+function sameEntry(a: Pick<JournalEntry, 'profile_id' | 'opportunity_id'>, profileId: string, opportunityId: string): boolean {
+  return a.profile_id === profileId && a.opportunity_id === opportunityId;
+}
+
+/** 全部条目（所有档案）；损坏回退 []，非法条目逐条丢弃；同 (profile_id, opportunity_id) 重复时保留第一条。 */
+function loadAllJournal(): JournalEntry[] {
   const seen = new Set<string>();
   const out: JournalEntry[] = [];
   for (const e of readList(STORE_KEYS.journal, isJournalEntryShape)) {
-    if (seen.has(e.opportunity_id)) continue;
-    seen.add(e.opportunity_id);
+    const key = JSON.stringify([e.profile_id, e.opportunity_id]);
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(sanitizeJournalEntry(e));
   }
   return out;
 }
 
-/** 整体保存 Journal（同 opportunity_id 只留最后一条）。SSR / 写入失败返回 false。 */
-export function saveJournal(entries: JournalEntry[]): boolean {
-  const byOpp = new Map<string, JournalEntry>();
-  for (const e of entries) {
-    if (byOpp.has(e.opportunity_id)) byOpp.delete(e.opportunity_id);
-    byOpp.set(e.opportunity_id, e);
-  }
-  return writeJSON(STORE_KEYS.journal, [...byOpp.values()]);
-}
-
-export function getJournalEntry(opportunityId: string): JournalEntry | null {
-  return loadJournal().find((e) => e.opportunity_id === opportunityId) ?? null;
-}
-
-/** 新增或替换（按 opportunity_id 唯一，替换时保持原位置），返回更新后的列表。 */
-export function upsertJournalEntry(entry: JournalEntry): JournalEntry[] {
-  const list = loadJournal();
-  const idx = list.findIndex((e) => e.opportunity_id === entry.opportunity_id);
-  const next = idx >= 0 ? list.map((e, i) => (i === idx ? entry : e)) : [...list, entry];
-  saveJournal(next);
-  return next;
-}
-
-export function removeJournalEntry(opportunityId: string): JournalEntry[] {
-  const next = loadJournal().filter((e) => e.opportunity_id !== opportunityId);
-  saveJournal(next);
-  return next;
+/**
+ * 读取 Journal：传 profileId = 只返回该档案的条目；不传 = 所有档案。
+ * 损坏回退 []，非法条目逐条丢弃，同 (profile_id, opportunity_id) 重复时保留第一条。
+ */
+export function loadJournal(profileId?: string): JournalEntry[] {
+  const all = loadAllJournal();
+  return profileId === undefined ? all : all.filter((e) => e.profile_id === profileId);
 }
 
 /**
- * 设置条目状态并追加 status_history（日期由调用方传入）。
- * 新状态与当前状态相同时不改动、不重复追加，直接返回原条目。条目不存在返回 null。
+ * 整体保存 Journal（会覆盖所有档案的条目；同 (profile_id, opportunity_id) 只留最后一条）。
+ * SSR / 写入失败返回 false。
  */
-export function setJournalStatus(opportunityId: string, status: JournalStatus, on: ISODate): JournalEntry | null {
-  const entry = getJournalEntry(opportunityId);
-  if (!entry || !isJournalStatus(status)) return null;
-  if (entry.status === status) return entry;
-  const next: JournalEntry = { ...entry, status, status_history: [...entry.status_history, { status, on }] };
+export function saveJournal(entries: JournalEntry[]): boolean {
+  const byKey = new Map<string, JournalEntry>();
+  for (const e of entries) {
+    const key = JSON.stringify([e.profile_id, e.opportunity_id]);
+    if (byKey.has(key)) byKey.delete(key);
+    byKey.set(key, e);
+  }
+  return writeJSON(STORE_KEYS.journal, [...byKey.values()]);
+}
+
+export function getJournalEntry(profileId: string, opportunityId: string): JournalEntry | null {
+  return loadAllJournal().find((e) => sameEntry(e, profileId, opportunityId)) ?? null;
+}
+
+/**
+ * 构造一个新条目（纯构造，不写存储；id 由 newId 生成）：application 'preparing'、资格 'unconfirmed'、
+ * 结果 'pending'、participated null、history 为 [{ event: 'added', on }]、无任务、无材料。
+ */
+export function createJournalEntry(
+  profileId: string,
+  opportunity: Pick<Opportunity, 'id' | 'official_url'>,
+  on: ISODate,
+): JournalEntry {
+  return {
+    id: newId('journal'),
+    profile_id: profileId,
+    opportunity_id: opportunity.id,
+    added_on: on,
+    application: 'preparing',
+    submitted_on: null,
+    eligibility_confirmation: 'unconfirmed',
+    decision: 'pending',
+    participated: null,
+    history: [{ event: 'added', on }],
+    tasks: [],
+    material_ids: [],
+    official_url: opportunity.official_url,
+  };
+}
+
+/**
+ * 新增或替换（按 (profile_id, opportunity_id) 唯一，替换时保持原位置）。
+ * 返回该档案（entry.profile_id）更新后的条目列表。形状不对时不写，返回该档案现有列表（连 profile_id 都没有时返回 []）。
+ */
+export function upsertJournalEntry(entry: JournalEntry): JournalEntry[] {
+  if (!isJournalEntryShape(entry)) {
+    const pid = profileIdOf(entry);
+    return pid === undefined ? [] : loadJournal(pid);
+  }
+  const clean = sanitizeJournalEntry(entry);
+  const list = loadAllJournal();
+  const idx = list.findIndex((e) => sameEntry(e, clean.profile_id, clean.opportunity_id));
+  const next = idx >= 0 ? list.map((e, i) => (i === idx ? clean : e)) : [...list, clean];
+  saveJournal(next);
+  return next.filter((e) => e.profile_id === clean.profile_id);
+}
+
+/**
+ * 删除某档案在某机会上的条目，返回该档案剩下的条目。
+ * 条目引用的材料不删（可复用材料可能还被别的条目用；不再需要的材料用 removeMaterial 删）。
+ */
+export function removeJournalEntry(profileId: string, opportunityId: string): JournalEntry[] {
+  const next = loadAllJournal().filter((e) => !sameEntry(e, profileId, opportunityId));
+  saveJournal(next);
+  return next.filter((e) => e.profile_id === profileId);
+}
+
+/**
+ * 记录一个 Journal 事件（日期由调用方传入）：用 lib/journal.ts 的 applyJournalEvent 一致地更新对应字段
+ * （见 JournalEvent 注释）并追加 history；同一事件同一天不重复追加。条目不存在或事件非法返回 null。
+ *
+ * 不阻止不合常理的顺序（如没提交就记 admitted）——学生记录的是现实。页面应当引导：
+ * 未提交时把录取结果 / 资格确认放在次要位置并提示「通常在提交后才会有」；记录这些事件时若仍是 preparing，
+ * 询问是否同时记一次 submitted；已退出时把 reopened 放在显眼处。四项始终分开显示。
+ */
+export function recordJournalEvent(
+  profileId: string,
+  opportunityId: string,
+  event: JournalEvent,
+  on: ISODate,
+): JournalEntry | null {
+  if (!isJournalEvent(event) || typeof on !== 'string') return null;
+  const entry = getJournalEntry(profileId, opportunityId);
+  if (!entry) return null;
+  const next = applyJournalEvent(entry, event, on);
   upsertJournalEntry(next);
   return next;
 }
@@ -496,12 +574,13 @@ export function setJournalStatus(opportunityId: string, status: JournalStatus, o
  * 条目或任务不存在返回 null。
  */
 export function toggleJournalTask(
+  profileId: string,
   opportunityId: string,
   taskId: string,
   done: boolean,
   on?: ISODate,
 ): JournalEntry | null {
-  const entry = getJournalEntry(opportunityId);
+  const entry = getJournalEntry(profileId, opportunityId);
   if (!entry || !entry.tasks.some((t) => t.id === taskId)) return null;
   const next: JournalEntry = {
     ...entry,
@@ -511,8 +590,101 @@ export function toggleJournalTask(
   return next;
 }
 
-export function clearJournal(): void {
-  removeKey(STORE_KEYS.journal);
+/** 不传 = 清空全部条目（所有档案）；传 profileId = 只清该档案的条目。 */
+export function clearJournal(profileId?: string): void {
+  if (profileId === undefined) {
+    removeKey(STORE_KEYS.journal);
+    return;
+  }
+  saveJournal(loadAllJournal().filter((e) => e.profile_id !== profileId));
+}
+
+// ───────────── 申请材料（单独存，Journal 条目用 material_ids 引用）─────────────
+
+function isMaterial(v: unknown): v is Material {
+  return (
+    isRecord(v) &&
+    typeof v.id === 'string' &&
+    typeof v.profile_id === 'string' &&
+    oneOf(MATERIAL_KINDS, v.kind) &&
+    typeof v.title === 'string' &&
+    typeof v.reusable === 'boolean' &&
+    isStringOrNull(v.opportunity_id) &&
+    (typeof v.estimated_hours === 'number' || v.estimated_hours === null) &&
+    oneOf(MATERIAL_STATUSES, v.status)
+  );
+}
+
+/** 全部材料（按 id 唯一，重复时保留第一条）。 */
+function loadAllMaterials(): Material[] {
+  const seen = new Set<string>();
+  return readList(STORE_KEYS.materials, isMaterial).filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+}
+
+/** 读取材料：传 profileId = 只返回该档案的；不传 = 全部。损坏回退 []，非法条目逐条丢弃。 */
+export function loadMaterials(profileId?: string): Material[] {
+  const all = loadAllMaterials();
+  return profileId === undefined ? all : all.filter((m) => m.profile_id === profileId);
+}
+
+/**
+ * 新增或替换一份材料（按 id 唯一，替换时保持原位置）。
+ * 返回该档案（material.profile_id）更新后的材料列表；形状不对时不写，返回该档案现有列表（连 profile_id 都没有时返回 []）。
+ */
+export function upsertMaterial(material: Material): Material[] {
+  if (!isMaterial(material)) {
+    const pid = profileIdOf(material);
+    return pid === undefined ? [] : loadMaterials(pid);
+  }
+  const list = loadAllMaterials();
+  const idx = list.findIndex((m) => m.id === material.id);
+  const next = idx >= 0 ? list.map((m, i) => (i === idx ? material : m)) : [...list, material];
+  writeJSON(STORE_KEYS.materials, next);
+  return next.filter((m) => m.profile_id === material.profile_id);
+}
+
+/**
+ * 删除一份材料，并从所有 Journal 条目的 material_ids 里移除它。
+ * 返回是否找到并删除了它（SSR / 不存在为 false）。
+ */
+export function removeMaterial(id: string): boolean {
+  const list = loadAllMaterials();
+  if (!list.some((m) => m.id === id)) return false;
+  if (!writeJSON(STORE_KEYS.materials, list.filter((m) => m.id !== id))) return false;
+  const journal = loadAllJournal();
+  if (journal.some((e) => e.material_ids.includes(id))) {
+    saveJournal(journal.map((e) => (e.material_ids.includes(id) ? { ...e, material_ids: e.material_ids.filter((x) => x !== id) } : e)));
+  }
+  return true;
+}
+
+/** 设置材料状态（可复用材料只有一条记录，所有引用它的条目都看到新状态）。材料不存在或状态非法返回 null。 */
+export function setMaterialStatus(id: string, status: MaterialStatus): Material | null {
+  if (!oneOf(MATERIAL_STATUSES, status)) return null;
+  const current = loadAllMaterials().find((m) => m.id === id);
+  if (!current) return null;
+  const updated: Material = { ...current, status };
+  upsertMaterial(updated);
+  return updated;
+}
+
+/** 不传 = 清空全部材料；传 profileId = 只清该档案的材料（同时从该档案条目的 material_ids 中移除）。 */
+export function clearMaterials(profileId?: string): void {
+  if (profileId === undefined) {
+    removeKey(STORE_KEYS.materials);
+    const journal = loadAllJournal();
+    if (journal.some((e) => e.material_ids.length > 0)) saveJournal(journal.map((e) => ({ ...e, material_ids: [] })));
+    return;
+  }
+  writeJSON(STORE_KEYS.materials, loadAllMaterials().filter((m) => m.profile_id !== profileId));
+  const journal = loadAllJournal();
+  if (journal.some((e) => e.profile_id === profileId && e.material_ids.length > 0)) {
+    saveJournal(journal.map((e) => (e.profile_id === profileId ? { ...e, material_ids: [] } : e)));
+  }
 }
 
 // ───────────── 规划快照 ─────────────
@@ -553,22 +725,21 @@ export function loadPlanSnapshots(opportunityId?: string, profileId?: string): P
 }
 
 /**
- * 追加一个快照（同 id 先移除旧的），每个 (profile_id, opportunity_id) 只保留最近 keep 条（keep 至少为 1）。
- * 返回该 (profile_id, opportunity_id) 保留下来的快照（旧 → 新）。
+ * 追加一个快照（同 id 先移除旧的，新的算作最新插入），每个 (profile_id, opportunity_id)
+ * 按**插入顺序**只保留最近插入的 keep 条（keep 至少为 1）——刚推入的快照一定保留，
+ * 即使它的 taken_on 比已有的都早。存储里按插入顺序存，读取时（loadPlanSnapshots）再按 taken_on 排序。
+ * 返回该 (profile_id, opportunity_id) 保留下来的快照（按 taken_on 旧 → 新，同日按插入顺序）。
  */
 export function pushPlanSnapshot(snapshot: PlanSnapshot, keep = 5): PlanSnapshot[] {
   const limit = Number.isFinite(keep) ? Math.max(1, Math.floor(keep)) : 5;
-  const all = sortSnapshots([
-    ...readList(STORE_KEYS.planSnapshots, isPlanSnapshot).filter((s) => s.id !== snapshot.id),
-    snapshot,
-  ]);
+  const all = [...readList(STORE_KEYS.planSnapshots, isPlanSnapshot).filter((s) => s.id !== snapshot.id), snapshot];
   const same = (s: PlanSnapshot) =>
     s.profile_id === snapshot.profile_id && s.opportunity_id === snapshot.opportunity_id;
   const pair = all.filter(same);
   const dropped = new Set(pair.slice(0, Math.max(0, pair.length - limit)));
   const next = all.filter((s) => !dropped.has(s));
   writeJSON(STORE_KEYS.planSnapshots, next);
-  return next.filter(same);
+  return sortSnapshots(next.filter(same));
 }
 
 export function latestPlanSnapshot(opportunityId: string, profileId: string): PlanSnapshot | null {
@@ -642,6 +813,8 @@ function isShareSettings(v: unknown): v is ShareSettings {
   return (
     isRecord(v) &&
     typeof v.profile_id === 'string' &&
+    typeof v.share_handle === 'string' &&
+    v.share_handle !== '' &&
     isStringArray(v.evidence_ids) &&
     isStringArray(v.skills) &&
     typeof v.share_interests === 'boolean' &&
@@ -650,10 +823,19 @@ function isShareSettings(v: unknown): v is ShareSettings {
   );
 }
 
-/** 默认分享设置：什么都不分享。 */
-export function defaultShareSettings(profileId: string, on: ISODate): ShareSettings {
+/** 生成一个不透明的分享句柄：`share-<uuid>`（没有 crypto.randomUUID 时回退到时间戳 + 计数），不含档案 id 或姓名。 */
+function newShareHandle(): string {
+  return newId('share');
+}
+
+/**
+ * 默认分享设置：什么都不分享。share_handle 不传时新生成一个不透明句柄
+ * （每次调用都不同——要让句柄稳定，请保存，或用 getOrCreateShareSettings）。
+ */
+export function defaultShareSettings(profileId: string, on: ISODate, shareHandle?: string): ShareSettings {
   return {
     profile_id: profileId,
+    share_handle: typeof shareHandle === 'string' && shareHandle !== '' ? shareHandle : newShareHandle(),
     evidence_ids: [],
     skills: [],
     share_interests: false,
@@ -662,68 +844,114 @@ export function defaultShareSettings(profileId: string, on: ISODate): ShareSetti
   };
 }
 
-/** 读取某档案的分享设置；没有（或损坏）返回 null（调用方可用 defaultShareSettings 兜底）。 */
+/** 读取某档案的分享设置；没有（或损坏）返回 null（调用方可用 getOrCreateShareSettings 兜底）。 */
 export function loadShareSettings(profileId: string): ShareSettings | null {
   return readList(STORE_KEYS.shareSettings, isShareSettings).find((s) => s.profile_id === profileId) ?? null;
 }
 
-/** 保存分享设置（按 profile_id 替换）。形状不对、SSR 或写入失败返回 false。 */
+/**
+ * 读取某档案的分享设置；没有时用 defaultShareSettings 新建并保存（这样 share_handle 从此稳定）。
+ * SSR / 写入失败时仍返回新建的默认设置（未保存，句柄下次会不同）。
+ */
+export function getOrCreateShareSettings(profileId: string, on: ISODate): ShareSettings {
+  const existing = loadShareSettings(profileId);
+  if (existing) return existing;
+  const created = defaultShareSettings(profileId, on);
+  saveShareSettings(created);
+  return created;
+}
+
+/**
+ * 保存分享设置（按 profile_id 替换）。形状不对、share_handle 已被别的档案使用、SSR 或写入失败返回 false。
+ */
 export function saveShareSettings(settings: ShareSettings): boolean {
   if (!isShareSettings(settings)) return false;
-  const rest = readList(STORE_KEYS.shareSettings, isShareSettings).filter(
-    (s) => s.profile_id !== settings.profile_id,
-  );
+  const all = readList(STORE_KEYS.shareSettings, isShareSettings);
+  if (all.some((s) => s.share_handle === settings.share_handle && s.profile_id !== settings.profile_id)) return false;
+  const rest = all.filter((s) => s.profile_id !== settings.profile_id);
   return writeJSON(STORE_KEYS.shareSettings, [...rest, settings]);
 }
 
-/** 不传 = 清空全部；传 profileId = 只撤回该档案的设置（等同恢复默认：什么都不分享）。 */
-export function clearShareSettings(profileId?: string): void {
+/**
+ * 学生自己的浏览器里：由分享句柄对回档案 id（邀请只带句柄）。找不到返回 null。
+ */
+export function profileIdForShareHandle(handle: string): string | null {
+  if (typeof handle !== 'string' || handle === '') return null;
+  return readList(STORE_KEYS.shareSettings, isShareSettings).find((s) => s.share_handle === handle)?.profile_id ?? null;
+}
+
+/**
+ * 不传 = 清空全部分享设置（含句柄）。
+ * 传 profileId = 撤回该档案的分享：恢复默认（什么都不分享），但**保留原 share_handle**，
+ * 这样已有的邀请与屏蔽仍然对得上（updated_on 用 on；没传 on 时沿用原日期）。该档案没有设置时什么都不做。
+ */
+export function clearShareSettings(profileId?: string, on?: ISODate): void {
   if (profileId === undefined) {
     removeKey(STORE_KEYS.shareSettings);
     return;
   }
-  writeJSON(
-    STORE_KEYS.shareSettings,
-    readList(STORE_KEYS.shareSettings, isShareSettings).filter((s) => s.profile_id !== profileId),
-  );
+  const current = loadShareSettings(profileId);
+  if (!current) return;
+  saveShareSettings(defaultShareSettings(profileId, on ?? current.updated_on, current.share_handle));
+}
+
+function isObjectLike(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function strings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
 /**
  * 纯函数：按分享设置过滤档案，只输出学生已授权的内容。
+ * - share_handle：抄自 settings（不含档案 id）。
  * - evidence：只含 settings.evidence_ids 中且档案里确实存在的证据，只取 id / title / kind / skills / status
  *   （不含 url、description、prep_item_ids、added_on）。
  * - skills：只含被勾选、且档案里确实有的技能（name + level）。
  * - interests：仅当 share_interests 为 true。
- * - alias：示例档案 'Sample student'，否则 'Student'。永不包含显示名、学校名、地区、联系方式、身份标签、年级、预算等。
- * settings 为 null、属于别的档案、或最终什么都没分享时返回 null。
+ * - alias：示例档案 'Sample student'，否则 'Student'。永不包含档案 id、显示名、学校名、地区、联系方式、身份标签、年级、预算等。
+ * settings 为 null、属于别的档案、没有 share_handle、或最终什么都没分享时返回 null。
+ * 档案损坏时不抛异常：evidence / skills / interests 不是数组、证据缺 skills 或 skills 不是数组等，一律按空处理；
+ * 缺 id / title 的证据、缺 name 的技能直接跳过。
  */
 export function buildSharedProfileView(
   profile: StudentProfile,
   settings: ShareSettings | null,
 ): SharedProfileView | null {
-  if (!settings || settings.profile_id !== profile.id) return null;
-  const evidenceIds = new Set(settings.evidence_ids);
-  const skillNames = new Set(settings.skills);
-  const evidence = profile.evidence
-    .filter((e) => evidenceIds.has(e.id))
-    .map((e) => ({ id: e.id, title: e.title, kind: e.kind, skills: [...e.skills], status: e.status }));
-  const skills = (profile.skills ?? [])
-    .filter((s) => skillNames.has(s.name))
-    .map((s) => ({ name: s.name, level: s.level }));
-  const interests = settings.share_interests ? [...(profile.interests ?? [])] : [];
+  if (!isObjectLike(profile) || !isObjectLike(settings)) return null;
+  if (settings.profile_id !== profile.id) return null;
+  if (typeof settings.share_handle !== 'string' || settings.share_handle === '') return null;
+  const evidenceIds = new Set(strings(settings.evidence_ids));
+  const skillNames = new Set(strings(settings.skills));
+  const evidence = (Array.isArray(profile.evidence) ? (profile.evidence as unknown[]) : [])
+    .filter(isObjectLike)
+    .filter((e) => typeof e.id === 'string' && typeof e.title === 'string' && evidenceIds.has(e.id))
+    .map((e) => ({
+      id: e.id as string,
+      title: e.title as string,
+      kind: e.kind as EvidenceItem['kind'],
+      skills: strings(e.skills),
+      status: e.status as EvidenceItem['status'],
+    }));
+  const skills = (Array.isArray(profile.skills) ? (profile.skills as unknown[]) : [])
+    .filter(isObjectLike)
+    .filter((s) => typeof s.name === 'string' && skillNames.has(s.name))
+    .map((s) => ({ name: s.name as string, level: s.level as StudentSkill['level'] }));
+  const interests = settings.share_interests === true ? strings(profile.interests) : [];
   const note =
     typeof settings.collaboration_note === 'string' && settings.collaboration_note.trim() !== ''
       ? settings.collaboration_note
       : null;
   if (evidence.length === 0 && skills.length === 0 && interests.length === 0 && note === null) return null;
   return {
-    profile_id: profile.id,
-    alias: profile.is_sample ? 'Sample student' : 'Student',
+    share_handle: settings.share_handle,
+    alias: profile.is_sample === true ? 'Sample student' : 'Student',
     evidence,
     skills,
     interests,
     collaboration_note: note,
-    is_sample: profile.is_sample,
+    is_sample: profile.is_sample === true,
   };
 }
 
@@ -740,7 +968,7 @@ function isInvitation(v: unknown): v is Invitation {
     isRecord(v) &&
     typeof v.id === 'string' &&
     typeof v.publisher_id === 'string' &&
-    typeof v.profile_id === 'string' &&
+    typeof v.share_handle === 'string' &&
     isStringOrNull(v.opportunity_id) &&
     isStringArray(v.reasons) &&
     isInvitationStatus(v.status) &&
@@ -749,10 +977,13 @@ function isInvitation(v: unknown): v is Invitation {
   );
 }
 
-/** 读取邀请；可按 profileId 过滤。非法条目（含 is_sample 不为 true 的）逐条丢弃。 */
-export function loadInvitations(profileId?: string): Invitation[] {
+/**
+ * 读取邀请；可按 shareHandle（被邀请学生的 ShareSettings.share_handle）过滤。
+ * 学生页面：先 loadShareSettings(profileId)?.share_handle，再用它读取。非法条目（含 is_sample 不为 true 的）逐条丢弃。
+ */
+export function loadInvitations(shareHandle?: string): Invitation[] {
   return readList(STORE_KEYS.invitations, isInvitation).filter(
-    (i) => profileId === undefined || i.profile_id === profileId,
+    (i) => shareHandle === undefined || i.share_handle === shareHandle,
   );
 }
 
@@ -788,10 +1019,10 @@ export function setInvitationStatus(id: string, status: InvitationStatus, on: IS
   return updated;
 }
 
-/** 某档案屏蔽了的发布者 id（来自状态为 blocked 的邀请，去重）。 */
-export function blockedPublisherIds(profileId: string): string[] {
+/** 某分享句柄（学生）屏蔽了的发布者 id（来自状态为 blocked 的邀请，去重）。 */
+export function blockedPublisherIds(shareHandle: string): string[] {
   return Array.from(
-    new Set(loadInvitations(profileId).filter((i) => i.status === 'blocked').map((i) => i.publisher_id)),
+    new Set(loadInvitations(shareHandle).filter((i) => i.status === 'blocked').map((i) => i.publisher_id)),
   );
 }
 

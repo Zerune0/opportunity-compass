@@ -20,12 +20,13 @@
  * - 差距分析：`GapCategory` / `GAP_CATEGORIES`、`GapBasis`、`GapItem`、`GapAnalysis`
  *   → `analyzeGaps(profile, opp, grants, options)` 的返回；队友 A 的 Quest Details。
  * - 替代机会：`AlternativeSuggestion` → `findAlternatives(profile, opp, catalog, options)` 的返回；A、B 显示。
- * - 匹配说明：`MatchReasonKind` / `MATCH_REASON_KINDS`、`MatchReason`、`MatchExplanation`
+ * - 匹配说明：`MatchReasonKind` / `MATCH_REASON_KINDS`、`MatchReason`、`MatchExplanation`、`MatchOptions`
  *   → `explainMatch(profile, opp, options)` 的返回；A（排序说明）、Connect。不含分数或名次。
  * - 联合申请规划：`CrossPlanItem`、`MaterialReuse`、`WeeklyLoad`、`CrossPlan`、`CrossPlanOptions`
  *   → `planAcrossOpportunities(profile, opps, options)` 的返回；队友 B 的 Journal 排期页。
- * - Quest Journal：`JournalStatus` / `JOURNAL_STATUSES`、`JournalTask`、`Material`、`OutcomeFeedback`、`JournalEntry`
- *   → lib/store.ts 的 Journal 存储函数；队友 B 的 app/journal/。
+ * - Quest Journal：`JournalApplicationStatus`、`EligibilityConfirmation`、`JournalDecision`、`JournalEvent` / `JOURNAL_EVENTS`、
+ *   `JournalHistoryItem`、`JournalTask`、`MaterialStatus` / `MATERIAL_STATUSES`、`Material`、`OutcomeFeedback`、`JournalEntry`
+ *   → lib/store.ts 的 Journal / 材料存储函数、lib/journal.ts 的 journalHeadline；队友 B 的 app/journal/。
  * - 规划快照：`PlanTrigger` / `PLAN_TRIGGERS`、`PlanSnapshotInputs`、`PlanSnapshot`
  *   → lib/store.ts 的快照存储；队友 B 的「之前 → 变化 → 之后 → 原因」回放（配合 diffRoutes）。
  * - Connect 本地示例：`SamplePublisher`、`ShareSettings`、`SharedProfileView`、`Invitation`
@@ -1349,7 +1350,7 @@ export interface GapAnalysis {
 export interface AlternativeSuggestion {
   /**
    * next_cycle = 等下一届（只在机会每年举办、且阻断原因会随时间改善时给出，如年级不够）；
-   * same_field = 同领域的其他机会（必须是该学生硬性资格不冲突的机会）。
+   * same_field = 同领域的其他机会（必须是该学生硬性资格不冲突的机会；给了 options.today 时不含截止日期已过的机会）。
    */
   kind: 'next_cycle' | 'same_field';
   /**
@@ -1366,7 +1367,10 @@ export interface AlternativeSuggestion {
    * same_field 的建议不得是 'not_eligible'。next_cycle 时是对「下一届」无法预先判断，通常为 null。
    */
   eligibility_overall: OverallEligibility | null;
-  /** 与原机会共有的领域标签（Opportunity.fields 的交集）；next_cycle 时为原机会的全部 fields。 */
+  /**
+   * 与原机会共有的领域标签（Opportunity.fields 的交集，按 lib/tags.ts 的 normalizeTag 比较），
+   * 用建议机会原本的写法；next_cycle 时为原机会的全部 fields。
+   */
   shared_fields: string[];
 }
 
@@ -1411,10 +1415,21 @@ export interface MatchExplanation {
   eligibility_overall: OverallEligibility;
   /** 现实可达性（语义同 ReachabilityResult.reachable；可达 ≠ 录取）。 */
   reachable: boolean | null;
-  /** 学生兴趣与机会领域的交集（profile.interests ∩ opp.fields）；兴趣没填时为 []。 */
+  /**
+   * 学生兴趣与机会领域的交集（profile.interests ∩ opp.fields，按 lib/tags.ts 的 normalizeTag 比较：
+   * 大小写、空格 / 下划线 / 连字符写法不同也算同一标签），用机会原本的写法、按 opp.fields 顺序；兴趣没填时为 []。
+   */
   shared_interests: string[];
   /** 面向学生的一句话总结（不含分数）。 */
   summary: string;
+}
+
+/**
+ * explainMatch 的选项。grants = 主办方已分配给该学生、对这个机会生效的资源（与 analyzeGaps 的 grants 同义）；
+ * 缺省 = []。同一页面同时显示 analyzeGaps 时请传同一组 grants，两者的 reachable 才一致。
+ */
+export interface MatchOptions extends EvalOptions {
+  grants?: ResourceGrant[];
 }
 
 // ───────────────────────────── 联合申请规划 CrossPlan（planAcrossOpportunities）─────────────────────────────
@@ -1426,23 +1441,40 @@ export interface CrossPlanItem {
   deadline: ISODate | null;
   /**
    * planned = 已排入计划；blocked = 硬性资格不满足（planRoutes 返回 blocked），不计入负荷；
-   * past_deadline = 按 options.today 截止日期已过，不计入负荷。
+   * past_deadline = 按 options.today 截止日期已过，不计入负荷；
+   * insufficient_data = 机会数据不完整、规划时出错，算不出小时（小时为 0、不计入负荷，note 说明缺什么，
+   * 同时写进 CrossPlan.warnings 与 missing_info）——仍列在 items 里，不让它从页面上悄悄消失。
    */
-  status: 'planned' | 'blocked' | 'past_deadline';
+  status: 'planned' | 'blocked' | 'past_deadline' | 'insufficient_data';
   /**
-   * 取必需步骤时用的路线类型（补充字段，便于界面说明「按哪条路线算的」）；blocked / past_deadline 时为 null。
+   * 取必需步骤时用的路线类型（补充字段，便于界面说明「按哪条路线算的」）；非 planned 时为 null。
    */
   route_type: RouteType | null;
   /**
-   * 去掉材料复用之后还需要的小时数：可复用的通用材料只算在 order 最靠前、用到它的那个机会上
-   * （按 MaterialReuse.hours_each 计），其他机会不再计。
+   * 计入材料复用之后这个机会要算的小时数：可复用的通用材料只算在 order 最靠前、用到它的那个机会上，
+   * 按各机会中该材料的最大小时（MaterialReuse.hours_each）计，其他机会不再计。
+   * 所以承担可复用材料的那个机会的 required_hours 可能大于它自己的 hours_before_reuse
+   * （它替别的机会准备了一份更完整的材料）。非 planned 时为 0。
+   * 关系：required_hours = hours_before_reuse − hours_saved_by_reuse + （作为承担者时 Σ(hours_each − 自己那份)）。
    */
   required_hours: number;
-  /** 不考虑复用时这个机会自己需要的小时数。 */
+  /** 不考虑复用时这个机会自己需要的小时数。非 planned 时为 0。 */
   hours_before_reuse: number;
+  /**
+   * 这个机会因复用（材料已由 order 更靠前的机会承担）而少算的小时，≥ 0：
+   * 该机会里不由它承担的每份可复用材料的自己那份小时之和。承担者为 0。非 planned 时为 0。
+   */
+  hours_saved_by_reuse: number;
   /** 距截止日期还有几周（按 options.today）；today 或 deadline 缺失时为 null。 */
   weeks_left: number | null;
-  /** 只做这一个机会时，按学生每周可用小时能否在截止前完成；信息不足为 null。 */
+  /**
+   * 只做这一个机会时能否在截止前完成（不考虑复用：按 hours_before_reuse）。公式与 weekly_load 的 over 一致：
+   * 可用小时 = hours_per_week_available × 天数 / 7，天数 = today 到截止日（都含）的天数；
+   * hours_before_reuse ≤ 可用小时 → true。past_deadline 为 false；today / 截止日期 / 每周可用小时缺失，
+   * 或非 planned（blocked、insufficient_data）时为 null。
+   * 注意：planRoutes 的 Route.feasible_by_deadline 按「today 到截止日的天数差」（不含 today 当天）计，
+   * 两者在临界情况下可能差一天的量；联合规划页以本字段为准。
+   */
   feasible_alone: boolean | null;
   /** 按截止日期的建议先后（1 起）；截止日期为 null 的排在最后。只是建议，不替学生做取舍。 */
   order: number;
@@ -1468,15 +1500,25 @@ export interface MaterialReuse {
   note: string;
 }
 
-/** 某一周的负荷。 */
+/**
+ * 某一周的负荷（按天分摊）：
+ * - 每个计入负荷的机会，把 required_hours 在 today（含）到它的截止日（含）之间按天平均分摊，再按周一对齐汇总；
+ *   所以第一周只算 today 到周日，该机会的最后一周只算周一到截止日。
+ * - 计划窗口 = today（含）到计入负荷的机会中最晚的截止日（含）。
+ */
 export interface WeeklyLoad {
   /** 该周的周一（从 options.today 所在周的周一起，每 7 天一周）。 */
   week_start: ISODate;
-  /** 本周需要投入的小时数。 */
+  /** 该周落在计划窗口里的天数（1–7）：第一周从 today 算起，最后一周算到最晚截止日。 */
+  days: number;
+  /** 本周需要投入的小时数（各机会每天分摊小时 × 该机会在本周的天数，求和）。 */
   hours_needed: number;
-  /** 学生每周可用小时（profile.hours_per_week_available）；没填为 null。 */
+  /**
+   * 本周可用小时 = profile.hours_per_week_available × days / 7（按本周实际天数折算）；没填为 null。
+   * 只有一个机会时，某周 over 为 true ⇔ 该机会每天分摊 > 每周可用 / 7 ⇔ 该机会 feasible_alone 为 false，两者一致。
+   */
   hours_available: number | null;
-  /** 是否超出可用小时；hours_available 为 null 时为 null（不猜）。 */
+  /** 是否超出本周可用小时；hours_available 为 null 时为 null（不猜）。 */
   over: boolean | null;
   /** 本周有投入的机会 id。 */
   opportunity_ids: string[];
@@ -1497,7 +1539,7 @@ export interface CrossPlan {
   weekly_load: WeeklyLoad[];
   /** 材料复用情况（含不可复用的同类材料，说明为什么不省时间）。 */
   reuse: MaterialReuse[];
-  /** 计入复用后的总小时数（只算 planned 的机会）。 */
+  /** 计入复用后的总小时数（只算 planned 的机会）= Σ required_hours。 */
   total_hours: number;
   /** 不考虑复用的总小时数（只算 planned 的机会）；与 total_hours 之差 = 复用省下的小时。 */
   total_hours_without_reuse: number;
@@ -1519,32 +1561,64 @@ export interface CrossPlanOptions extends EvalOptions {
 }
 
 // ───────────────────────────── Quest Journal ─────────────────────────────
+//
+// 一个 Journal 条目记录四件互相独立的事，页面必须分开显示，不能互相推断：
+//   1. application              学生自己的申请进度（准备中 / 已提交 / 已退出）
+//   2. eligibility_confirmation 官方是否确认了资格
+//   3. decision                 官方的录取结果
+//   4. participated             学生是否实际参与
+// 提交申请 ≠ 官方确认资格 ≠ 被录取 ≠ 已参与。这些都由学生自己记录，不是系统判断。
+// 需要一句话摘要时用 lib/journal.ts 的 journalHeadline(entry)（派生，不存字段）。
+
+/** 学生的申请进度：preparing = 准备中；submitted = 已提交；withdrawn = 学生主动退出。 */
+export type JournalApplicationStatus = 'preparing' | 'submitted' | 'withdrawn';
+
+/** 官方是否确认了资格：unconfirmed = 还没确认 / 没记；confirmed = 官方确认符合；rejected = 官方认定不符合。 */
+export type EligibilityConfirmation = 'unconfirmed' | 'confirmed' | 'rejected';
+
+/** 官方的录取结果：pending = 还没结果 / 没记；admitted = 被录取；not_admitted = 未录取。 */
+export type JournalDecision = 'pending' | 'admitted' | 'not_admitted';
 
 /**
- * Journal 状态：
- * preparing = 准备中；submitted = 学生已提交申请；eligibility_confirmed = 官方确认资格；
- * admitted = 被录取；not_admitted = 未录取；participated = 已参与；withdrawn = 学生主动退出。
- * 重要：提交申请 ≠ 官方确认资格 ≠ 被录取，三者必须在界面上分开显示，不能互相推断。
- * 这些状态都由学生自己记录，不是系统判断。
+ * Journal 事件（由学生记录，lib/store.ts 的 recordJournalEvent 据此更新对应字段并追加 history）：
+ * - added：加入 Journal（创建条目时记录，不改其他字段）；
+ * - submitted：application = 'submitted'，submitted_on = 当天；
+ * - withdrawn：application = 'withdrawn'（submitted_on 保留）；
+ * - reopened：撤销退出 / 撤销提交，application 回到 'preparing'，submitted_on = null；
+ * - eligibility_confirmed / eligibility_rejected：eligibility_confirmation = 'confirmed' / 'rejected'；
+ * - admitted / not_admitted：decision = 'admitted' / 'not_admitted'；
+ * - participated / did_not_participate：participated = true / false。
  */
-export type JournalStatus =
-  | 'preparing'
+export type JournalEvent =
+  | 'added'
   | 'submitted'
+  | 'withdrawn'
+  | 'reopened'
   | 'eligibility_confirmed'
+  | 'eligibility_rejected'
   | 'admitted'
   | 'not_admitted'
   | 'participated'
-  | 'withdrawn';
+  | 'did_not_participate';
 
-export const JOURNAL_STATUSES: readonly JournalStatus[] = [
-  'preparing',
+export const JOURNAL_EVENTS: readonly JournalEvent[] = [
+  'added',
   'submitted',
+  'withdrawn',
+  'reopened',
   'eligibility_confirmed',
+  'eligibility_rejected',
   'admitted',
   'not_admitted',
   'participated',
-  'withdrawn',
+  'did_not_participate',
 ] as const;
+
+/** history 中的一项。 */
+export interface JournalHistoryItem {
+  event: JournalEvent;
+  on: ISODate;
+}
 
 /** Journal 里的一条任务。 */
 export interface JournalTask {
@@ -1561,10 +1635,17 @@ export interface JournalTask {
 /** 材料准备状态：未开始 / 进行中 / 已就绪。 */
 export type MaterialStatus = 'not_started' | 'in_progress' | 'ready';
 
-/** Journal 里的一份申请材料。 */
+export const MATERIAL_STATUSES: readonly MaterialStatus[] = ['not_started', 'in_progress', 'ready'] as const;
+
+/**
+ * 一份申请材料。单独存放（lib/store.ts 的 materials 键），Journal 条目用 material_ids 引用。
+ * 可复用材料（reusable: true）被多个条目引用时是同一条记录：改一次状态，所有引用它的条目都看到。
+ */
 export interface Material {
-  /** 条目内唯一。 */
+  /** 全局唯一。 */
   id: string;
+  /** 属于哪个档案（同一浏览器里可能切换示例档案）。 */
+  profile_id: string;
   kind: MaterialKind;
   title: string;
   /** true = 通用材料，可在多个机会间复用；false = 针对某个机会单独准备。 */
@@ -1579,7 +1660,8 @@ export interface Material {
 }
 
 /**
- * 学生自愿记录的结果反馈，全部可缺（缺省 / null = 没记）。
+ * 学生自愿记录的主观反馈，全部可缺（缺省 / null = 没记）。
+ * 是否提交、是否参与以 JournalEntry 的 application / participated 为准，这里不重复。
  * 这是学生自己的记录，不是系统判断，也不是真实影响的证据，界面与报告不得据此声称产品带来了什么结果。
  */
 export interface OutcomeFeedback {
@@ -1589,29 +1671,42 @@ export interface OutcomeFeedback {
   understood_eligibility?: boolean | null;
   /** 是否完成了申请材料。 */
   completed_materials?: boolean | null;
-  /** 是否提交了申请。 */
-  applied?: boolean | null;
-  /** 是否参与了该机会。 */
-  participated?: boolean | null;
   /** 学生自己写的一句话（哪些地方有帮助 / 没帮助）。 */
   helpful_note?: string | null;
   recorded_on?: ISODate | null;
 }
 
-/** Quest Journal 的一个条目（一个机会）。存在学生自己的浏览器 localStorage。 */
+/**
+ * Quest Journal 的一个条目（一个档案 × 一个机会）。存在学生自己的浏览器 localStorage。
+ * 唯一键：(profile_id, opportunity_id)。
+ *
+ * application、eligibility_confirmation、decision、participated 四项互相独立，页面必须分开显示：
+ * 提交 ≠ 官方确认资格 ≠ 被录取 ≠ 已参与，不能由其中一项推断另一项。
+ */
 export interface JournalEntry {
   /** 全局唯一。 */
   id: string;
+  /** 属于哪个档案。 */
+  profile_id: string;
   opportunity_id: string;
   added_on: ISODate;
-  /** 当前状态（= status_history 的最后一项）。 */
-  status: JournalStatus;
-  /** 状态变化记录，按时间先后；至少包含加入时的状态。 */
-  status_history: { status: JournalStatus; on: ISODate }[];
+  /** 学生的申请进度。 */
+  application: JournalApplicationStatus;
+  /** 最近一次提交的日期；没提交为 null。 */
+  submitted_on: ISODate | null;
+  /** 官方是否确认了资格。 */
+  eligibility_confirmation: EligibilityConfirmation;
+  /** 官方录取结果。 */
+  decision: JournalDecision;
+  /** 是否实际参与；null = 还没发生 / 没记录。 */
+  participated: boolean | null;
+  /** 事件记录，按记录先后；通常第一项是 added。同一事件同一天只记一次。 */
+  history: JournalHistoryItem[];
   /** 学生选的路线类型；没选为 null / 缺省。 */
   route_type?: RouteType | null;
   tasks: JournalTask[];
-  materials: Material[];
+  /** 引用的材料 id（Material.id，同一档案的材料）。可复用材料可被多个条目引用。 */
+  material_ids: string[];
   /** 官方链接（抄自 Opportunity.official_url），不完成任何任务也能直接去官方申请。 */
   official_url: string;
   /** 学生自己的备注。 */
@@ -1652,6 +1747,8 @@ export interface PlanSnapshotInputs {
   grade: GradeLevel | null;
   /** 当时传给 planRoutes 的 options.today；没传为 null。 */
   today: ISODate | null;
+  /** 触发原因为 profile_edited 时，改了哪些档案字段（如 `['grade', 'hours_per_week_available']`）；其他情况缺省。 */
+  changed_fields?: string[];
 }
 
 /**
@@ -1699,6 +1796,12 @@ export interface SamplePublisher {
  */
 export interface ShareSettings {
   profile_id: string;
+  /**
+   * 对发布者显示的不透明句柄（如 `share-<uuid>`）：不含姓名、档案 id 或其片段。
+   * 由 lib/store.ts 的 defaultShareSettings 生成；同一档案的句柄保存后保持不变（撤回分享也不换），
+   * 邀请与屏蔽都按它关联。学生自己的浏览器里用 profileIdForShareHandle 对回档案 id。
+   */
+  share_handle: string;
   /** 学生选择展示的证据 id（只能是自己档案里的证据）；[] = 不展示任何证据。 */
   evidence_ids: string[];
   /** 学生选择展示的技能名（skill slug）；[] = 不展示。 */
@@ -1715,11 +1818,8 @@ export interface ShareSettings {
  * 不含显示名、学校名、联系方式、精确位置、身份标签。
  */
 export interface SharedProfileView {
-  /**
-   * 档案 id（补充字段：邀请需要指向某个学生；本地 id，不是个人信息）。
-   * 实现方若认为不应暴露，可在页面上不显示，但邀请仍按它关联。
-   */
-  profile_id: string;
+  /** 不透明句柄（= ShareSettings.share_handle），邀请按它指向这个学生。不含档案 id。 */
+  share_handle: string;
   /** 化名，如 "Sample student"——不是真实姓名，也不是 display_name。 */
   alias: string;
   evidence: Pick<EvidenceItem, 'id' | 'title' | 'kind' | 'skills' | 'status'>[];
@@ -1741,8 +1841,11 @@ export type InvitationStatus = 'pending' | 'declined' | 'accepted' | 'blocked';
 export interface Invitation {
   id: string;
   publisher_id: string;
-  /** 被邀请的学生档案 id（补充字段：邀请必须指向某个学生）。 */
-  profile_id: string;
+  /**
+   * 被邀请的学生（SharedProfileView.share_handle）。发布者只知道这个句柄，不知道档案 id；
+   * 学生自己的浏览器里用 profileIdForShareHandle 对回档案。
+   */
+  share_handle: string;
   /** 邀请参加的机会 id（通常是该发布者的 user_posted 机会）；只是交流邀请时为 null。 */
   opportunity_id: string | null;
   /** 可解释的理由（如「你展示的证据《天气数据分析》用到了 python」），不含分数或名次。 */
