@@ -37,6 +37,7 @@
     "region": { "country": "US", "state": "MT", "locality": "rural" },
     "school_name": "Example Valley Rural School (fictional)",
     "hours_per_week_available": 10,
+    "budget_usd": 40,
     "transport": { "level": "none", "max_one_way_minutes": null, "note": "Nearest city is two hours each way; no public transit" },
     "devices": ["laptop", "home_internet"],
     "skills": [{ "name": "python", "level": "intermediate" }],
@@ -63,5 +64,34 @@
     ],
     "evidence": [],
     "interests": ["computer_science", "public_health"]
+  },
+  {
+    "id": "sample-noor",
+    "is_sample": true,
+    "display_name": "Sample student Noor",
+    "grade": 13,
+    "age": 18,
+    "region": { "country": "US", "state": "OH", "city": "Example Springs", "locality": "suburban" },
+    "citizenships": ["US"],
+    "statuses": ["undergraduate", "first_generation"],
+    "school_name": "Example Community College (fictional)",
+    "hours_per_week_available": 5,
+    "budget_usd": 30,
+    "transport": { "level": "limited", "max_one_way_minutes": 40, "note": "Shares a car with family; the bus runs only on weekdays" },
+    "devices": ["laptop", "smartphone"],
+    "skills": [{ "name": "python", "level": "beginner" }],
+    "evidence": [
+      {
+        "id": "ev-noor-1",
+        "title": "Python lab data cleanup script from an intro biology course (sample)",
+        "kind": "project",
+        "skills": ["python"],
+        "status": "self_reported",
+        "url": null,
+        "description": "Sample evidence: a short script that cleans lab measurements, written for a first-year course.",
+        "added_on": "2026-11-05"
+      }
+    ],
+    "interests": ["biomedical-research", "stem", "data_science"]
   }
 ]

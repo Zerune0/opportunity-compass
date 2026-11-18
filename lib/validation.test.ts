@@ -86,8 +86,8 @@ describe('现有数据全部合格', () => {
     expect(validateProfile(goodProfile())).toEqual([]);
   });
 
-  it('data/profiles.json 的 3 个示例档案全部合格', () => {
-    expect(profilesJson).toHaveLength(3);
+  it('data/profiles.json 的 4 个示例档案全部合格', () => {
+    expect(profilesJson).toHaveLength(4);
     for (const p of profilesJson) expect(validateProfile(p), JSON.stringify(validateProfile(p))).toEqual([]);
   });
 

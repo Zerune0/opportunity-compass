@@ -565,7 +565,7 @@ describe('analyzeReachability — 公平性与示例档案', () => {
     expect(analyzeReachability(a, opp, [], TODAY)).toEqual(analyzeReachability(b, opp, [], TODAY));
   });
 
-  it('三个示例档案都能跑，状态合法', () => {
+  it('全部示例档案都能跑，状态合法', () => {
     const profiles = profilesJson as unknown as StudentProfile[];
     for (const p of profiles) {
       const r = analyzeReachability(p, opp, [], TODAY);
