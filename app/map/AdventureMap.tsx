@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useViewPreference } from "@/components/rpg/view-preference";
+import { stepFields } from "./step-details";
 import { useCallback, useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import { catalogOpportunities } from "@/lib/data";
@@ -25,7 +27,8 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const [context, setContext] = useState<{ profile: StudentProfile | null; today: string; grants: ResourceGrant[] }>();
   const [selected, setSelected] = useState<string>();
-  const [classic, setClassic] = useState(false);
+  const [view, chooseView] = useViewPreference();
+  const classic = view === "classic";
   const [snapshots, setSnapshots] = useState<PlanSnapshot[]>([]);
 
   useEffect(() => {
@@ -37,7 +40,6 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       // The student's own grants, so alternatives here match Quest Details (support already approved counts).
       const grants = loaded ? loadGrants().filter((grant) => grant.student_id === loaded.id) : [];
       setContext({ profile: loaded, today, grants });
-      setClassic(new URLSearchParams(window.location.search).get("view") === "classic");
     }
     const initialRead = window.setTimeout(refresh);
     window.addEventListener("pageshow", refresh);
@@ -55,7 +57,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const syncSnapshots = useCallback(() => {
     const current = context?.profile;
     if (!opportunity || !context || !current) return [];
-    const plan = planRoutes(current, opportunity, { today: context.today });
+    const plan = planRoutes(current, opportunity, { today: context.today, catalog });
     const snapshot = nextSnapshot(latestPlanSnapshot(opportunity.id, current.id), plan, current, opportunity, context.today);
     return snapshot ? pushPlanSnapshot(snapshot) : loadPlanSnapshots(opportunity.id, current.id);
   }, [context, opportunity]);
@@ -82,7 +84,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   );
   const passport = `/passport?opp=${encodeURIComponent(opportunity.id)}`;
   const profile = context?.profile;
-  const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today }) : null;
+  const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today, catalog }) : null;
   const route = plan?.routes.find((item) => item.id === selected) ?? plan?.routes[0];
 
   const alternatives = profile && context
@@ -119,14 +121,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       {plan?.status === "routes" && (
         <section className="rpg-stack rpg-stack--loose" aria-label="Preparation routes">
           {plan.warnings.map((warning, index) => <p key={index} className="rpg-muted">{warning}</p>)}
-          <RpgButton variant="secondary" aria-pressed={classic} onClick={() => {
-            const next = !classic;
-            setClassic(next);
-            const url = new URL(window.location.href);
-            if (next) url.searchParams.set("view", "classic");
-            else url.searchParams.delete("view");
-            window.history.replaceState(null, "", url);
-          }}>Classic View</RpgButton>
+          <RpgButton variant="secondary" aria-pressed={classic} onClick={() => chooseView(classic ? "adventure" : "classic")}>Classic View</RpgButton>
           {classic ? (
             <table className="rpg-classic-table">
               <caption>Route comparison</caption>
@@ -137,7 +132,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                 <td data-label="Cost">{money.format(item.total_cost_usd)}</td>
                 <td data-label="Weeks">{item.estimated_weeks ?? "Unknown"}</td>
                 <td data-label="Deadline">{item.feasible_by_deadline === null ? "Unknown" : item.feasible_by_deadline ? "Fits deadline" : "Exceeds deadline"}</td>
-                <td data-label="Reason">{item.rationale}{item.warnings.map((warning) => <p key={warning}>{warning}</p>)}</td>
+                <td data-label="Reason">{item.type === "competition" && <p>Not an official requirement of this opportunity.</p>}{item.rationale}{item.warnings.map((warning) => <p key={warning}>{warning}</p>)}</td>
               </tr>)}</tbody>
             </table>
           ) : <div className="rpg-route-grid">
@@ -156,6 +151,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                 </p>
                 <p>Estimated weeks: {item.estimated_weeks ?? "Unknown"}</p>
                 <p>{item.rationale}</p>
+                {item.type === "competition" && <p>Not an official requirement of this opportunity.</p>}
                 {item.warnings.map((warning, index) => <p key={index} className="rpg-muted rpg-small">{warning}</p>)}
                 <RpgButton aria-pressed={route?.id === item.id} onClick={() => setSelected(item.id)}>{route?.id === item.id ? "Selected: " : "Select "}{item.title}</RpgButton>
               </QuestCard>
@@ -170,12 +166,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                   const prep = opportunity.preparation.find((item) => item.id === step.prep_item_id);
                   return {
                     step,
-                    relation: prep
-                      ? prep.required_for_application ? "Required to apply to this opportunity." : "Helps strengthen your application."
-                      : step.description || "Supports preparation for this opportunity.",
-                    evidence: prep?.evidence_kind ?? "Not specified",
-                    requirement: prep?.required_for_application ? "Required for application" : "Team suggestion",
-                    source: prep?.source_text?.trim(),
+                    fields: stepFields(step, prep),
                     dependencies: step.depends_on.map((id) => route.steps.find((item) => item.id === id)?.title ?? id).join(", ") || "None",
                   };
                 });
@@ -190,18 +181,13 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                   }] };
                 }, { hours: 0, entries: [] });
                 const fields = (item: typeof steps[number]) => [
-                  ["Goal relationship", item.relation],
-                  ["Time", `${item.step.hours} h`],
-                  ["Cost", money.format(item.step.cost_usd)],
-                  ["Evidence", item.evidence],
+                  ...item.fields,
                   ["Dependency", item.dependencies],
-                  ["Application requirement", item.requirement],
-                  ["Source", item.source ?? "Not specified"],
                 ];
                 return <>
                   {classic ? <table className="rpg-classic-table">
                     <caption>Preparation checklist</caption>
-                    <thead><tr><th scope="col">Step</th>{["Goal relationship", "Time", "Cost", "Evidence", "Dependency", "Application requirement", "Source"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+                    <thead><tr><th scope="col">Step</th>{["Why this step", "Time and cost", "Evidence you can record", "Official requirement?", "Dependency"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
                     <tbody>{steps.map((item) => <tr key={item.step.id}>
                       <th scope="row">{item.step.title}{item.step.skipped && <p>Skipped, excluded from totals. {item.step.skip_reason}</p>}</th>
                       {fields(item).map(([label, value]) => <td data-label={label} key={label}>{value}</td>)}
@@ -210,7 +196,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                     <QuestCard className={item.step.skipped ? "rpg-card--skipped" : ""}>
                       <h3>{item.step.title}</h3>
                       {item.step.skipped && <p><StatusTag tone="success">Skipped, excluded from totals</StatusTag> {item.step.skip_reason}</p>}
-                      <dl>{fields(item).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+                      <details><summary>Step details: {item.step.title}</summary><dl>{fields(item).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details>
                     </QuestCard>
                   </li>)}</ol>}
                   <h3>Weekly timeline</h3>
@@ -229,14 +215,16 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
           ? "These are alternatives; they do not change this opportunity's requirements."
           : "These are alternatives, not prerequisites."}</p>
         <ul className="rpg-list">{alternatives.map((alternative, index) => <li key={index}>
-          {alternative.kind === "same_field" && alternative.opportunity_id
+          {alternative.kind === "same_field" && alternative.opportunity_id && catalog.some((item) => item.id === alternative.opportunity_id)
             ? <Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link>
             : alternative.kind === "next_cycle" || alternative.kind === "same_field"
               ? <strong>{alternative.title} · Future round</strong>
-              : alternative.opportunity_id
+              : alternative.opportunity_id && catalog.some((item) => item.id === alternative.opportunity_id)
                 ? <><Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link> · {alternativeKindLabel(alternative.kind)}</>
                 : <strong>{alternative.title} · {alternativeKindLabel(alternative.kind)}</strong>}
           <p>{alternative.reason}</p>
+          {alternative.kind === "stepping_stone" && <p>This builds evidence. It is not a prerequisite.</p>}
+          {alternative.kind === "remote_option" && <p>Confirm with the organizer whether you can take part online.</p>}
         </li>)}</ul>
       </QuestCard>}
       {plan && profile && snapshots.length > 0 && (

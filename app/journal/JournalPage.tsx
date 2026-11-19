@@ -14,6 +14,7 @@ import type { JournalEntry, Material, Opportunity, StudentProfile } from "@/lib/
 import { CrossPlanSection } from "./CrossPlanSection";
 import { JournalEntryCard } from "./JournalEntryCard";
 import { MaterialsSection } from "./MaterialsSection";
+import { RecordSummary } from "./RecordSummary";
 import { localToday } from "./labels";
 
 const catalog = catalogOpportunities();
@@ -87,7 +88,9 @@ export function JournalPage() {
 
       {context && profile && (
         <>
+          <RecordSummary entries={context.entries} profileId={profile.id} isSample={profile.is_sample} findOpportunity={findOpportunity} />
           <nav className="rpg-row journal-jumps print:hidden" aria-label="Journal sections">
+            <a href="#journal-record-summary">Your record so far</a>
             <a href="#journal-quests">My quests</a>
             <a href="#journal-materials">My materials</a>
             {context.entries.length > 0 && <a href="#journal-plan">Plan across my quests</a>}
