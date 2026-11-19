@@ -2,7 +2,11 @@ import { checkEligibility } from "../../lib/eligibility";
 import { explainMatch } from "../../lib/match";
 import { normalizeTag } from "../../lib/tags";
 import type { Opportunity, ResourceGrant, StudentProfile } from "../../lib/types";
+import { matchesDiscovery } from "./board-discovery";
 export type BoardFilters = {
+    q: string;
+    maxFee: string;
+    closingSoon: boolean;
     category: string;
     field: string;
     country: string;
@@ -13,9 +17,10 @@ export type BoardFilters = {
     free: boolean;
     savedOnly: boolean;
 };
-export const emptyFilters: BoardFilters = { category: "", field: "", country: "", state: "", hours: "", grade: "", remote: false, free: false, savedOnly: false };
-export function filterCatalog(catalog: Opportunity[], f: BoardFilters, saved: string[]) {
+export const emptyFilters: BoardFilters = { q: "", maxFee: "", closingSoon: false, category: "", field: "", country: "", state: "", hours: "", grade: "", remote: false, free: false, savedOnly: false };
+export function filterCatalog(catalog: Opportunity[], f: BoardFilters, saved: string[], today = "") {
     return catalog.filter(o => {
+        if (!matchesDiscovery(o, f, today)) return false;
         if (f.category && o.category !== f.category)
             return false;
         if (f.field && !o.fields.some(t => normalizeTag(t) === f.field))

@@ -9,6 +9,9 @@ import { GAP_CATEGORIES, type GapCategory, type GapItem, type Opportunity, type 
 import type { QuestContext } from "../use-quest-context";
 import { JournalButton } from "./journal-button";
 import { MatchExplanationSection } from "./match-and-gaps";
+import { buildOrganizerQuestions } from "../organizer-questions";
+import { OrganizerQuestions } from "../organizer-questions-panel";
+import { VerificationAge } from "../verification-age-badge";
 const categoryLabels: Record<GapCategory, string> = { knowledge_or_experience: "Knowledge or experience", materials: "Materials", time_and_cost: "Time and cost", unchangeable_eligibility: "Eligibility limits for this round", unknown_info: "Unknown information" };
 const eligibilityLabels = { eligible: "Requirements satisfied", not_eligible: "Hard requirement not met", unknown: "Eligibility unconfirmed" };
 const itemLabels = { satisfied: "Satisfied", not_satisfied: "Not satisfied", unknown: "Unknown" };
@@ -66,7 +69,9 @@ export function QuestAssessment({ opportunity, context }: {
     // When the catalog has no alternative, fall back to the route planner's "next cycle / same field" hints.
     const plan = profile && eligibility?.overall === "not_eligible" && !alternatives.length ? planRoutes(profile, opportunity, options) : null;
     const planHints = plan?.status === "blocked" ? plan.alternatives : [];
+    const questionDraft = buildOrganizerQuestions(opportunity, eligibility, reach?.missing_info ?? [], profile ?? null);
     return <>
+ <VerificationAge opportunity={opportunity} today={context.today} />
  {(profile?.is_sample || grants.some(g => g.is_sample)) && <p className="rpg-row">{profile?.is_sample && <span className="rpg-tag rpg-tag--warning">Sample student profile</span>}{grants.some(g => g.is_sample) && <span className="rpg-tag rpg-tag--warning">Simulated support</span>}</p>}
  {context.loaded && !profile && <p><Link href="/passport">Load or create a profile in Skill Passport</Link> to see your eligibility, fit, gaps and support.</p>}
  <div className="rpg-route-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 19rem), 1fr))" }}>
@@ -78,6 +83,7 @@ export function QuestAssessment({ opportunity, context }: {
  <section className="rpg-card" style={{ minWidth: 0 }}><h2>Practical reachability</h2><p>{reach?.summary ?? "Load a student profile to assess participation constraints."}</p>
  {reach?.barriers.map((barrier, index) => <div key={`${barrier.type}-${index}`}><h3>{barrierLabels[barrier.type]}</h3><p>{barrier.resolved ? "Support applied" : "Open barrier"}</p><p>{barrier.description}</p>{!!barrier.pending_grant_ids?.length && !barrier.resolved && <p>Support is pending approval and has not been applied.</p>}</div>)}
  <p className="rpg-muted">Reachability does not guarantee admission.</p></section></div>
+ <OrganizerQuestions key={`${opportunity.id}-${questionDraft.message}`} opportunity={opportunity} draft={questionDraft} />
  {match && <MatchExplanationSection match={match} />}
  <section className="rpg-stack"><h2>Your gaps in five categories</h2>{!analysis && <p>Load a profile to identify your gaps. Unknown information will not be treated as satisfied.</p>}{analysis && <p>{analysis.summary}</p>}
  {GAP_CATEGORIES.map(category => <section key={category} className="rpg-card"><h3>{categoryLabels[category]}{analysis && <> <span className="rpg-tag">{analysis.counts[category]} {analysis.counts[category] === 1 ? "item" : "items"}</span></>}</h3>{analysis && !analysis.counts[category] && <p>No recorded gaps in this category.</p>}<ul className="rpg-list">{analysis?.items.filter(item => item.category === category).map(item => <li key={item.id}><strong>{item.title}</strong><p>{item.detail}</p>{item.basis.kind === "requirement" && <blockquote>{item.basis.source_text}</blockquote>}<GapNotes item={item} />{category === "unchangeable_eligibility" ? <p>There is no workaround for this round, and none is suggested.</p> : item.improvable && item.action && <p>What you can do: {item.action}</p>}{item.basis.kind === "missing_field" && item.basis.field.startsWith("profile.") && <Link href="/passport">Update this field in Skill Passport</Link>}</li>)}</ul></section>)}</section>

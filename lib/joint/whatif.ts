@@ -27,6 +27,9 @@
  * 6. 没有评估出来的数字（UNSUPPORTED_INPUT 时的成本、余额、G / L / N 等）为 null，页面显示「—」。
  *    预算或最低新增目标不是有限数时不会抛错；视图里的文字不出现 NaN / Infinity（换成「未填写或无效」），
  *    非有限的数字字段一律为 null。页面本身应在输入无效时不调用 runWhatIf，这里只是防线。
+ * 7. `runWhatIfWithPlan` = 同一次计算，另外返回主结果的方案明细 `WhatIfPlanDetail`（状态、复核是否通过、
+ *    主结果与条件性结果的分配、参与求解的措施），只交给 ./bridge 的 decideBridge（「回到学生端的桥」），
+ *    避免再求解一次；它含匿名学生编号与逐人分配，页面不得渲染。`runWhatIf` 只返回其中的 `view`。
  *
  * 纯函数：确定性、不读系统时钟、无随机、无 IO、不调 AI；不修改输入。
  * 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
@@ -38,6 +41,7 @@ import { fairnessCoverageBounds, solveJoint } from './solve';
 import type { FloorCoverageBound } from './solve';
 import { verifyPlan } from './verify';
 import {
+  isPlaceholderOpportunity,
   MIN_NAME_TOKEN_LENGTH,
   missingPrerequisites,
   resolveEnabledInterventions,
@@ -46,7 +50,8 @@ import {
   withEnabledInterventions,
 } from './scenario-utils';
 
-export { missingPrerequisites };
+// 页面（客户端组件）从这里拿同一个占位判定，保证 Placeholder 标签与假设说明一致。
+export { isPlaceholderOpportunity, missingPrerequisites };
 import type {
   Allocation,
   BarrierType,
@@ -1097,15 +1102,46 @@ function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBasel
 
 // ───────────────────────────── 主函数 ─────────────────────────────
 
+/** 主结果的方案明细，只给「回到学生端的桥」用；含匿名学生编号，页面不得渲染其中任何内容。 */
+export interface WhatIfPlanDetail {
+  scenario_id: string;
+  /** 主结果状态；输入无效（没有调用求解器）时为 UNSUPPORTED_INPUT。 */
+  status: JointStatus;
+  /** 与 view.verification.passed 相同。 */
+  verification_passed: boolean;
+  /** 主结果的分配（只含已批准措施）；没有评估时为 []。 */
+  allocations: Allocation[];
+  /** 条件性结果（把 pending 措施当作已批准）的分配；没有条件性结果时为 null。只用于说明原因，永不写入。 */
+  conditional_allocations: Allocation[] | null;
+  /** 参与求解的措施（勾选与预算处理后的场景里的措施）。 */
+  interventions: Intervention[];
+}
+
+/** 复制分配（不把求解器自己的数组 / 对象交出去）。 */
+const copyAllocations = (list: readonly Allocation[]): Allocation[] => list.map((a) => ({ ...a }));
+
+/** 复制措施（数组字段也复制）。 */
+function copyIntervention(iv: Intervention): Intervention {
+  const out: Intervention = { ...iv, resolves: [...iv.resolves] };
+  if (Array.isArray(iv.opportunity_ids)) out.opportunity_ids = [...iv.opportunity_ids];
+  if (Array.isArray(iv.mutually_exclusive_with)) out.mutually_exclusive_with = [...iv.mutually_exclusive_with];
+  if (Array.isArray(iv.requires)) out.requires = [...iv.requires];
+  return out;
+}
+
 /**
+ * 与 runWhatIf 相同（同一次求解、同一次独立复核），另外返回主结果的方案明细 `plan`，
+ * 供「回到学生端的桥」使用，避免为了拿分配再求解一次。`view` 与 runWhatIf 的返回值完全相同。
+ * `plan` 含匿名学生编号与逐人分配：页面只能把它交给 ./bridge 的 decideBridge，不得渲染其中任何内容。
+ *
  * @param availableFloors 该场景可选的公平底线（如 ./scenarios 的 SCENARIOS[i].suggestedFairnessFloors）；
  *   input.fairnessFloorIds 只能从这里选。缺省 = 没有可选底线。
  */
-export function runWhatIf(
+export function runWhatIfWithPlan(
   scenario: Scenario,
   input: WhatIfInput,
   availableFloors: readonly FairnessFloor[] = [],
-): WhatIfView {
+): { view: WhatIfView; plan: WhatIfPlanDetail } {
   const byId = new Map(scenario.interventions.map((iv) => [iv.id, iv]));
   const title = (id: string) => byId.get(id)?.title ?? id;
 
@@ -1142,11 +1178,29 @@ export function runWhatIf(
 
   const eff = withBudget(withEnabledInterventions(scenario, enabled), input.budget);
   const enabledPending = eff.interventions.filter((iv) => !isApproved(iv)).map((iv) => `"${iv.title}"`);
+  // 机会是占位还是真实目录机会（判定与页面的 Placeholder 标签共用 isPlaceholderOpportunity）：两种说法不能混用——
+  // 用真实机会时不得说「全部数据 / 机会都是示例或占位」，也不得暗示真实主办方提供这些支持。全是占位时两句与原来逐字相同。
+  const realCount = scenario.opportunities.filter((o) => !isPlaceholderOpportunity(o)).length;
+  const placeholderCount = scenario.opportunities.length - realCount;
+  const dataAssumption =
+    realCount === 0
+      ? 'All students and scenario data are sample / simulated, not real students. Results do not represent real-world impact.'
+      : 'All students, support measures, costs and budgets are sample / simulated, not real students or real programs. Results do not represent real-world impact.';
+  const realListings =
+    realCount === 1
+      ? 'is a real listing, used here with sample students and a simulated support provider. Its real organizer is not involved and offers none of these support measures.'
+      : 'are real listings, used here with sample students and a simulated support provider. Their real organizers are not involved and offer none of these support measures.';
+  const opportunityAssumption =
+    realCount === 0
+      ? 'Opportunities are placeholders for now, to be replaced with real opportunities verified by a person (official link + verification date).'
+      : placeholderCount === 0
+        ? `${realCount === 1 ? 'The opportunity' : realCount === 2 ? 'Both opportunities' : `All ${realCount} opportunities`} ${realListings}`
+        : `${placeholderCount === 1 ? 'One opportunity is a placeholder' : `${placeholderCount} opportunities are placeholders`}; ${realCount === 1 ? 'the other' : `the other ${realCount}`} ${realListings}`;
 
   // 假设与不确定性（与是否求解无关的部分）
   const assumptions: string[] = [
-    'All students and scenario data are sample / simulated, not real students. Results do not represent real-world impact.',
-    'Opportunities are placeholders for now, to be replaced with real opportunities verified by a person (official link + verification date).',
+    dataAssumption,
+    opportunityAssumption,
     '"Reachable" only means no eligibility conflict and workable real-world conditions (time / cost / transport / device). Reachable does not mean admitted, and it is not an admission probability.',
     'The model assumes students accept the resources they are given; whether they actually accept or can attend is not modeled.',
     'All costs, capacities and budgets are sample numbers.',
@@ -1180,7 +1234,7 @@ export function runWhatIf(
     student_count: scenario.students.length,
     opportunities: scenario.opportunities.map((o) => ({
       title: o.title,
-      is_placeholder: o.is_sample === true || o.title.includes('Placeholder'),
+      is_placeholder: isPlaceholderOpportunity(o),
     })),
     effective: {
       enabled_ids: enabled,
@@ -1229,7 +1283,17 @@ export function runWhatIf(
       solver_notes: [],
       assumptions,
     };
-    return scrubNonFinite(view);
+    return {
+      view: scrubNonFinite(view),
+      plan: {
+        scenario_id: scenario.id,
+        status: 'UNSUPPORTED_INPUT',
+        verification_passed: false,
+        allocations: [],
+        conditional_allocations: null,
+        interventions: eff.interventions.map(copyIntervention),
+      },
+    };
   }
 
   // 2. 求解
@@ -1355,7 +1419,30 @@ export function runWhatIf(
     solver_notes: result.notes.map((n) => cleanText(n, scenario)),
     assumptions,
   };
-  return scrubNonFinite(view);
+  return {
+    view: scrubNonFinite(view),
+    plan: {
+      scenario_id: scenario.id,
+      status: result.status,
+      verification_passed: verification.passed,
+      // UNSUPPORTED_INPUT 不做评估：一律为空（求解器本来就返回空方案，这里再保证一次）。
+      allocations: evaluated ? copyAllocations(result.allocations) : [],
+      conditional_allocations: result.conditional ? copyAllocations(result.conditional.allocations) : null,
+      interventions: eff.interventions.map(copyIntervention),
+    },
+  };
+}
+
+/**
+ * @param availableFloors 该场景可选的公平底线（如 ./scenarios 的 SCENARIOS[i].suggestedFairnessFloors）；
+ *   input.fairnessFloorIds 只能从这里选。缺省 = 没有可选底线。
+ */
+export function runWhatIf(
+  scenario: Scenario,
+  input: WhatIfInput,
+  availableFloors: readonly FairnessFloor[] = [],
+): WhatIfView {
+  return runWhatIfWithPlan(scenario, input, availableFloors).view;
 }
 
 /** 页面「恢复默认」用的默认输入：纳入全部措施、不设必须启用、场景预算、无最低新增目标、保护模式、不设底线。 */
