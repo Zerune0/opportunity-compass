@@ -1,6 +1,7 @@
 /**
  * Talent Board 的纯逻辑（./talent）：默认什么都不分享；每个开关只放出自己那一类；撤回立即变空；
  * 未授权的字段永远不出现在发布者预览里。撤回流程用内存版浏览器存储模拟。
+ * 这里一律显式传「不受保护」；受保护的行为见 ./protection.test.ts。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { clearShareSettings, defaultShareSettings, loadShareSettings, saveShareSettings } from '../store';
@@ -11,13 +12,18 @@ import {
   TALENT_NOTE_MAX,
   applyShareChange,
   checkCollaborationNote,
+  sameShareSettings,
+  shareChangeApplied,
   shareChoices,
   sharedProfilePreview,
   type SharedPreview,
 } from './talent';
+import { unprotected, type Protection } from './protection';
 
 const HANDLE = 'share-test-handle-0001';
 const TODAY = '2026-11-19';
+/** 这里的测试针对不受保护时的行为：显式传入（protection 是必填参数，缺失时按受保护处理）。 */
+const U: Protection = unprotected();
 
 /** 每个敏感值都用独一无二的标记，便于在 JSON 里查找。 */
 const PROFILE: StudentProfile = {
@@ -87,8 +93,8 @@ function sections(p: SharedPreview) {
 describe('默认什么都不分享', () => {
   it('没有设置 / 默认设置 → 发布者预览为空，学生端全部不勾', () => {
     for (const settings of [null, base()]) {
-      expect(sharedProfilePreview(PROFILE, settings)).toEqual({ empty: true, message: NOT_SHARING_TEXT });
-      const c = shareChoices(PROFILE, settings);
+      expect(sharedProfilePreview(PROFILE, settings, U)).toEqual({ empty: true, message: NOT_SHARING_TEXT });
+      const c = shareChoices(PROFILE, settings, U);
       expect(c.anything_shared).toBe(false);
       expect([...c.evidence, ...c.skills].some((x) => x.checked)).toBe(false);
       expect(c.interests.checked).toBe(false);
@@ -98,7 +104,7 @@ describe('默认什么都不分享', () => {
   });
 
   it('学生端列出档案里的每条证据与技能（原顺序），兴趣原写法', () => {
-    const c = shareChoices(PROFILE, null);
+    const c = shareChoices(PROFILE, null, U);
     expect(c.evidence.map((e) => [e.key, e.label, e.detail])).toEqual([
       ['ev-1', 'Evidence One Title', 'Project · Self-reported'],
       ['ev-2', 'Evidence Two Title', 'Course · Evidence attached'],
@@ -113,8 +119,8 @@ describe('默认什么都不分享', () => {
 
 describe('每个开关只放出自己那一类', () => {
   it('证据：只出被勾的那一条，只含标题、种类、状态、技能', () => {
-    const s = applyShareChange(base(), { kind: 'evidence', id: 'ev-1', on: true }, TODAY);
-    const p = sharedProfilePreview(PROFILE, s);
+    const s = applyShareChange(base(), { kind: 'evidence', id: 'ev-1', on: true }, TODAY, U);
+    const p = sharedProfilePreview(PROFILE, s, U);
     expect(sections(p)).toEqual({
       evidence: [{ primary: 'Evidence One Title', details: ['Project', 'Self-reported'], skills: ['evskill-one'] }],
       skills: [],
@@ -123,11 +129,11 @@ describe('每个开关只放出自己那一类', () => {
     });
     const json = JSON.stringify(p);
     for (const hidden of ['Evidence Two Title', 'skill-alpha', 'skill-beta', 'interest_gamma']) expect(json).not.toContain(hidden);
-    expect(shareChoices(PROFILE, s).evidence.map((e) => e.checked)).toEqual([true, false]);
+    expect(shareChoices(PROFILE, s, U).evidence.map((e) => e.checked)).toEqual([true, false]);
   });
 
   it('技能：只出被勾的技能', () => {
-    const p = sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'skill', name: 'skill-beta', on: true }, TODAY));
+    const p = sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'skill', name: 'skill-beta', on: true }, TODAY, U), U);
     expect(sections(p)).toEqual({
       evidence: [],
       skills: [{ primary: 'skill-beta', details: ['Advanced'], skills: [] }],
@@ -139,7 +145,7 @@ describe('每个开关只放出自己那一类', () => {
   });
 
   it('兴趣：只出兴趣', () => {
-    const p = sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'interests', on: true }, TODAY));
+    const p = sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'interests', on: true }, TODAY, U), U);
     expect(sections(p)).toEqual({
       evidence: [],
       skills: [],
@@ -153,31 +159,31 @@ describe('每个开关只放出自己那一类', () => {
   });
 
   it('合作说明：只出说明；空白说明 = 不分享', () => {
-    const p = sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'note', note: '  Free on weekends.  ' }, TODAY));
+    const p = sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'note', note: '  Free on weekends.  ' }, TODAY, U), U);
     expect(sections(p)).toEqual({
       evidence: [],
       skills: [],
       interests: [],
       collaboration: [{ primary: 'Free on weekends.', details: [], skills: [] }],
     });
-    expect(sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'note', note: '   ' }, TODAY)).empty).toBe(true);
+    expect(sharedProfilePreview(PROFILE, applyShareChange(base(), { kind: 'note', note: '   ' }, TODAY, U), U).empty).toBe(true);
   });
 
   it('预览保持档案原顺序，不按勾选顺序或任何「匹配度」排序', () => {
-    let s = applyShareChange(base(), { kind: 'evidence', id: 'ev-2', on: true }, TODAY);
-    s = applyShareChange(s, { kind: 'evidence', id: 'ev-1', on: true }, TODAY);
-    expect(sections(sharedProfilePreview(PROFILE, s)).evidence.map((i) => i.primary)).toEqual(['Evidence One Title', 'Evidence Two Title']);
+    let s = applyShareChange(base(), { kind: 'evidence', id: 'ev-2', on: true }, TODAY, U);
+    s = applyShareChange(s, { kind: 'evidence', id: 'ev-1', on: true }, TODAY, U);
+    expect(sections(sharedProfilePreview(PROFILE, s, U)).evidence.map((i) => i.primary)).toEqual(['Evidence One Title', 'Evidence Two Title']);
   });
 });
 
 describe('未授权的字段永远不出现', () => {
   it('全部打开时，预览里也没有档案 id、显示名、学校、地区、身份、生日、预算、证据链接 / 描述 / id', () => {
     let s = base();
-    for (const e of PROFILE.evidence) s = applyShareChange(s, { kind: 'evidence', id: e.id, on: true }, TODAY);
-    for (const k of PROFILE.skills ?? []) s = applyShareChange(s, { kind: 'skill', name: k.name, on: true }, TODAY);
-    s = applyShareChange(s, { kind: 'interests', on: true }, TODAY);
-    s = applyShareChange(s, { kind: 'note', note: 'Weekends only.' }, TODAY);
-    const p = sharedProfilePreview(PROFILE, s);
+    for (const e of PROFILE.evidence) s = applyShareChange(s, { kind: 'evidence', id: e.id, on: true }, TODAY, U);
+    for (const k of PROFILE.skills ?? []) s = applyShareChange(s, { kind: 'skill', name: k.name, on: true }, TODAY, U);
+    s = applyShareChange(s, { kind: 'interests', on: true }, TODAY, U);
+    s = applyShareChange(s, { kind: 'note', note: 'Weekends only.' }, TODAY, U);
+    const p = sharedProfilePreview(PROFILE, s, U);
     expect(p.empty).toBe(false);
     const json = JSON.stringify(p);
     for (const hidden of NEVER) expect(json, hidden).not.toContain(hidden);
@@ -231,7 +237,7 @@ describe('未授权的字段永远不出现', () => {
       base({ evidence_ids: ['ev-1', 'ev-2'], skills: ['skill-alpha', 'skill-beta'], share_interests: true, collaboration_note: 'Weekends only.' }),
     ];
     for (const s of variants) {
-      const p = sharedProfilePreview(PROFILE, s);
+      const p = sharedProfilePreview(PROFILE, s, U);
       expect(p.empty).toBe(false);
       const allowed = whitelistFor(s);
       for (const leaf of stringLeaves(p)) expect(allowed.has(leaf), `unexpected string in preview: ${leaf}`).toBe(true);
@@ -240,15 +246,15 @@ describe('未授权的字段永远不出现', () => {
 
   it('设置属于别的档案 → 空，学生端也不勾', () => {
     const other = { ...base({ evidence_ids: ['ev-1'], share_interests: true }), profile_id: 'someone-else' };
-    expect(sharedProfilePreview(PROFILE, other).empty).toBe(true);
-    const c = shareChoices(PROFILE, other);
+    expect(sharedProfilePreview(PROFILE, other, U).empty).toBe(true);
+    const c = shareChoices(PROFILE, other, U);
     expect(c.evidence.some((e) => e.checked) || c.interests.checked || c.anything_shared).toBe(false);
   });
 
   it('档案损坏也不抛异常', () => {
     const broken = { id: PROFILE.id, is_sample: false, display_name: 'x', evidence: 'nope', skills: [null, 3], interests: 'x' } as unknown as StudentProfile;
-    expect(() => shareChoices(broken, base({ share_interests: true }))).not.toThrow();
-    expect(sharedProfilePreview(broken, base({ share_interests: true, evidence_ids: ['ev-1'] }))).toEqual({ empty: true, message: NOT_SHARING_TEXT });
+    expect(() => shareChoices(broken, base({ share_interests: true }), U)).not.toThrow();
+    expect(sharedProfilePreview(broken, base({ share_interests: true, evidence_ids: ['ev-1'] }), U)).toEqual({ empty: true, message: NOT_SHARING_TEXT });
   });
 });
 
@@ -256,13 +262,38 @@ describe('applyShareChange', () => {
   it('返回新对象：只改一项，句柄不变，updated_on = today，关掉就移除，不修改 base', () => {
     const b = base({ evidence_ids: ['ev-1'], skills: ['skill-alpha'] });
     const before = JSON.stringify(b);
-    const off = applyShareChange(b, { kind: 'evidence', id: 'ev-1', on: false }, '2026-12-01');
+    const off = applyShareChange(b, { kind: 'evidence', id: 'ev-1', on: false }, '2026-12-01', U);
     expect(off).toEqual({ ...b, evidence_ids: [], updated_on: '2026-12-01' });
     expect(JSON.stringify(b)).toBe(before);
-    const twice = applyShareChange(b, { kind: 'skill', name: 'skill-alpha', on: true }, TODAY);
+    const twice = applyShareChange(b, { kind: 'skill', name: 'skill-alpha', on: true }, TODAY, U);
     expect(twice.skills).toEqual(['skill-alpha']);
-    expect(applyShareChange(b, { kind: 'note', note: null }, TODAY).collaboration_note).toBeNull();
-    expect(applyShareChange(b, { kind: 'interests', on: true }, TODAY).share_handle).toBe(HANDLE);
+    expect(applyShareChange(b, { kind: 'note', note: null }, TODAY, U).collaboration_note).toBeNull();
+    expect(applyShareChange(b, { kind: 'interests', on: true }, TODAY, U).share_handle).toBe(HANDLE);
+  });
+});
+
+describe('shareChangeApplied / sameShareSettings：页面写入前后的确认', () => {
+  it('说明没写进去（受保护或检查不通过）时报告为未生效；其余开关按结果判断', () => {
+    const b = base({ collaboration_note: 'Old note.' });
+    const strict: Protection = { protected: true, reasons: ['under_18'] };
+    const note = { kind: 'note', note: 'New note.' } as const;
+    expect(shareChangeApplied(note, applyShareChange(b, note, TODAY, strict))).toBe(false);
+    expect(shareChangeApplied(note, applyShareChange(b, note, TODAY, U))).toBe(true);
+    const bad = { kind: 'note', note: 'mail me at a@b.org' } as const;
+    expect(shareChangeApplied(bad, applyShareChange(b, bad, TODAY, U))).toBe(false);
+    const remove = { kind: 'note', note: null } as const;
+    expect(shareChangeApplied(remove, applyShareChange(b, remove, TODAY, strict))).toBe(true);
+    const ev = { kind: 'evidence', id: 'ev-1', on: true } as const;
+    expect(shareChangeApplied(ev, applyShareChange(b, ev, TODAY, strict))).toBe(true);
+  });
+
+  it('只比较分享相关的字段；顺序不同、说明不同、句柄不同都算不一致', () => {
+    const a = base({ evidence_ids: ['ev-1', 'ev-2'], skills: ['skill-alpha'] });
+    expect(sameShareSettings(a, { ...a, updated_on: '2030-01-01' })).toBe(true);
+    expect(sameShareSettings(a, { ...a, evidence_ids: ['ev-2', 'ev-1'] })).toBe(false);
+    expect(sameShareSettings(a, { ...a, collaboration_note: 'x' })).toBe(false);
+    expect(sameShareSettings(a, { ...a, share_handle: 'other' })).toBe(false);
+    expect(sameShareSettings(a, null)).toBe(false);
   });
 });
 
@@ -280,7 +311,7 @@ describe('checkCollaborationNote：拒绝像联系方式的内容与过长的说
     const problem = checkCollaborationNote(note);
     expect(problem).toMatch(expected);
     // applyShareChange 也不会把它写进设置
-    expect(applyShareChange(base({ collaboration_note: 'Old note.' }), { kind: 'note', note }, TODAY).collaboration_note).toBe('Old note.');
+    expect(applyShareChange(base({ collaboration_note: 'Old note.' }), { kind: 'note', note }, TODAY, U).collaboration_note).toBe('Old note.');
   });
 
   it.each([
@@ -313,22 +344,22 @@ describe('撤回（内存版浏览器存储）', () => {
 
   it('clearShareSettings(profileId) 之后预览立即为空，句柄保留', () => {
     installFakeWindow();
-    let s = applyShareChange(base(), { kind: 'evidence', id: 'ev-1', on: true }, TODAY);
-    s = applyShareChange(s, { kind: 'interests', on: true }, TODAY);
+    let s = applyShareChange(base(), { kind: 'evidence', id: 'ev-1', on: true }, TODAY, U);
+    s = applyShareChange(s, { kind: 'interests', on: true }, TODAY, U);
     expect(saveShareSettings(s)).toBe(true);
-    expect(sharedProfilePreview(PROFILE, loadShareSettings(PROFILE.id)).empty).toBe(false);
+    expect(sharedProfilePreview(PROFILE, loadShareSettings(PROFILE.id), U).empty).toBe(false);
     clearShareSettings(PROFILE.id, '2026-11-20');
     const after = loadShareSettings(PROFILE.id);
     expect(after?.share_handle).toBe(HANDLE);
-    expect(sharedProfilePreview(PROFILE, after)).toEqual({ empty: true, message: NOT_SHARING_TEXT });
-    expect(shareChoices(PROFILE, after).anything_shared).toBe(false);
+    expect(sharedProfilePreview(PROFILE, after, U)).toEqual({ empty: true, message: NOT_SHARING_TEXT });
+    expect(shareChoices(PROFILE, after, U).anything_shared).toBe(false);
   });
 
   it('只读取不会创建分享设置', () => {
     installFakeWindow();
     expect(loadShareSettings(PROFILE.id)).toBeNull();
-    sharedProfilePreview(PROFILE, loadShareSettings(PROFILE.id));
-    shareChoices(PROFILE, loadShareSettings(PROFILE.id));
+    sharedProfilePreview(PROFILE, loadShareSettings(PROFILE.id), U);
+    shareChoices(PROFILE, loadShareSettings(PROFILE.id), U);
     expect(loadShareSettings(PROFILE.id)).toBeNull();
   });
 });
