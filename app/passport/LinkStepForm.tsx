@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { RpgButton } from "@/components/rpg";
+import { catalogOpportunities } from "@/lib/data";
 import { planRoutes } from "@/lib/path";
 import { latestPlanSnapshot, linkEvidenceToPrep, loadProfile, prepLinkKey, pushPlanSnapshot } from "@/lib/store";
 import type { EvidenceItem, Opportunity, StudentProfile } from "@/lib/types";
@@ -17,8 +18,11 @@ type Props = {
 };
 
 /** Ask the planner (lib/path) whether the linked step is now skipped. The page does not apply its own rule. */
+// Same catalog the map page passes to planRoutes, so the replay does not show a competition route coming and going.
+const catalog = catalogOpportunities();
+
 function plannerVerdict(profile: StudentProfile, opp: Opportunity, prepId: string, today: string): string {
-  const plan = planRoutes(profile, opp, { today });
+  const plan = planRoutes(profile, opp, { today, catalog });
   if (plan.status === "blocked") {
     const reason = plan.reasons[0] ?? "A required eligibility condition is not met.";
     return `Linked, but the planner shows no routes for this opportunity. ${reason}`;
@@ -52,7 +56,7 @@ export function LinkStepForm({ id, item, ctx, onLinked }: Props) {
     }
     const profile = loadProfile();
     if (before && profile && isCatalogOpportunity(opp.id)) {
-      const snapshots = evidenceLinkSnapshots(latestPlanSnapshot(opp.id, profile.id), before, profile, opp, item.id, prep.id, ctx.today);
+      const snapshots = evidenceLinkSnapshots(latestPlanSnapshot(opp.id, profile.id), before, profile, opp, item.id, prep.id, ctx.today, catalog);
       snapshots.forEach((snapshot) => pushPlanSnapshot(snapshot));
     }
     setError("");

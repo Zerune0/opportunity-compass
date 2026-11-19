@@ -1,5 +1,11 @@
 # Phase 3 handoff
 
+## Supplementary acceptance update (2026-11-19)
+
+The user's exported print.pdf was visually inspected: black text and white background passed, but the ten-column plan is unreadably narrow. Print acceptance remains **still has issues**; separate PR #35 proposes labelled printed fields and still needs a corrected two-opportunity PDF check and lead review. Reduced motion and actual screen-reader checks remain **unverified**. Keyboard checks are **partially passed**, with Quest Board filters and Map still needing the full path. See P4-HANDOFF.md for the four-check record, exact scope and field mapping. Video work is excluded from the current user request.
+
+Additional keyboard checks passed in the local development build: Type filtering to Hackathon, Tab through the filter controls to the result, Enter to open Details and growth routes, Classic View (aria-pressed and URL updated), and Tab/Enter to select Practice first with a visible 2px outline. Journal keyboard navigation passed. This is not an actual screen-reader test or certification of every filter/path.
+
 Base: main 7c0055d (PR #25), including merged PR #23. Map alternative deduplication, grants and navigation cleanup are already in main; this branch does not repeat them.
 
 ## Changes
