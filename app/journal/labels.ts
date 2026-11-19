@@ -83,7 +83,13 @@ export const routeLabels: Record<RouteType, string> = {
   learning_first: "Learning first",
   practice_first: "Practice first",
   community: "Community",
+  competition: "Beginner competition",
 };
+
+/** Label for a route type, with a generic fallback for types this page does not know yet. */
+export function routeLabel(type: string): string {
+  return (routeLabels as Record<string, string>)[type] ?? "Route";
+}
 
 export function yesNoUnknown(value: boolean | null): string {
   if (value === true) return "Yes";

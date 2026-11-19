@@ -41,6 +41,7 @@ import type {
   ResourceGrant,
   ShareSettings,
   StudentProfile,
+  ViewPreference,
 } from './types';
 
 /** 备份文件里的应用标识。 */
@@ -61,6 +62,10 @@ export interface BackupData {
   user_posted_opportunities: Opportunity[];
   share_settings: ShareSettings[];
   invitations: Invitation[];
+  /**
+   * （第四阶段）地图视图偏好。null = 文件里没有（旧备份）或值非法；导入时不写，读取时回到默认 'adventure'。
+   */
+  view_preference: ViewPreference | null;
 }
 
 export interface BackupFile {
@@ -103,6 +108,7 @@ export const BACKUP_DATA_KEYS: readonly (keyof BackupData)[] = [
   'user_posted_opportunities',
   'share_settings',
   'invitations',
+  'view_preference',
 ];
 
 // ───────────── 纯函数 ─────────────
@@ -118,6 +124,7 @@ function emptyData(): BackupData {
     user_posted_opportunities: [],
     share_settings: [],
     invitations: [],
+    view_preference: null,
   };
 }
 
@@ -142,6 +149,7 @@ export function buildBackup(data: Partial<BackupData>, exportedOn: ISODate): Bac
       user_posted_opportunities: arr(d.user_posted_opportunities),
       share_settings: arr(d.share_settings),
       invitations: arr(d.invitations),
+      view_preference: d.view_preference === 'adventure' || d.view_preference === 'classic' ? d.view_preference : null,
     },
   };
 }
@@ -179,6 +187,7 @@ const SECTION_LABELS: Record<keyof BackupData, string> = {
   user_posted_opportunities: 'Opportunities posted in this browser',
   share_settings: 'Sharing settings',
   invitations: 'Invitations',
+  view_preference: 'Map view preference',
 };
 
 /**
@@ -310,6 +319,12 @@ function sanitizeData(raw: Record<string, unknown>, warnings: string[]): BackupD
     extraReject: (s, kept) => kept.some((k) => k.share_handle === s.share_handle),
   });
   data.invitations = filterSection(raw.invitations, 'invitations', V.isInvitation, warnings, { keyOf: (i) => i.id });
+  // 视图偏好：旧备份没有这一段，照常导入（= null）；值非法时丢弃并 warning。
+  const vp = raw.view_preference;
+  if (vp !== undefined && vp !== null) {
+    if (V.isViewPreference(vp)) data.view_preference = vp;
+    else warnings.push(`${SECTION_LABELS.view_preference}: the value in this file is not valid and was skipped.`);
+  }
   return data;
 }
 
@@ -416,6 +431,12 @@ export function collectBackupData(): BackupData {
       STORE_VALIDATORS.isShareSettings,
     ),
     invitations: loadInvitations(),
+    // 只导出真正存过的偏好；没存过为 null（不把默认值写进备份）。
+    view_preference: readJSON<ViewPreference | null>(
+      STORE_KEYS.viewPreference,
+      null,
+      (v): v is ViewPreference | null => STORE_VALIDATORS.isViewPreference(v),
+    ),
   };
 }
 
@@ -461,6 +482,7 @@ export function applyBackup(backup: BackupFile): ApplyBackupResult {
   }
   if (d.share_settings.length) writes.push(writeJSON(STORE_KEYS.shareSettings, d.share_settings));
   if (d.invitations.length) writes.push(saveInvitations(d.invitations));
+  if (d.view_preference !== null) writes.push(writeJSON(STORE_KEYS.viewPreference, d.view_preference));
 
   if (writes.every(Boolean)) return { ok: true, warnings: checked.warnings };
 

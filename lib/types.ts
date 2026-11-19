@@ -31,6 +31,14 @@
  *   → lib/store.ts 的快照存储；队友 B 的「之前 → 变化 → 之后 → 原因」回放（配合 diffRoutes）。
  * - Connect 本地示例：`SamplePublisher`、`ShareSettings`、`SharedProfileView`、`Invitation`
  *   → 主办方端与 Connect 负责人的 lib/connect/、app/connect/。全部是示例 / 本地数据，没有真实连接。
+ *
+ * 第四阶段契约（2026-11-18，全部是向后兼容的新增；本次只加类型，引擎尚未生成 / 填写这些新内容）：
+ * - 路线类型：`RouteType` / `ROUTE_TYPES` 增加 'competition'（新手竞赛路线）。
+ * - 替代建议：`AlternativeSuggestion.kind` 增加 'stepping_stone'、'remote_option'。
+ * - 路线步骤：`RouteStep.relation`、`RouteStep.official`（`RouteStepOfficial` / `ROUTE_STEP_OFFICIAL_KINDS`）、`RouteStep.evidence_needed`。
+ * - 组队要求：`TeamRequirement`，`Opportunity.team_requirement`。
+ * - 机会目录：`EvalOptions.catalog`（供 planRoutes 生成 competition 路线）。
+ * - 地图视图偏好：`ViewPreference` / `VIEW_PREFERENCES` → lib/store.ts 的 loadViewPreference / saveViewPreference。
  */
 
 // ───────────────────────────── 基础别名 ─────────────────────────────
@@ -48,6 +56,11 @@ export type ISODate = string;
  */
 export interface EvalOptions {
   today?: ISODate;
+  /**
+   * （第四阶段契约）机会目录（已核实的机会列表），供 planRoutes 生成 competition 路线用；
+   * 不传时行为与现在完全相同。本次只是契约，引擎尚未读取它。
+   */
+  catalog?: Opportunity[];
 }
 
 /** 三态：判断不出来时用 unknown，而不是猜 true/false。 */
@@ -337,6 +350,22 @@ export interface Opportunity {
    * 其他等级为 null 或缺省。本阶段没有真实发布者。
    */
   posted_by?: string | null;
+  /**
+   * （第四阶段契约）组队要求。缺字段、null 或 required 为 null = 未知（不猜，界面提示向官方确认）。
+   */
+  team_requirement?: TeamRequirement | null;
+}
+
+/** （第四阶段契约）机会的组队要求。 */
+export interface TeamRequirement {
+  /** true = 必须组队；false = 可以个人参加；null = 官网没写清（未知）。 */
+  required: boolean | null;
+  /** 队伍最少人数（非负整数）；null / 缺省 = 未写明。 */
+  min_size?: number | null;
+  /** 队伍最多人数（非负整数，不小于 min_size）；null / 缺省 = 未写明。 */
+  max_size?: number | null;
+  /** 官网原文摘录；没有原文时为 null。 */
+  source_text: string | null;
 }
 
 // ───────────────────────────── 学生档案 StudentProfile ─────────────────────────────
@@ -606,10 +635,27 @@ export interface ReachabilityResult {
 
 // ───────────────────────────── 路线 Route / PlanResult ─────────────────────────────
 
-/** 路线类型：学习优先 / 实践优先 / 社区协作。 */
-export type RouteType = 'learning_first' | 'practice_first' | 'community';
+/**
+ * 路线类型：学习优先 / 实践优先 / 社区协作 / 新手竞赛（第四阶段契约新增 'competition'，只追加在末尾）。
+ * 本次只是契约：planRoutes 尚未生成 competition 路线。页面若对 RouteType 做穷尽式映射，需要为 'competition' 补上，
+ * 遇到不认识的类型请走通用默认文字。
+ */
+export type RouteType = 'learning_first' | 'practice_first' | 'community' | 'competition';
 
-export const ROUTE_TYPES: readonly RouteType[] = ['learning_first', 'practice_first', 'community'] as const;
+export const ROUTE_TYPES: readonly RouteType[] = ['learning_first', 'practice_first', 'community', 'competition'] as const;
+
+/**
+ * （第四阶段契约）RouteStep.official 的取值：
+ * official_requirement = 对应官方要求 / 官方准备项；team_suggestion = 团队建议（非官方要求）；
+ * application_step = 申请流程本身的步骤（如提交申请）。
+ */
+export type RouteStepOfficial = 'official_requirement' | 'team_suggestion' | 'application_step';
+
+export const ROUTE_STEP_OFFICIAL_KINDS: readonly RouteStepOfficial[] = [
+  'official_requirement',
+  'team_suggestion',
+  'application_step',
+] as const;
 
 export interface RouteStep {
   /** 路线内唯一。来自准备项时建议与 PrepItem.id 相同，便于 diff。 */
@@ -629,6 +675,20 @@ export interface RouteStep {
   skip_reason: string | null;
   /** 让该步骤被跳过的证据 id。 */
   satisfied_by_evidence_ids: string[];
+  /*
+   * 以下三个字段为第四阶段契约新增，全部可选：缺失 = 未记录（老快照没有）。
+   * 本次只是契约，planRoutes 尚未填写。diffRoutes 不比较这三个字段。
+   */
+  /** 这一步与目标哪条要求 / 准备项有关（规则生成的一句话）；null / 缺失 = 未记录。 */
+  relation?: string | null;
+  /** 这一步的性质：官方要求 / 团队建议 / 申请步骤；null / 缺失 = 未记录。 */
+  official?: RouteStepOfficial | null;
+  /**
+   * 完成这一步后能在 Skill Passport / Journal 里记下的证据或材料的**种类代码**（不是给学生看的句子）：
+   * 取自对应准备项的 material_kind（MaterialKind），没有时取它能产出的证据种类（EvidenceKind）。
+   * 页面显示前要查自己的标签表。这一步不产出可记录的东西（如「提交申请」）为 null；缺失 = 未记录。
+   */
+  evidence_needed?: EvidenceKind | MaterialKind | null;
 }
 
 export interface Route {
@@ -1363,11 +1423,19 @@ export interface AlternativeSuggestion {
    * 并且截止已过、或有会随时间改善的阻断（年级 / 年龄低于下限）、或（两者都没有时）每条路线都来不及；
    * 只有学生能自己补上的阻断（技能、作品）时不给。recurring_annually 为 null / 缺省时也给，reason 注明「是否每年举办未确认」。
    * same_field = 同领域的其他机会（该学生硬性资格不是 not_eligible 的机会；给了 options.today 时不含截止日期已过的机会）。
+   * （第四阶段契约新增，本次引擎尚未生成）
+   * stepping_stone = 目录里一条该学生现在能参加、能为目标积累证据的已核实机会；**不是官方前置条件**，界面不得说成前置。
+   * remote_option = 交通受阻时的线上参加途径；目标自身为 hybrid 时 opportunity_id 可指向目标自己，
+   * 此时文字必须是「向官方确认」是否可线上参加，不得断言可以。
+   * 结果顺序固定：next_cycle → same_field → stepping_stone → remote_option。
+   * 同一条机会不同时出现在 same_field 和 stepping_stone 里（能说清证据关系的归 stepping_stone）。
    */
-  kind: 'next_cycle' | 'same_field';
+  kind: 'next_cycle' | 'same_field' | 'stepping_stone' | 'remote_option';
   /**
    * 建议的机会 id：same_field 为目录中的那个机会；next_cycle 指原机会自身（可为原机会的 id），
    * 目录里没有可指的机会时为 null。
+   * stepping_stone 为目录中的那个机会（不会是 null）；remote_option 为目录中的线上机会，或（目标为 hybrid 时）目标自身。
+   * 可能是用户发布的机会（没有 /quests/[id] 页面），页面生成链接前要先确认它在已核实目录里。
    */
   opportunity_id: string | null;
   /** 机会标题（next_cycle 时为原机会标题）。 */
@@ -1377,11 +1445,14 @@ export interface AlternativeSuggestion {
   /**
    * 该学生对这个建议机会的资格结论（checkEligibility 的 overall）；无法评估时为 null。
    * same_field 的建议不得是 'not_eligible'。next_cycle 时是对「下一届」无法预先判断，为 null。
+   * stepping_stone 不得是 'not_eligible'；remote_option 指向其他机会时不得是 'not_eligible'，指向目标自身时为目标的资格结论。
    */
   eligibility_overall: OverallEligibility | null;
   /**
    * 与原机会共有的领域标签（Opportunity.fields 的交集，按 lib/tags.ts 的 normalizeTag 比较），
    * 用建议机会原本的写法；next_cycle 时为原机会的全部 fields（按 normalizeTag 去重，保留第一个写法）。
+   * stepping_stone / remote_option 同 same_field 取交集（可为空数组：stepping_stone 的关系可以只是证据种类）；
+   * remote_option 指向目标自身时同 next_cycle。
    */
   shared_fields: string[];
 }
@@ -1907,3 +1978,13 @@ export interface Invitation {
   /** 学生回应（拒绝 / 接受 / 屏蔽）的日期；未回应为 null / 缺省。 */
   responded_on?: ISODate | null;
 }
+
+// ───────────────────────────── 地图视图偏好（第四阶段契约）─────────────────────────────
+
+/**
+ * 地图页的视图偏好：adventure = 冒险地图视图（默认）；classic = 经典表格视图。
+ * 存在 localStorage（lib/store.ts 的 loadViewPreference / saveViewPreference），没存过或值非法时为 'adventure'。
+ */
+export type ViewPreference = 'adventure' | 'classic';
+
+export const VIEW_PREFERENCES: readonly ViewPreference[] = ['adventure', 'classic'] as const;

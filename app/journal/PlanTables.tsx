@@ -1,7 +1,7 @@
 import { StatusTag } from "@/components/rpg";
 import { fmt } from "@/lib/format";
 import type { CrossPlanItem, WeeklyLoad } from "@/lib/types";
-import { planStatusLabels, planStatusTones, routeLabels, yesNoUnknown } from "./labels";
+import { planStatusLabels, planStatusTones, routeLabel, yesNoUnknown } from "./labels";
 
 /** Non-planned rows have no hours computed, so show a dash instead of 0. */
 function hoursCell(item: CrossPlanItem, hours: number): string {
@@ -39,7 +39,7 @@ export function PlanItemsTable({ items }: { items: CrossPlanItem[] }) {
               <th scope="row" data-label="Opportunity">{item.title}</th>
               <td data-label="Deadline">{item.deadline ?? "Unknown"}</td>
               <td data-label="Status"><StatusTag tone={planStatusTones[item.status]}>{planStatusLabels[item.status]}</StatusTag></td>
-              <td data-label="Route used">{item.route_type ? routeLabels[item.route_type] : "None"}</td>
+              <td data-label="Route used">{item.route_type ? routeLabel(item.route_type) : "None"}</td>
               <td data-label="Required hours">{hoursCell(item, item.required_hours)}</td>
               <td data-label="Hours without reuse">{hoursCell(item, item.hours_before_reuse)}</td>
               <td data-label="Hours saved by reuse">{hoursCell(item, item.hours_saved_by_reuse)}</td>

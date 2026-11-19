@@ -14,6 +14,7 @@ import {
   MATERIAL_KINDS,
   MATERIAL_STATUSES,
   PLAN_TRIGGERS,
+  VIEW_PREFERENCES,
   type EvidenceItem,
   type Invitation,
   type InvitationStatus,
@@ -31,6 +32,7 @@ import {
   type SharedProfileView,
   type StudentProfile,
   type StudentSkill,
+  type ViewPreference,
 } from './types';
 
 export const STORE_PREFIX = 'oc';
@@ -56,6 +58,8 @@ export const STORE_KEYS = {
   shareSettings: 'share_settings',
   /** （第二阶段）Connect：示例邀请列表。 */
   invitations: 'invitations',
+  /** （第四阶段）地图页视图偏好：'adventure' | 'classic'。 */
+  viewPreference: 'view_preference',
 } as const;
 
 export type StoreKey = (typeof STORE_KEYS)[keyof typeof STORE_KEYS];
@@ -1102,6 +1106,26 @@ export function clearInvitations(): void {
   removeKey(STORE_KEYS.invitations);
 }
 
+// ───────────── 地图视图偏好（第四阶段）─────────────
+
+/** 默认视图：与地图页现有默认一致（不带 ?view=classic 时显示冒险地图）。 */
+export const DEFAULT_VIEW_PREFERENCE: ViewPreference = 'adventure';
+
+function isViewPreference(v: unknown): v is ViewPreference {
+  return oneOf(VIEW_PREFERENCES, v);
+}
+
+/** 读取地图视图偏好；没存过、值非法、JSON 损坏或 SSR 时返回 'adventure'。 */
+export function loadViewPreference(): ViewPreference {
+  return readJSON<ViewPreference>(STORE_KEYS.viewPreference, DEFAULT_VIEW_PREFERENCE, isViewPreference);
+}
+
+/** 保存地图视图偏好；值非法时不写。SSR / 写入失败静默忽略（不抛错）。 */
+export function saveViewPreference(v: ViewPreference): void {
+  if (!isViewPreference(v)) return;
+  writeJSON(STORE_KEYS.viewPreference, v);
+}
+
 // ───────────── 校验工具（只读导出，供 lib/backup.ts 复用同一套规则）─────────────
 
 /**
@@ -1119,6 +1143,7 @@ export const STORE_VALIDATORS = {
   isUserPostedOpportunity,
   isShareSettings,
   isInvitation,
+  isViewPreference,
 } as const;
 
 // ───────────── 全部清除 ─────────────

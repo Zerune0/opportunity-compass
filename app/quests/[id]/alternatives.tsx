@@ -11,6 +11,14 @@ const eligibilityTags = {
   unknown: { tone: "warning" as const, label: "Eligibility unconfirmed" },
 };
 
+/** Labels for alternative kinds beyond same_field / next_cycle; unknown kinds get a generic label. */
+function alternativeKindLabel(kind: string): string | null {
+  if (kind === "same_field" || kind === "next_cycle") return null;
+  if (kind === "stepping_stone") return "Evidence-building step — not a prerequisite";
+  if (kind === "remote_option") return "Online option";
+  return "Other option";
+}
+
 function reachTag(reachable: boolean | null | undefined) {
   if (reachable === true) return { tone: "success" as const, label: "Practically reachable" };
   if (reachable === false) return { tone: "danger" as const, label: "Open barriers" };
@@ -65,6 +73,7 @@ export function AlternativesSection({ suggestions, catalog, profile, studentGran
           const userPosted = opp?.source_tier === "user_posted";
           const eligibility = eligibilityTags[suggestion.eligibility_overall ?? "unknown"];
           const reach = reachTag(opp ? reachableFor(profile, opp, candidateGrants(studentGrants, profile.id, opp.id), today) : null);
+          const kindLabel = alternativeKindLabel(suggestion.kind);
           return (
             <li key={key} className="rpg-stack">
               <h3>
@@ -73,6 +82,7 @@ export function AlternativesSection({ suggestions, catalog, profile, studentGran
                 ) : suggestion.title}
               </h3>
               <p className="rpg-row">
+                {kindLabel && <StatusTag>{kindLabel}</StatusTag>}
                 <StatusTag tone={eligibility.tone}>{eligibility.label}</StatusTag>
                 <StatusTag tone={reach.tone}>{reach.label}</StatusTag>
                 {userPosted && (
