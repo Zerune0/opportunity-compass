@@ -400,7 +400,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-18",
     "required_devices": [],
     "preparation": [
       {
@@ -432,7 +432,7 @@
     "location": {
       "format": "in_person",
       "country": "US",
-      "note": "Host laboratory depends on placement.",
+      "note": "All internships are conducted on site at a host DOE laboratory; remote participation is not available. Placement depends on the host laboratory. Source: https://science.osti.gov/wdts/cci/Benefits",
       "state": null,
       "city": null
     },
@@ -442,8 +442,9 @@
       "note": "The application fee and candidate-specific travel expense were not confirmed."
     },
     "time_commitment": {
-      "hours_per_week": null,
-      "total_weeks": null
+      "hours_per_week": 40,
+      "total_weeks": 10,
+      "note": "Approximately 40 hours per week, typically 10 consecutive weeks for the summer term. On-site participation only; remote internships are not available. Confirm the appointment schedule with the host laboratory. Sources: https://science.osti.gov/wdts/cci/Participant-Obligations ; https://science.osti.gov/wdts/cci/Benefits . Human verification: Jiale Li, 2026-11-18."
     },
     "requirements": [
       {
