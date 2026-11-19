@@ -9,21 +9,37 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import BarrierSummaryPage from '../../app/organizer/barriers/page';
+import { EligibilityDetailTable, OtherDemands, ParticipationTable } from '../../app/organizer/barriers/detail-tables';
 import { analyzeReachability } from '../reachability';
-import type { BarrierType, Opportunity, ResourceGrant, Scenario, SupportType } from '../types';
+import type { BarrierType, EvidenceItem, Opportunity, PrepItem, Requirement, ResourceGrant, Scenario, SupportType } from '../types';
 import {
   BARRIER_REPORT_CAVEATS,
   BARRIER_ROW_TEXT,
+  ELIGIBILITY_DETAIL_LABELS,
+  ELIGIBILITY_DETAIL_NOTE,
+  ELIGIBILITY_DETAIL_ORDER,
   ELIGIBILITY_NOTE,
   ELIGIBILITY_NOT_REMOVABLE_REASON,
+  MATERIALS_BURDEN_LABELS,
+  MATERIALS_BURDEN_NOTE,
+  MATERIALS_BURDEN_ORDER,
   MISSING_INFO_CATEGORIES,
   MISSING_INFO_LABELS,
   MISSING_INFO_NOTE,
   NOT_REMOVABLE_REASONS,
   NOT_REMOVABLE_REASON_TEXT,
+  OTHER_DEMANDS_NOTE,
   OVERALL_ELIGIBILITY_LABELS,
   OVERALL_ELIGIBILITY_ORDER,
+  PARTICIPATION_FORMAT_LABELS,
+  PARTICIPATION_FORMAT_ORDER,
+  PARTICIPATION_INTERNET_NOTE,
+  PARTICIPATION_NOTE,
+  PARTICIPATION_TRANSPORT_NOTE,
   SHORT_CAVEATS,
+  TEAM_REQUIREMENT_LABELS,
+  TEAM_REQUIREMENT_NOTE,
+  TEAM_REQUIREMENT_ORDER,
   UPPER_BOUND_NOTE,
   summarizeBarriers,
   syntheticMeasureGrant,
@@ -97,6 +113,22 @@ const ALLOWED_STRINGS = new Set<string>([
   MISSING_INFO_NOTE,
   ...SHORT_CAVEATS,
   ...BARRIER_REPORT_CAVEATS,
+  // 新增四部分的固定键名与文字。
+  ...Object.keys(ELIGIBILITY_DETAIL_LABELS),
+  ...Object.values(ELIGIBILITY_DETAIL_LABELS),
+  ELIGIBILITY_DETAIL_NOTE,
+  ...PARTICIPATION_FORMAT_ORDER,
+  ...Object.values(PARTICIPATION_FORMAT_LABELS),
+  PARTICIPATION_NOTE,
+  PARTICIPATION_TRANSPORT_NOTE,
+  PARTICIPATION_INTERNET_NOTE,
+  ...TEAM_REQUIREMENT_ORDER,
+  ...Object.values(TEAM_REQUIREMENT_LABELS),
+  TEAM_REQUIREMENT_NOTE,
+  ...Object.keys(MATERIALS_BURDEN_LABELS),
+  ...Object.values(MATERIALS_BURDEN_LABELS),
+  MATERIALS_BURDEN_NOTE,
+  OTHER_DEMANDS_NOTE,
 ]);
 
 /** 收集 JSON 值里的全部叶子。 */
@@ -658,6 +690,342 @@ describe('summarizeBarriers：对 SCENARIOS 每个场景的不变量', () => {
   });
 });
 
+// ───────────────────────────── 新增四部分：资格明细、参与形式、组队要求、材料负担 ─────────────────────────────
+
+const sumOf = <T>(xs: readonly T[], f: (x: T) => number) => xs.reduce((n, x) => n + f(x), 0);
+const eligPairs = (s: BarrierSummary, status: string) => s.eligibility.find((e) => e.status === status)!.pairs;
+
+/** 新增四部分的结构不变量（对任何场景都成立）。 */
+function expectNewPartInvariants(s: BarrierSummary) {
+  const eligible = eligPairs(s, 'eligible');
+  const notEligible = eligPairs(s, 'not_eligible');
+  const unknown = eligPairs(s, 'unknown');
+
+  // 资格明细：八行固定 + 可选 other；每行不超过该资格层的对数；该层有对时至少一行有数（一对至少有一条对应的硬性要求）。
+  const detailKeys = s.eligibility_detail.map((d) => d.requirement_type);
+  expect(detailKeys.slice(0, 8)).toEqual([...ELIGIBILITY_DETAIL_ORDER]);
+  expect(detailKeys.length === 8 || (detailKeys.length === 9 && detailKeys[8] === 'other')).toBe(true);
+  for (const d of s.eligibility_detail) {
+    expect(d.not_eligible_pairs).toBeLessThanOrEqual(notEligible);
+    expect(d.unknown_pairs).toBeLessThanOrEqual(unknown);
+  }
+  if (detailKeys.length === 9) expect(s.eligibility_detail[8].not_eligible_pairs + s.eligibility_detail[8].unknown_pairs).toBeGreaterThan(0);
+  expect(s.eligibility_detail.some((d) => d.not_eligible_pairs > 0)).toBe(notEligible > 0);
+  expect(s.eligibility_detail.some((d) => d.unknown_pairs > 0)).toBe(unknown > 0);
+
+  // 参与形式：四行固定，合计 = 对数；交通列只在有线下部分的形式，家庭网络列只在有线上部分的形式。
+  const rows = s.participation.rows;
+  expect(rows.map((r) => r.format)).toEqual([...PARTICIPATION_FORMAT_ORDER]);
+  expect(sumOf(rows, (r) => r.pairs)).toBe(s.pair_count);
+  for (const r of rows) {
+    const inPersonPart = r.format === 'in_person' || r.format === 'hybrid';
+    const onlinePart = r.format === 'online' || r.format === 'hybrid';
+    expect('transport_limited_or_none' in r).toBe(inPersonPart);
+    expect('transport_not_recorded' in r).toBe(inPersonPart);
+    expect('home_internet_not_listed' in r).toBe(onlinePart);
+    expect('devices_not_recorded' in r).toBe(onlinePart);
+    if (inPersonPart) expect(r.transport_limited_or_none! + r.transport_not_recorded!).toBeLessThanOrEqual(r.pairs);
+    if (onlinePart) expect(r.home_internet_not_listed! + r.devices_not_recorded!).toBeLessThanOrEqual(r.pairs);
+  }
+
+  // 组队要求与材料负担：合计 = 对数，eligible 列合计 = 资格 eligible 的对数。
+  const d = s.other_demands;
+  expect(d.team_requirement.map((r) => r.status)).toEqual([...TEAM_REQUIREMENT_ORDER]);
+  expect(d.materials.map((r) => r.band)).toEqual([...MATERIALS_BURDEN_ORDER]);
+  const tables: { pairs: number; eligible_pairs: number }[][] = [d.team_requirement, d.materials];
+  for (const table of tables) {
+    expect(sumOf(table, (r) => r.pairs)).toBe(s.pair_count);
+    expect(sumOf(table, (r) => r.eligible_pairs)).toBe(eligible);
+    for (const r of table) expect(r.eligible_pairs).toBeLessThanOrEqual(r.pairs);
+  }
+}
+
+/** 把新增四部分压成便于比较的形状（只重排，不重算）。 */
+function digestNew(s: BarrierSummary) {
+  return {
+    detail: Object.fromEntries(s.eligibility_detail.map((d) => [d.requirement_type, [d.not_eligible_pairs, d.unknown_pairs]])),
+    formats: Object.fromEntries(
+      s.participation.rows.map((r) => [r.format, Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'format' && k !== 'label'))]),
+    ),
+    team: Object.fromEntries(s.other_demands.team_requirement.map((r) => [r.status, [r.pairs, r.eligible_pairs]])),
+    materials: Object.fromEntries(s.other_demands.materials.map((r) => [r.band, [r.pairs, r.eligible_pairs]])),
+  };
+}
+
+const NO_DETAIL = Object.fromEntries(ELIGIBILITY_DETAIL_ORDER.map((t) => [t, [0, 0]]));
+
+const req = (r: Record<string, unknown>): Requirement =>
+  ({ label: `Fictional requirement ${String(r.id)}`, hard: true, source_text: 'Fictional rule for unit tests (sample).', ...r }) as Requirement;
+
+const prep = (id: string, overrides: Partial<PrepItem> = {}): PrepItem => ({
+  id,
+  title: `Fictional prep item ${id}`,
+  estimated_hours: 0,
+  estimated_cost_usd: 0,
+  depends_on: [],
+  required_for_application: true,
+  material_kind: 'resume',
+  ...overrides,
+});
+
+/** 作品要求（硬性，要 project）+ 能产出它的必需准备项 + 必需的简历：一份作品算两条，共 3 条。 */
+const dupOpp = (): Opportunity =>
+  makeOpp('o-dup', {
+    required_devices: [],
+    requirements: [req({ id: 'req-grade', type: 'grade', min: 9, max: 12 }), req({ id: 'req-work', type: 'portfolio', evidence_kind: 'project' })],
+    preparation: [prep('prep-project', { material_kind: 'portfolio', evidence_kind: 'project' }), prep('prep-resume')],
+  });
+
+const evidence = (id: string, overrides: Partial<EvidenceItem> = {}): EvidenceItem => ({
+  id,
+  title: `Fictional evidence ${id}`,
+  kind: 'certificate',
+  skills: [],
+  status: 'self_reported',
+  added_on: '2026-10-01',
+  ...overrides,
+});
+
+describe('summarizeBarriers：新增四部分（资格明细、参与形式、组队要求、材料负担）', () => {
+  it('device-loan / venue-tradeoff：占位机会都是线下、没有记录组队要求、没有准备项；交通列与障碍表 Transport 行不是同一个数', () => {
+    const dl = summarizeBarriers(deviceLoanScenario);
+    expect(digestNew(dl)).toEqual({
+      detail: NO_DETAIL,
+      formats: {
+        online: { pairs: 0, home_internet_not_listed: 0, devices_not_recorded: 0 },
+        hybrid: { pairs: 0, transport_limited_or_none: 0, transport_not_recorded: 0, home_internet_not_listed: 0, devices_not_recorded: 0 },
+        in_person: { pairs: 10, transport_limited_or_none: 3, transport_not_recorded: 0 },
+        unknown: { pairs: 0 },
+      },
+      team: { required: [0, 0], not_required: [0, 0], unclear: [0, 0], not_recorded: [10, 10] },
+      materials: { none: [10, 10], one_or_two: [0, 0], three_or_more: [0, 0] },
+    });
+
+    const vt = summarizeBarriers(venueTradeoffScenario);
+    expect(digestNew(vt).formats.in_person).toEqual({ pairs: 18, transport_limited_or_none: 18, transport_not_recorded: 0 });
+    expect(digestNew(vt).team.not_recorded).toEqual([18, 18]);
+    expect(digestNew(vt).materials.none).toEqual([18, 18]);
+    // 18 对的学生都没有交通，但接驳车已为 3 对化解：障碍表只数仍未化解的 15 对。
+    expect(vt.barrier_rows.find((r) => r.key === 'transport')!.affected_pairs).toBe(15);
+    expectNewPartInvariants(dl);
+    expectNewPartInvariants(vt);
+  });
+
+  it('资格明细：不符合的对按不满足的硬性要求类型、未知的对按待确认的硬性要求类型计数；每对每类型只计一次；偏好不计', () => {
+    const rulesOpp = makeOpp('o-rules', {
+      required_devices: [],
+      requirements: [
+        req({ id: 'req-grade', type: 'grade', min: 9, max: 12 }),
+        req({ id: 'req-grade-2', type: 'grade', min: 10 }),
+        req({ id: 'req-region', type: 'region', countries: ['US'], states: ['CA'] }),
+        req({ id: 'req-status-pref', type: 'status', any_of: ['undergraduate'], hard: false }),
+      ],
+    });
+    const manualOpp = makeOpp('o-manual', {
+      required_devices: [],
+      requirements: [req({ id: 'req-grade', type: 'grade', min: 9, max: 12 }), req({ id: 'req-manual', type: 'manual' })],
+    });
+    const s = summarizeBarriers(
+      makeScenario({
+        students: [
+          makeStudent('s-ok'), // o-rules 符合（偏好不满足不影响）；o-manual 待确认（manual）
+          makeStudent('s-young', { grade: 8 }), // 两条年级要求都不满足：grade 只计一次
+          makeStudent('s-far', { grade: 9, region: { country: 'US', state: 'NY' } }), // o-rules：年级 + 地区；o-manual：manual
+          makeStudent('s-nograde', { grade: null }), // 年级没填：两个机会都 unknown；o-manual 还有 manual
+        ],
+        opportunities: [rulesOpp, manualOpp],
+      }),
+    );
+    expect(digest(s).eligibility).toEqual({
+      eligible: elig(1, 0, 0, 0),
+      not_eligible: elig(3, 0, 0, 0),
+      unknown: elig(4, 0, 0, 0),
+    });
+    expect(digestNew(s).detail).toEqual({ ...NO_DETAIL, grade: [3, 2], region: [1, 0], manual: [0, 3] });
+    // 不符合的那一对（s-young / o-manual）的 manual 待确认不计入 unknown 列（只看该对所在的资格层）。
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+  });
+
+  it('资格明细：hard 按真值判断（与 checkEligibility 判总体资格同一口径）：数据损坏成 hard: 1 时，不符合的对照样有明细行', () => {
+    const s = summarizeBarriers(
+      makeScenario({
+        students: [makeStudent('s-young', { grade: 8 })],
+        opportunities: [makeOpp('o1', { required_devices: [], requirements: [req({ id: 'req-grade', type: 'grade', min: 9, max: 12, hard: 1 })] })],
+      }),
+    );
+    expect(digest(s).eligibility.not_eligible.pairs).toBe(1);
+    expect(digestNew(s).detail).toEqual({ ...NO_DETAIL, grade: [1, 0] });
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+  });
+
+  it('资格明细：引擎出现八种以外的要求类型时归入追加在最后的 other 行，不回显说明文字', () => {
+    const marker = 'FREE-TEXT-REQUIREMENT-MARKER';
+    const analyze: SummarizeBarriersDeps['analyze'] = (profile, opp, grants, options) => {
+      const r = analyzeReachability(profile, opp, grants, options);
+      const weird = { ...r.eligibility.items[0], requirement_type: 'weird' as never, status: 'not_satisfied' as const, explanation: marker, label: marker };
+      return { ...r, eligibility: { ...r.eligibility, overall: 'not_eligible', items: [...r.eligibility.items, weird] }, reachable: false };
+    };
+    const s = summarizeBarriers(makeScenario({ students: [makeStudent('s1')], opportunities: [makeOpp('o1')] }), { analyze });
+    expect(s.eligibility_detail.map((d) => d.requirement_type)).toEqual([...ELIGIBILITY_DETAIL_ORDER, 'other']);
+    expect(digestNew(s).detail).toEqual({ ...NO_DETAIL, other: [1, 0] });
+    expect(JSON.stringify(s)).not.toContain(marker);
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+  });
+
+  it('参与形式：四种形式（坏的 location 算 unknown）；交通只数有线下部分的形式，家庭网络只数有线上部分的形式', () => {
+    const at = (id: string, location: unknown) => makeOpp(id, { required_devices: [], location: location as Opportunity['location'] });
+    const s = summarizeBarriers(
+      makeScenario({
+        students: [
+          makeStudent('s-ok'), // 交通稳定，有家庭网络
+          makeStudent('s-none', { transport: { level: 'none' }, devices: ['laptop'] }),
+          makeStudent('s-limited', { transport: { level: 'limited' }, devices: null }),
+          makeStudent('s-unrecorded', { transport: null, devices: [] }),
+        ],
+        opportunities: [
+          at('o-online', { format: 'online' }),
+          at('o-hybrid', { format: 'hybrid', country: 'US', state: 'CA' }),
+          at('o-in-person', { format: 'in_person', country: 'US', state: 'CA' }),
+          at('o-unknown', { format: 'unknown' }),
+          at('o-broken', null),
+        ],
+      }),
+    );
+    expect(digestNew(s).formats).toEqual({
+      online: { pairs: 4, home_internet_not_listed: 2, devices_not_recorded: 1 },
+      hybrid: { pairs: 4, transport_limited_or_none: 2, transport_not_recorded: 1, home_internet_not_listed: 2, devices_not_recorded: 1 },
+      in_person: { pairs: 4, transport_limited_or_none: 2, transport_not_recorded: 1 },
+      unknown: { pairs: 8 },
+    });
+    // 障碍表的 Transport 行：只有 hybrid 与 in_person 上交通 limited / none 的 4 对（没有已有支持、不要求自费差旅）。
+    expect(digest(s).rows.transport.affected).toBe(4);
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+
+    // 读不了的交通等级、不是数组的设备：算作「没填或读不了」，不当作有或没有。
+    const unreadable = summarizeBarriers(
+      makeScenario({
+        students: [makeStudent('s-bad', { transport: { level: 'teleport' } as never, devices: 'laptop' as never })],
+        opportunities: [at('o-hybrid', { format: 'hybrid', country: 'US', state: 'CA' })],
+      }),
+    );
+    expect(digestNew(unreadable).formats.hybrid).toEqual({
+      pairs: 1,
+      transport_limited_or_none: 0,
+      transport_not_recorded: 1,
+      home_internet_not_listed: 0,
+      devices_not_recorded: 1,
+    });
+    expectNewPartInvariants(unreadable);
+  });
+
+  it('组队要求：required / not_required / unclear（required 为 null）/ not_recorded（字段缺失、null、坏数据）分开计；eligible 列只数资格 eligible 的对', () => {
+    const team = (id: string, value: unknown) =>
+      makeOpp(id, { required_devices: [], team_requirement: value as Opportunity['team_requirement'] });
+    const s = summarizeBarriers(
+      makeScenario({
+        students: [makeStudent('s-eligible'), makeStudent('s-grade-8', { grade: 8 })],
+        opportunities: [
+          team('o-team', { required: true, min_size: 2, max_size: 4, source_text: 'Teams of 2 to 4. (fictional)' }),
+          team('o-team-no-text', { required: true, source_text: null }),
+          team('o-solo', { required: false, source_text: null }),
+          team('o-unclear', { required: null, source_text: null }),
+          makeOpp('o-missing', { required_devices: [] }),
+          team('o-null', null),
+          team('o-bad', 'yes'),
+        ],
+      }),
+    );
+    expect(digestNew(s).team).toEqual({ required: [4, 2], not_required: [2, 1], unclear: [2, 1], not_recorded: [6, 3] });
+    // 组队要求不计入材料负担（analyzeGaps 把它放在 materials 组里，这里不用那个组）。
+    expect(digestNew(s).materials).toEqual({ none: [14, 7], one_or_two: [0, 0], three_or_more: [0, 0] });
+    // 组队要求不改变可达性，也不是障碍行。
+    expect(s.summary.reachable_now).toBe(7);
+    expect(s.barrier_rows.map((r) => r.key)).toEqual(['time', 'cost', 'transport', 'device']);
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+  });
+
+  it('材料负担：只数机会要求的（required_for_application 的材料准备项、硬性作品要求），建议项与组队不算；按 0 / 1–2 / 3+ 分档', () => {
+    const oppM2 = makeOpp('o-m2', {
+      required_devices: [],
+      preparation: [
+        prep('prep-resume'),
+        prep('prep-essay', { material_kind: 'essay', required_for_application: false }), // 建议项：不算
+        prep('prep-notes', { material_kind: 'other', required_for_application: false }), // 建议项：不算
+        prep('prep-python', { material_kind: null, skill: 'python' }), // 必需，但不是材料
+      ],
+    });
+    const oppM3 = makeOpp('o-m3', {
+      required_devices: [],
+      preparation: [prep('prep-resume'), prep('prep-transcript', { material_kind: 'transcript' }), prep('prep-statement', { material_kind: 'personal_statement' })],
+      team_requirement: { required: true, min_size: 3, max_size: 3, source_text: 'Teams of exactly 3. (fictional)' },
+    });
+    const oppPortfolio = makeOpp('o-port', {
+      required_devices: [],
+      requirements: [
+        req({ id: 'req-grade', type: 'grade', min: 9, max: 12 }),
+        req({ id: 'req-work', type: 'portfolio', evidence_kind: 'project' }), // 硬性：算
+        req({ id: 'req-bonus', type: 'portfolio', evidence_kind: 'recommendation_letter', hard: false }), // 偏好：不算
+      ],
+    });
+    const s = summarizeBarriers(
+      makeScenario({
+        students: [
+          makeStudent('s-new'),
+          // 证据只覆盖 o-m3 的简历（带机会前缀，不覆盖 o-m2 的同名准备项）；种类不是 project，作品要求仍不满足。
+          makeStudent('s-ready', { evidence: [evidence('ev-1', { prep_item_ids: ['o-m3:prep-resume'] })] }),
+        ],
+        opportunities: [makeOpp('o-m0', { required_devices: [] }), oppM2, oppM3, oppPortfolio, dupOpp()],
+      }),
+    );
+    // s-new：0、1（建议项不算）、3（组队不算）、1、3；s-ready：0、1、2、1、3。o-port、o-dup 的作品要求是硬性 → 不符合资格。
+    expect(digestNew(s).materials).toEqual({ none: [2, 2], one_or_two: [5, 3], three_or_more: [3, 1] });
+    expect(digestNew(s).team.required).toEqual([2, 2]);
+    expect(digestNew(s).detail.portfolio).toEqual([4, 0]);
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+  });
+
+  it('材料负担：作品要求与能产出它的准备项算两条（引擎没有可靠的对应关系，不去重；说明里写明）', () => {
+    const s = summarizeBarriers(makeScenario({ students: [makeStudent('s-new')], opportunities: [dupOpp()] }));
+    // 去重的话是 2 条（1–2 档）；不去重是 3 条。
+    expect(digestNew(s).materials).toEqual({ none: [0, 0], one_or_two: [0, 0], three_or_more: [1, 0] });
+    expect(MATERIALS_BURDEN_NOTE).toContain('A work-sample requirement and the prep item that would produce it count as separate items.');
+    expect(MATERIALS_BURDEN_NOTE).toContain('Recommended preparation is not counted.');
+    expect(MATERIALS_BURDEN_NOTE).toContain('Time and cost of required prep already feed the Time and Cost rows.');
+  });
+
+  it.each(SCENARIOS.map((e) => ({ id: e.id, scenario: e.scenario })))('$id：新增四部分的不变量', ({ scenario }) => {
+    expectNewPartInvariants(summarizeBarriers(scenario));
+  });
+
+  it('隐私：新增部分同样不含学生 id、姓名、学校、出生日期；只有人数与固定文字；不修改输入', () => {
+    const scenario = makeScenario({
+      students: [
+        makeStudent('stu-zq-001', { display_name: 'Zebulon Quarry (fictional)', school_name: 'Quarry Ridge Academy (fictional)', birth_date: '2010-05-17', age: 16 }),
+        makeStudent('stu-zq-002', { display_name: 'Ysolde Pemberly (fictional)', school_name: 'Pemberly Day School (fictional)', grade: null, birth_date: '2009-02-28' }),
+      ],
+      opportunities: [
+        makeOpp('o-team', { required_devices: [], team_requirement: { required: true, source_text: 'Teams only. (fictional)' }, preparation: [prep('prep-resume')] }),
+        makeOpp('o-age', { required_devices: [], location: { format: 'hybrid', country: 'US', state: 'CA' }, requirements: [req({ id: 'req-age', type: 'age', min: 18 })] }),
+      ],
+    });
+    const before = structuredClone(scenario);
+    const s = summarizeBarriers(scenario);
+    const json = JSON.stringify(s);
+    for (const st of scenario.students) {
+      for (const text of [st.id, st.display_name, st.school_name!, st.birth_date!]) expect(json).not.toContain(text);
+    }
+    expectInvariants(s);
+    expectNewPartInvariants(s);
+    expect(scenario).toEqual(before);
+  });
+});
+
 // ───────────────────────────── 页面 ─────────────────────────────
 
 describe('app/organizer/barriers/page.tsx', () => {
@@ -708,5 +1076,87 @@ describe('app/organizer/barriers/page.tsx', () => {
     expect(new Set(labels).size).toBe(labels.length);
     for (const label of labels) expect(SCENARIOS.some((e) => label.includes(e.title))).toBe(true);
     expect(html).not.toMatch(/role="region"[^>]*>\s*<table[^>]*>\s*<caption[^>]*>Summary \(pairs\)/);
+  });
+
+  it('新增部分：每个场景都有资格明细、参与形式、组队要求与材料负担，组队与材料在「Other demands on students」下；小数字提醒保留', () => {
+    const count = (needle: string) => html.split(needle).length - 1;
+    expect(count('Eligibility detail by requirement type (pairs)')).toBe(SCENARIOS.length);
+    expect(count('>Participation format (pairs)</caption>')).toBe(SCENARIOS.length);
+    expect(count('>Other demands on students</h3>')).toBe(SCENARIOS.length);
+    expect(count('>Team requirement (pairs)</caption>')).toBe(SCENARIOS.length);
+    expect(count('>Required application materials still to prepare (pairs)</caption>')).toBe(SCENARIOS.length);
+    // renderToStaticMarkup 把撇号转义成 &#x27;。
+    for (const text of [OTHER_DEMANDS_NOTE, TEAM_REQUIREMENT_NOTE, MATERIALS_BURDEN_NOTE, PARTICIPATION_TRANSPORT_NOTE, PARTICIPATION_INTERNET_NOTE]) {
+      expect(count(text.replace(/'/g, '&#x27;'))).toBe(SCENARIOS.length);
+    }
+    // 组队与材料表在障碍表之后（不混进障碍行）。
+    const firstBarrier = html.indexOf('>Real-world barriers (pairs)</caption>');
+    expect(html.indexOf('>Team requirement (pairs)</caption>')).toBeGreaterThan(firstBarrier);
+    expect(html).not.toContain('no online option');
+    expect(html).toContain('In person (per the listing)');
+  });
+
+  it('顶部说明框：保留小数字提醒原文，并另加一句：新增各表用于真实数据前同样需要小数字抑制', () => {
+    const noteStart = html.indexOf('<div role="note"');
+    const note = html.slice(noteStart, html.indexOf('</div>', noteStart));
+    expect(note).toContain(`>${SENTENCE}</p>`);
+    expect(note).toContain(
+      'Counts here are small. With real data, small counts could identify individual students, so a real version would need a minimum group size before showing a number.',
+    );
+    expect(note).toContain('would also need small-count suppression');
+    expect(note).toContain('counting pairs instead of people does not protect them');
+  });
+});
+
+// ───────────────────────────── 新增表格组件（fixture 渲染） ─────────────────────────────
+
+describe('app/organizer/barriers/detail-tables.tsx', () => {
+  const src = readFileSync(fileURLToPath(new URL('../../app/organizer/barriers/detail-tables.tsx', import.meta.url)), 'utf8');
+  const render = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el);
+
+  it('不是客户端组件；不 import 场景数据、lib/data 或 JSON；不读学生字段', () => {
+    expect(src).not.toMatch(/['"]use client['"]/);
+    expect(src).not.toMatch(/from\s+['"][^'"]*(scenarios|lib\/data|\.json)['"]/);
+    expect(src).not.toMatch(/\.students\b/);
+    expect(src).not.toContain('display_name');
+    expect(src).not.toContain('school_name');
+  });
+
+  it('资格明细表：有不符合 / 未知的对时渲染成表格（caption、th scope、按类型的人数与计数规则说明），不含学生信息', () => {
+    const scenario = makeScenario({
+      students: [makeStudent('stu-ok'), makeStudent('stu-young', { grade: 8 }), makeStudent('stu-nograde', { grade: null })],
+      opportunities: [makeOpp('o1', { required_devices: [] })],
+    });
+    const html = render(createElement(EligibilityDetailTable, { summary: summarizeBarriers(scenario) }));
+    expect(html).toMatch(/^<div[^>]*><table[^>]*><caption[^>]*>Eligibility detail by requirement type \(pairs\)<\/caption>/);
+    expect(html).not.toContain('Every pair in this scenario is eligible.');
+    expect(html.match(/<th scope="col"/g)).toHaveLength(3);
+    expect(html.match(/<th scope="row"/g)).toHaveLength(ELIGIBILITY_DETAIL_ORDER.length);
+    for (const t of ELIGIBILITY_DETAIL_ORDER) expect(html).toContain(`>${ELIGIBILITY_DETAIL_LABELS[t]}</th>`);
+    expect(html).toMatch(/<th scope="row"[^>]*>Grade<\/th><td[^>]*>1<\/td><td[^>]*>1<\/td>/);
+    expect(html).toMatch(/<th scope="row"[^>]*>Age<\/th><td[^>]*>0<\/td><td[^>]*>0<\/td>/);
+    expect(html).toContain(ELIGIBILITY_DETAIL_NOTE);
+    for (const st of scenario.students) {
+      expect(html).not.toContain(st.id);
+      expect(html).not.toContain(st.display_name);
+    }
+  });
+
+  it('参与形式表：不适用的格子显示「—」并带读屏文字 not applicable', () => {
+    const s = summarizeBarriers(makeScenario({ students: [makeStudent('stu-1')], opportunities: [makeOpp('o1', { required_devices: [] })] }));
+    const html = render(createElement(ParticipationTable, { title: 'Fixture scenario', summary: s }));
+    // online 行 2 格、in_person 行 2 格、unknown 行 4 格不适用；hybrid 行全部适用。
+    expect(html.split('<span aria-hidden="true">—</span><span class="sr-only">not applicable</span>').length - 1).toBe(8);
+    expect(html).toContain('aria-label="Participation format table for Fixture scenario (scrolls horizontally)"');
+    expect(html).toContain('>Student transport not recorded or unreadable</th>');
+  });
+
+  it('其他要求：组队与必需材料两张表，带各自的说明', () => {
+    const s = summarizeBarriers(makeScenario({ students: [makeStudent('stu-1')], opportunities: [dupOpp()] }));
+    const html = render(createElement(OtherDemands, { summary: s }));
+    expect(html).toContain('>Team requirement (pairs)</caption>');
+    expect(html).toContain('>Required application materials still to prepare (pairs)</caption>');
+    expect(html).toMatch(/<th scope="row"[^>]*>3 or more items<\/th><td[^>]*>1<\/td><td[^>]*>0<\/td>/);
+    expect(html).toContain(MATERIALS_BURDEN_NOTE.replace(/'/g, '&#x27;'));
   });
 });
