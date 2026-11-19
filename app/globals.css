@@ -259,10 +259,14 @@ body::before {
   }
 }
 
+/* The organizer scenario select still carries Tailwind's bg-white. Now that white is real white,
+   keep it on the dark surface. This rule is deliberately outside any @layer: Tailwind utilities
+   sit in the utilities layer, which beats the components layer, and unlayered rules beat both. */
+.shell-main select.bg-white { background-color: var(--color-surface); }
+
 /* Phase 3: shared layout and accessibility polish. The legacy organizer select
    intentionally keeps its dark surface; white utilities now mean actual white. */
 @layer components {
-  .shell-main select.bg-white { background-color: var(--color-surface); }
   .rpg-stack, .rpg-stack > *, .rpg-row > *, .home > * { min-width: 0; }
   .shell-main { overflow-wrap: anywhere; }
   .rpg-button { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
