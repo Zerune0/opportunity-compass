@@ -11,6 +11,7 @@
  * 结果区下方的「回到学生端的桥」（./student-bridge）是明确标注的本地演示操作：拿同一次计算的方案明细
  * （runWhatIfWithPlan 的 plan，不再求解一次），只渲染关于载入档案的一句话，不渲染方案明细里的任何学生信息。
  */
+import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import {
   defaultWhatIfInput,
@@ -146,6 +147,11 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
           <p className="font-semibold">{WHATIF_LABELS.sample}</p>
           <p className="text-sm">{WHATIF_LABELS.reachable_not_admission}. This page shows only aggregate counts, never any student&apos;s personal information.</p>
         </div>
+        <p className="text-sm">
+          <Link href="/organizer/barriers" className="inline-flex min-h-11 items-center">
+            Barrier summary (Sample): counts by barrier type and eligibility
+          </Link>
+        </p>
         <div className="space-y-1">
           <label htmlFor={selectId} className="block font-medium">
             Demo scenario (Sample)
