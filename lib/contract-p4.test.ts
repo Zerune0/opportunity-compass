@@ -147,7 +147,7 @@ describe('契约 p4：validateOpportunity 接受 team_requirement', () => {
     ['必须组队带人数', { required: true, min_size: 2, max_size: 4, source_text: 'Teams of 2-4 students.' }],
     ['个人参加', { required: false, min_size: null, max_size: null, source_text: 'Individuals may enter.' }],
     ['min = max', { required: true, min_size: 3, max_size: 3, source_text: null }],
-    ['只有 min', { required: true, min_size: 0, source_text: null }],
+    ['只有 min', { required: true, min_size: 1, source_text: null }],
   ])('合法：%s', (_label, team) => {
     const opp = { ...base } as Record<string, unknown>;
     if (team === undefined) delete opp.team_requirement;
@@ -160,6 +160,7 @@ describe('契约 p4：validateOpportunity 接受 team_requirement', () => {
     ['数组', [], 'team_requirement'],
     ['required 是字符串', { required: 'yes', source_text: null }, 'team_requirement.required'],
     ['缺 required', { source_text: null }, 'team_requirement.required'],
+    ['min_size 为 0', { required: true, min_size: 0, source_text: null }, 'team_requirement.min_size'],
     ['min_size 负数', { required: true, min_size: -1, source_text: null }, 'team_requirement.min_size'],
     ['max_size 小数', { required: true, max_size: 2.5, source_text: null }, 'team_requirement.max_size'],
     ['min > max', { required: true, min_size: 5, max_size: 2, source_text: null }, 'team_requirement.min_size'],
@@ -240,7 +241,7 @@ describe('契约 p4：引擎行为不变', () => {
       ...before,
       routes: before.routes.map((r) => ({
         ...r,
-        steps: r.steps.map((s) => ({ ...s, relation: 'Covers an official prep item', official: 'official_requirement' as const, evidence_needed: 'A public project link' })),
+        steps: r.steps.map((s) => ({ ...s, relation: 'Covers an official prep item', official: 'official_requirement' as const, evidence_needed: 'project' as const })),
       })),
     };
     const plain = diffRoutes(before, before);

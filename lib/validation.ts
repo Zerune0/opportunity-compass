@@ -482,12 +482,12 @@ function validateOpportunityInto(r: Reporter, value: unknown): void {
       if (team.required !== null && typeof team.required !== 'boolean') {
         r.add('team_requirement.required', 'true / false, or null when not clear', team.required);
       }
-      const isNonNegInt = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+      const isPositiveInt = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 1;
       for (const k of ['min_size', 'max_size']) {
         const v = team[k];
-        if (v != null && !isNonNegInt(v)) r.add(`team_requirement.${k}`, 'a non-negative integer or null (optional)', v);
+        if (v != null && !isPositiveInt(v)) r.add(`team_requirement.${k}`, 'a whole number of at least 1, or null (optional)', v);
       }
-      if (isNonNegInt(team.min_size) && isNonNegInt(team.max_size) && (team.min_size as number) > (team.max_size as number)) {
+      if (isPositiveInt(team.min_size) && isPositiveInt(team.max_size) && (team.min_size as number) > (team.max_size as number)) {
         r.add('team_requirement.min_size', `at most max_size (${team.max_size as number})`, team.min_size);
       }
       if (team.source_text !== null && typeof team.source_text !== 'string') {

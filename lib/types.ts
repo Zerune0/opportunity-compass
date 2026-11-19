@@ -683,8 +683,12 @@ export interface RouteStep {
   relation?: string | null;
   /** 这一步的性质：官方要求 / 团队建议 / 申请步骤；null / 缺失 = 未记录。 */
   official?: RouteStepOfficial | null;
-  /** 完成这一步需要留下的证据（如「一个公开的作品链接」）；null / 缺失 = 未记录。 */
-  evidence_needed?: string | null;
+  /**
+   * 完成这一步后能在 Skill Passport / Journal 里记下的证据或材料的**种类代码**（不是给学生看的句子）：
+   * 取自对应准备项的 material_kind（MaterialKind），没有时取它能产出的证据种类（EvidenceKind）。
+   * 页面显示前要查自己的标签表。这一步不产出可记录的东西（如「提交申请」）为 null；缺失 = 未记录。
+   */
+  evidence_needed?: EvidenceKind | MaterialKind | null;
 }
 
 export interface Route {
@@ -1423,11 +1427,15 @@ export interface AlternativeSuggestion {
    * stepping_stone = 目录里一条该学生现在能参加、能为目标积累证据的已核实机会；**不是官方前置条件**，界面不得说成前置。
    * remote_option = 交通受阻时的线上参加途径；目标自身为 hybrid 时 opportunity_id 可指向目标自己，
    * 此时文字必须是「向官方确认」是否可线上参加，不得断言可以。
+   * 结果顺序固定：next_cycle → same_field → stepping_stone → remote_option。
+   * 同一条机会不同时出现在 same_field 和 stepping_stone 里（能说清证据关系的归 stepping_stone）。
    */
   kind: 'next_cycle' | 'same_field' | 'stepping_stone' | 'remote_option';
   /**
    * 建议的机会 id：same_field 为目录中的那个机会；next_cycle 指原机会自身（可为原机会的 id），
    * 目录里没有可指的机会时为 null。
+   * stepping_stone 为目录中的那个机会（不会是 null）；remote_option 为目录中的线上机会，或（目标为 hybrid 时）目标自身。
+   * 可能是用户发布的机会（没有 /quests/[id] 页面），页面生成链接前要先确认它在已核实目录里。
    */
   opportunity_id: string | null;
   /** 机会标题（next_cycle 时为原机会标题）。 */
@@ -1437,11 +1445,14 @@ export interface AlternativeSuggestion {
   /**
    * 该学生对这个建议机会的资格结论（checkEligibility 的 overall）；无法评估时为 null。
    * same_field 的建议不得是 'not_eligible'。next_cycle 时是对「下一届」无法预先判断，为 null。
+   * stepping_stone 不得是 'not_eligible'；remote_option 指向其他机会时不得是 'not_eligible'，指向目标自身时为目标的资格结论。
    */
   eligibility_overall: OverallEligibility | null;
   /**
    * 与原机会共有的领域标签（Opportunity.fields 的交集，按 lib/tags.ts 的 normalizeTag 比较），
    * 用建议机会原本的写法；next_cycle 时为原机会的全部 fields（按 normalizeTag 去重，保留第一个写法）。
+   * stepping_stone / remote_option 同 same_field 取交集（可为空数组：stepping_stone 的关系可以只是证据种类）；
+   * remote_option 指向目标自身时同 next_cycle。
    */
   shared_fields: string[];
 }
