@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { saveSavedOpportunityIds } from "../../lib/store";
 import { normalizeTag } from "../../lib/tags";
+import { VerificationAge } from "./verification-age-badge";
 import type { Opportunity } from "../../lib/types";
 import { emptyFilters, filterCatalog, orderedCatalog, type BoardFilters } from "./board-model";
 import { sourceLabels, useQuestContext } from "./use-quest-context";
@@ -53,7 +54,7 @@ export default function QuestBoard() {
  <h2><Link href={`/quests/${encodeURIComponent(o.id)}`}>{o.title}</Link></h2><p>{o.organizer}</p><p>{o.summary}</p>
  <dl><dt>Deadline</dt><dd>{o.deadline ?? "Unknown, confirm with the organizer"}</dd><dt>Location</dt><dd>{[o.location.city, o.location.state, o.location.country].filter(Boolean).join(", ") || (o.location.format === "online" ? "Online" : o.location.format === "unknown" ? "Format unknown — confirm with the organizer" : "Unknown, confirm with the organizer")}</dd>
  <dt>Time</dt><dd>{o.time_commitment.hours_per_week == null ? "Weekly hours unknown" : `${o.time_commitment.hours_per_week} h/week`}; {o.time_commitment.total_weeks == null ? "duration unknown" : `${o.time_commitment.total_weeks} ${o.time_commitment.total_weeks === 1 ? "week" : "weeks"}`}</dd>
- <dt>Program fee</dt><dd>{o.cost.fee_usd == null ? "Unknown, confirm with the organizer" : o.cost.fee_usd === 0 ? "Free" : `$${o.cost.fee_usd}`}</dd><dt>Source</dt><dd>{sourceLabels[o.source_tier ?? "official"]}</dd><dt>{o.source_tier === "user_posted" ? "Sample record date" : "Verified"}</dt><dd>{o.verified_on}</dd></dl>
+ <dt>Program fee</dt><dd>{o.cost.fee_usd == null ? "Unknown, confirm with the organizer" : o.cost.fee_usd === 0 ? "Free" : `$${o.cost.fee_usd}`}</dd><dt>Source</dt><dd>{sourceLabels[o.source_tier ?? "official"]}</dd><dt>{o.source_tier === "user_posted" ? "Sample record date" : "Verified"}</dt><dd>{o.verified_on}<VerificationAge opportunity={o} today={context.today} /></dd></dl>
  {sort === "match" && explanations.get(o.id)?.reasons.map(r => <p key={r.kind}>{r.text}</p>)}
  <button type="button" className="rpg-button rpg-button--secondary" disabled={!context.loaded} aria-pressed={saved.includes(o.id)} aria-label={`${saved.includes(o.id) ? "Unsave" : "Save"} ${o.title}`} onClick={() => toggle(o.id)}>{saved.includes(o.id) ? "Saved" : "Save opportunity"}</button>
  {o.source_tier !== "user_posted" && !o.is_sample && <a href={o.official_url}>Official application</a>}
