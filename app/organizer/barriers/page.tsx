@@ -3,38 +3,37 @@ import Link from "next/link";
 import { SCENARIOS } from "@/lib/joint/scenarios";
 import { NOT_REMOVABLE_REASONS, NOT_REMOVABLE_REASON_TEXT, summarizeBarriers } from "@/lib/joint/barrier-report";
 import type { BarrierRow, BarrierSummary } from "@/lib/joint/barrier-report";
+import {
+  CAPTION_CLASS,
+  EligibilityDetailTable,
+  HEAD_ROW_CLASS,
+  OtherDemands,
+  ParticipationTable,
+  ROW_CLASS,
+  ScrollTable,
+  TD_NUM,
+  TH_COL,
+  TH_COL_NUM,
+  TH_ROW,
+} from "./detail-tables";
 
 export const metadata: Metadata = {
   title: "Barrier summary (Sample) · Opportunity Compass",
   description:
-    "Aggregate counts of (student, opportunity) pairs on sample organizer scenarios: eligibility, real-world barriers (time, cost, transport, device) and how many pairs approved support measures could help (upper bound). Sample data. Not a measure of real need.",
+    "Aggregate counts of (student, opportunity) pairs on sample organizer scenarios: eligibility, real-world barriers (time, cost, transport, device), how many pairs approved support measures could help (upper bound), participation format, and team and materials demands. Sample data. Not a measure of real need.",
 };
 
 /**
  * 主办方「障碍汇总」页面（server component，静态）。
  * 在服务器端对每个演示场景调用 lib/joint/barrier-report 的 summarizeBarriers，只渲染它返回的人数与固定英文文字，
  * 外加场景标题、评估日期与（用真实机会的场景）realOpportunityNote。
+ * 资格明细、参与形式、组队要求与材料负担也都来自 summarizeBarriers（口径见那个文件的文件头）；
+ * 组队与材料放在「Other demands on students」下，明确不是障碍、措施去不掉。
+ * 这四张表与共用的表格样式在 ./detail-tables（同样是服务器端渲染，不读学生或场景对象）。
  * 不渲染任何单个学生的信息；不使用客户端组件（Link 只拿到固定的 href 与文字），场景与学生对象不会进入浏览器。
  * lib/joint/scenarios 只在这里（服务器端）import，客户端组件不要 import 它。
  * 全部是示例 / 模拟数据；可达 ≠ 录取；「可去掉」的计数都是上界（不看名额、预算等）。
  */
-
-/** 可能比窄屏宽的表格外层：横向滚动（与 what-if.tsx 相同做法），标签含场景标题以保证唯一。 */
-function ScrollTable({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="max-w-full overflow-x-auto" tabIndex={0} role="region" aria-label={`${label} (scrolls horizontally)`}>
-      {children}
-    </div>
-  );
-}
-
-const CAPTION_CLASS = "pb-1 text-left font-semibold";
-const TH_COL = "py-1 pr-3 font-medium";
-const TH_COL_NUM = "py-1 pr-3 text-right font-medium";
-const TH_ROW = "py-1 pr-3 text-left font-normal";
-const TD_NUM = "py-1 pr-3 text-right tabular-nums";
-const ROW_CLASS = "border-b border-gray-200 align-top";
-const HEAD_ROW_CLASS = "border-b border-gray-400 text-left";
 
 function EligibilityTable({ title, summary }: { title: string; summary: BarrierSummary }) {
   return (
@@ -305,10 +304,13 @@ function ScenarioSection({
         </ul>
       </div>
       <EligibilityTable title={title} summary={summary} />
+      <EligibilityDetailTable summary={summary} />
       <div className="space-y-3">
         <BarrierTable title={title} summary={summary} />
         <ReasonTable title={title} rows={summary.barrier_rows} />
       </div>
+      <ParticipationTable title={title} summary={summary} />
+      <OtherDemands summary={summary} />
       <SummaryTable summary={summary} />
       <MissingInfoTable summary={summary} />
       <div>
@@ -347,6 +349,11 @@ export default function BarrierSummaryPage() {
           <p className="text-sm">
             Counts here are small. With real data, small counts could identify individual students, so a real version would
             need a minimum group size before showing a number.
+          </p>
+          <p className="text-sm">
+            The eligibility detail, participation format, team and materials tables would also need small-count suppression
+            before any use with real data: they group pairs by profile details and sensitive traits such as citizenship, age,
+            student status and home internet, and counting pairs instead of people does not protect them.
           </p>
         </div>
       </header>

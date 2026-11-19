@@ -46,18 +46,27 @@ export function filterCatalog(catalog: Opportunity[], f: BoardFilters, saved: st
         return true;
     });
 }
-export function orderedCatalog(catalog: Opportunity[], sort: string, profile: StudentProfile | null, grants: ResourceGrant[], today: string) {
-    const explanations = new Map(catalog.map(o => [o.id, profile ? explainMatch(profile, o, { today, grants }) : null]));
-    const items = [...catalog].sort((a, b) => {
+export type BoardExplanations = ReadonlyMap<string, ReturnType<typeof explainMatch> | null>;
+/** Compute once per catalog/profile/grants/reference-date state, before discovery filters. */
+export function explainCatalog(catalog: Opportunity[], profile: StudentProfile | null, grants: ResourceGrant[], today: string) {
+    return new Map(catalog.map(o => [o.id, profile ? explainMatch(profile, o, { today, grants }) : null]));
+}
+/** Sorting only: never calls the eligibility or matching engine. */
+export function orderPreparedCatalog(catalog: Opportunity[], sort: string, hasProfile: boolean, explanations: BoardExplanations) {
+    return [...catalog].sort((a, b) => {
         const tier = Number(a.source_tier === "user_posted") - Number(b.source_tier === "user_posted");
         if (tier)
             return tier;
-        if (sort === "match" && profile) {
+        if (sort === "match" && hasProfile) {
             const interest = Number(!!explanations.get(b.id)?.shared_interests.length) - Number(!!explanations.get(a.id)?.shared_interests.length);
             if (interest)
                 return interest;
         }
         return (a.deadline ?? "9999-12-31").localeCompare(b.deadline ?? "9999-12-31") || a.title.localeCompare(b.title);
     });
-    return { items, explanations };
+}
+/** Compatibility wrapper for callers that do not keep a prepared map. */
+export function orderedCatalog(catalog: Opportunity[], sort: string, profile: StudentProfile | null, grants: ResourceGrant[], today: string) {
+    const explanations = explainCatalog(catalog, profile, grants, today);
+    return { items: orderPreparedCatalog(catalog, sort, !!profile, explanations), explanations };
 }
