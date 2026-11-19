@@ -6,17 +6,17 @@ import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import { catalogOpportunities } from "@/lib/data";
 import { findAlternatives } from "@/lib/match";
 import { planRoutes } from "@/lib/path";
-import { clearPlanSnapshots, latestPlanSnapshot, loadPlanSnapshots, loadProfile, pushPlanSnapshot } from "@/lib/store";
+import { clearPlanSnapshots, latestPlanSnapshot, loadGrants, loadPlanSnapshots, loadProfile, pushPlanSnapshot } from "@/lib/store";
 import { nextSnapshot } from "./plan-snapshots";
 import { RecommendationReplay } from "./RecommendationReplay";
-import type { Opportunity, PlanSnapshot, StudentProfile } from "@/lib/types";
+import type { Opportunity, PlanSnapshot, ResourceGrant, StudentProfile } from "@/lib/types";
 
 const catalog = catalogOpportunities();
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
-  const [context, setContext] = useState<{ profile: StudentProfile | null; today: string }>();
+  const [context, setContext] = useState<{ profile: StudentProfile | null; today: string; grants: ResourceGrant[] }>();
   const [selected, setSelected] = useState<string>();
   const [classic, setClassic] = useState(false);
   const [snapshots, setSnapshots] = useState<PlanSnapshot[]>([]);
@@ -26,7 +26,10 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       const date = new Date();
       const today = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
         .toISOString().slice(0, 10);
-      setContext({ profile: loadProfile(), today });
+      const loaded = loadProfile();
+      // The student's own grants, so alternatives here match Quest Details (support already approved counts).
+      const grants = loaded ? loadGrants().filter((grant) => grant.student_id === loaded.id) : [];
+      setContext({ profile: loaded, today, grants });
       setClassic(new URLSearchParams(window.location.search).get("view") === "classic");
     }
     const initialRead = window.setTimeout(refresh);
@@ -76,7 +79,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const route = plan?.routes.find((item) => item.id === selected) ?? plan?.routes[0];
 
   const alternatives = profile && context
-    ? findAlternatives(profile, opportunity, catalog, { today: context.today })
+    ? findAlternatives(profile, opportunity, catalog, { today: context.today, grants: context.grants })
     : [];
 
   return (
@@ -100,7 +103,8 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         <QuestCard><h2>Routes unavailable</h2>
           <ul className="rpg-list">{plan.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
           <ul className="rpg-list">{plan.blocking_requirements.map((requirement, index) => <li key={index}>{requirement.source_text}</li>)}</ul>
-          <ul className="rpg-list">{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul>
+          {/* The concrete list below replaces these general hints when it has anything to show. */}
+          {alternatives.length === 0 && <ul className="rpg-list">{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul>}
         </QuestCard>
       )}
       {plan?.status === "routes" && (
@@ -212,6 +216,9 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       )}
       {alternatives.length > 0 && <QuestCard>
         <h2>Other opportunities and future rounds</h2>
+        <p className="rpg-muted">{plan?.status === "blocked"
+          ? "These are alternatives; they do not change this opportunity's requirements."
+          : "These are alternatives, not prerequisites."}</p>
         <ul className="rpg-list">{alternatives.map((alternative, index) => <li key={index}>
           {alternative.kind === "same_field" && alternative.opportunity_id
             ? <Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link>
