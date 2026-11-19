@@ -71,10 +71,13 @@ export function buildOrganizerQuestions(
     const questions = unique([
         ...organizerItems.map(item => {
             const label = hasFieldPath(item.label) ? "this eligibility requirement" : item.label;
-            const prompt = item.confirm_with_official!.trim();
-            return hasFieldPath(prompt)
-                ? `Could you please clarify ${label} and how an applicant can verify this requirement?`
-                : `Regarding ${label}: ${prompt}`;
+            const priority = item.hard ? "Required eligibility" : "Official preference — not a hard eligibility requirement";
+            const question = item.hard
+                ? "Could you please clarify this requirement and what evidence applicants should provide?"
+                : "Could you please clarify how this preference is considered in selection?";
+            const source = item.source_text.trim();
+            const wording = source && !hasFieldPath(source) ? ` Your official page states: “${source}”` : "";
+            return `Regarding ${label}: ${priority}. ${question}${wording}`;
         }),
         ...missingInfo.filter(field => field.startsWith("opportunity.")).map(field =>
             (Object.hasOwn(participationQuestions, field) ? participationQuestions[field] : undefined) ?? "Could you please clarify the remaining participation details that are not specified on the official page?",
