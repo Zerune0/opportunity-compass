@@ -16,7 +16,7 @@ function doableCell(item: CrossPlanItem): string {
 export function PlanItemsTable({ items }: { items: CrossPlanItem[] }) {
   return (
     <div className="overflow-x-auto max-w-full print:overflow-visible">
-      <table className="rpg-classic-table">
+      <table className="rpg-classic-table journal-plan-table">
         <caption>Each quest, in deadline order</caption>
         <thead>
           <tr>

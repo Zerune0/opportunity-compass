@@ -313,4 +313,15 @@ body::before {
   .rpg-classic-table tr { display: table-row; break-inside: avoid; }
   .rpg-classic-table :is(th, td) { display: table-cell; padding: 3pt; }
   .rpg-classic-table td::before { content: none; }
+  /* Ten plan columns cannot stay readable on portrait paper. Print each quest
+     as labelled fields; keep the shorter weekly-load table in table form. */
+  .journal-plan-table { display: block; font-size: 10pt; }
+  .journal-plan-table caption { display: block; text-align: left; }
+  .journal-plan-table thead { display: none; }
+  .journal-plan-table tbody { display: block; }
+  .journal-plan-table tr { display: block; border: 1px solid #777; margin-block: 8pt; padding: 6pt; break-inside: auto; }
+  .journal-plan-table :is(th, td) { display: block; border: 0; padding: 2pt 0; overflow-wrap: break-word; }
+  .journal-plan-table :is(th, td)::before { content: attr(data-label) ": "; font-weight: bold; }
+  .journal-plan-table th { font-size: 11pt; }
+  .journal-plan-table td { break-inside: avoid; }
 }
