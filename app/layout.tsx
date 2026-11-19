@@ -20,6 +20,7 @@ const navItems = [
   { href: "/passport", label: "Passport" },
   { href: "/journal", label: "Journal" },
   { href: "/organizer", label: "Organizer" },
+  { href: "/connect", label: "Connect" },
   { href: "/data", label: "Your data" },
 ];
 

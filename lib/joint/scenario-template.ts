@@ -41,7 +41,11 @@ export interface ScenarioTemplate {
   is_sample: true;
   evaluation_date: ISODate;
   budget_usd: number;
-  /** 已核实目录（data/opportunities.json）里的机会 id；null = 还没定（此时不构建场景）。 */
+  /**
+   * 机会 id；null = 还没定（此时不构建场景）。./scenarios 先查已核实目录（data/opportunities.json），
+   * 查不到再用 device-loan 场景里的示例 / 占位机会。共享支持场景目前填的是示例机会 placeholder-inperson-event；
+   * 以后可以换成目录里的真实机会。
+   */
   opportunity_ref: string | null;
   /** data/profiles.json 里可载入的示例档案 id；null = 还没定（此时不构建场景）。 */
   demo_student_ref: string | null;
@@ -133,7 +137,7 @@ export function assertScenarioTemplateShape(value: unknown, label = 'scenario te
 
 /** 构建器的输入：两个解析结果，以及（可选）全部可载入示例档案的 id。 */
 export interface ScenarioTemplateInputs {
-  /** 已核实目录里的机会（原对象）。 */
+  /** 机会（原对象）：已核实目录里的，或 device-loan 场景里的示例机会（共享支持场景目前用后者）。 */
   opportunity: Opportunity;
   /** 可载入的示例档案（原对象）。 */
   demoStudent: StudentProfile;

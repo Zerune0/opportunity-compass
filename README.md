@@ -22,7 +22,7 @@ What you can open and use on the live site. All student data stays in this brows
 - **Your data (`/data`):** see what is stored in this browser, download it as one JSON file, import such a file (it replaces what is stored; no merging), or delete it all. This is a manual backup file, not sync.
 - **Organizer what-if (`/organizer`):** a simulation page (see the next section) that runs the joint solver and the independent verifier on sample scenarios and shows aggregate counts only, never individual students.
 
-Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEligibility`, `analyzeReachability`, `planRoutes`, `diffRoutes`, `analyzeGaps`, `findAlternatives`, `explainMatch`, `planAcrossOpportunities`, `solveJoint`, `verifyPlan` and `compareBaselines`. `npm test` currently runs 2,500 tests in 53 files (41 under `lib/`, 12 under `app/`), including fairness control tests (`lib/fairness.test.ts`, `lib/fairness-p2.test.ts`, `lib/fairness-p4.test.ts`) showing results do not change when only the school name or display name changes, and an end-to-end engine test of the demo path (`lib/demo-mainline.test.ts`).
+Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEligibility`, `analyzeReachability`, `planRoutes`, `diffRoutes`, `analyzeGaps`, `findAlternatives`, `explainMatch`, `planAcrossOpportunities`, `solveJoint`, `verifyPlan` and `compareBaselines`. `npm test` currently runs 2,698 tests in 61 files (47 under `lib/`, 14 under `app/`), including fairness control tests (`lib/fairness.test.ts`, `lib/fairness-p2.test.ts`, `lib/fairness-p4.test.ts`) showing results do not change when only the school name or display name changes, and an end-to-end engine test of the demo path (`lib/demo-mainline.test.ts`).
 
 Engine additions in this round (rules in `CONTRACT.md`, tests in `lib/engine-p4.test.ts` and `lib/fairness-p4.test.ts`): `planRoutes` can add a "Beginner competition" route when it is given the verified catalog and finds a related hackathon or competition that ends before the target's deadline, and every route step now says how it relates to the target, whether it is an official requirement, a team suggestion or the application itself, and what evidence it produces. `findAlternatives` can add evidence-building steps (`stepping_stone`, always worded as "not a prerequisite") and online options (`remote_option`; for a hybrid target it only says to confirm with the organizer), and `analyzeGaps` reads an opportunity's team requirement when one is recorded. On the 13 opportunities and 4 sample profiles as of 2026-11-19 these appear rarely, and we report that as is: 1 competition route (the sample profile Noor preparing for the Rutgers Newark summer research program is offered HackRare 2027, a rare-disease hackathon in the same field that ends before the Rutgers deadline; because HackRare does not state the hours it takes, the route says it cannot tell yet whether it fits before the deadline, and it notes that travel is not counted), 0 evidence-building steps, 0 online options (the Dan Herbatschek Fellowship is recorded with an unknown participation format because its official pages do not state one), and 1 team requirement (HackRare: teams of 2–5). All three kinds are produced in tests with clearly fictional fixtures. The Adventure Map passes the verified catalog to `planRoutes`, so a competition route would be shown as soon as the catalog contains a fitting competition.
 
@@ -33,7 +33,8 @@ Engine additions in this round (rules in `CONTRACT.md`, tests in `lib/engine-p4.
 - **Applying an organizer plan back to the student side is not wired up in the UI.** The storage functions for it exist (`addGrants`, `removeGrants`, `grantsByIntervention` in `lib/store.ts`, with tests), but no page calls them yet.
 
 ### Not built
-- **Connect** (Quest Creator, Talent Board, invitations): there are sample types and local storage functions in `lib/`, but **no pages**, not even a local sample demo.
+- **Connect is a local demo only** (`/connect`). Quest Creator posts a quest as one of four fictional sample publishers; the quest is saved in this browser, always labelled "User-posted · not verified against an official site · Sample", never shown as having an official page, and never used as a verified candidate for competition routes, evidence-building steps or online options. Talent Board lets the student choose, item by item, which skills, interests and evidence titles a sample publisher could see; everything is off by default, can be turned off at once, and the preview shows an anonymous handle with no name, school, age, grade, location or contact details. There are no real publishers, no invitations, no reporting or moderation, no stricter defaults for minors, and nobody is contacted.
+- **Barrier summary (`/organizer/barriers`)** shows aggregate counts of (student, opportunity) pairs per barrier type for each sample scenario, taken from the same engines the student pages use. It is sample data, not a measure of real need; it does not yet break out team requirements, material burden or online-participation limits.
 - The organizer action that writes approved support back to the student side (see above).
 - Everything under "Future work" below.
 
@@ -110,7 +111,8 @@ app/                    Next.js routes:
   passport/               /passport   Skill Passport (profile, sample profiles, evidence)
   journal/                /journal    Quest Journal (status lines, tasks, materials, cross-quest plan, .ics, print)
   data/                   /data       Your data: export / import / clear this browser's data
-  organizer/              /organizer  What-if page (simulated, sample scenarios)
+  organizer/              /organizer  What-if page (simulated, sample scenarios) and /organizer/barriers (aggregate barrier summary)
+  connect/                /connect    Local demo: Quest Creator and Talent Board with fictional sample publishers
 lib/                    Pure decision functions, shared types and storage (tested with Vitest)
   types.ts                shared types
   eligibility/            checkEligibility (incl. exact age from an optional date of birth)
@@ -138,7 +140,7 @@ docs/                   Product and engineering plans
 ## 后续计划 / Future work
 Not built in the four-day competition scope and **not implemented**:
 - Accounts and a database (data stays in one browser; the `/data` backup file is manual, not sync).
-- Real Quest Creator publishing, a real Talent Board and real consent-based two-way connection. Not even a local sample demo of these has pages yet.
+- Real Quest Creator publishing, a real Talent Board and real consent-based two-way connection (today there is only a local demo with fictional publishers). Also not built: invitations, reporting, blocking, rate limits, review of posted quests, stricter defaults for minors, and editing a posted quest.
 - Applying an organizer plan to the student side for a real opportunity and a real student (today this is a local demo with a sample profile and a placeholder opportunity).
 - Integration with real organizer data (all organizer scenarios are sample / simulated).
 - AI assistance inside the product (for example organizing opportunity information or wording explanations). It would need a server to hold an API key, which conflicts with the no-backend design, and explanations are currently rule-generated and reproducible.

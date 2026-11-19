@@ -4,6 +4,7 @@ import Link from "next/link";
 import { QuestCard, StatusTag } from "@/components/rpg";
 import { resolveRecordDate } from "@/lib/journal";
 import { recordJournalEvent, removeJournalEntry, toggleJournalTask } from "@/lib/store";
+import { journalOfficialUrl } from "@/lib/official-link";
 import type { JournalEntry, JournalEvent, Opportunity } from "@/lib/types";
 import { FeedbackForm } from "./FeedbackForm";
 import { StatusLines } from "./StatusLines";
@@ -27,7 +28,8 @@ type Props = {
 
 export function JournalEntryCard({ entry, opportunity, profileId, today, onChange }: Props) {
   const title = opportunity?.title ?? entry.opportunity_id;
-  const officialUrl = opportunity?.official_url ?? entry.official_url;
+  // Sample / user-posted records and placeholder addresses (example.com) are never shown as an official page.
+  const officialUrl = journalOfficialUrl(opportunity, entry.official_url);
   const headingId = `journal-entry-${entry.id}`;
 
   function record(event: JournalEvent, chosenDate: string) {
@@ -74,10 +76,18 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
       ) : (
         <p><StatusTag tone="warning">Not in catalog</StatusTag> This opportunity is no longer in the catalog.</p>
       )}
-      {officialUrl && (
+      {officialUrl ? (
         <p>
           <a href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
           {" "}· You can apply there directly at any time.
+        </p>
+      ) : (
+        <p className="rpg-muted">
+          {opportunity?.source_tier === "user_posted"
+            ? "This is a sample record posted in this browser. It has no official page."
+            : opportunity
+              ? "This is a sample record. It has no official page."
+              : "No official page is on record for this entry."}
         </p>
       )}
 

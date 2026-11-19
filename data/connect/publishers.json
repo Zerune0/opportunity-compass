@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sample-riverbend-robotics-club",
+    "name": "Sample Riverbend Robotics Club",
+    "kind": "student_club",
+    "is_sample": true,
+    "description": "A fictional high school robotics club. It exists only in this local demo."
+  },
+  {
+    "id": "sample-tidepool-data-lab",
+    "name": "Sample Tidepool Data Lab",
+    "kind": "research_group",
+    "is_sample": true,
+    "description": "A fictional university research group that studies coastal water data. It exists only in this local demo."
+  },
+  {
+    "id": "sample-green-corner-garden",
+    "name": "Sample Green Corner Community Garden",
+    "kind": "nonprofit",
+    "is_sample": true,
+    "description": "A fictional neighborhood nonprofit that runs a community garden. It exists only in this local demo."
+  },
+  {
+    "id": "sample-open-trails-map-team",
+    "name": "Sample Open Trails Map Team",
+    "kind": "project_team",
+    "is_sample": true,
+    "description": "A fictional volunteer team that maps local walking trails. It exists only in this local demo."
+  }
+]

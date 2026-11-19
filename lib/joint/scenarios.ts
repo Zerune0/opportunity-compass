@@ -98,8 +98,9 @@ export const VENUE_TRADEOFF_IDS = {
 
 /**
  * 共享支持场景的模板（data/scenarios/shared-support.json）。
- * 真实机会与演示学生确定后，只需在 JSON 里填 `opportunity_ref`（data/opportunities.json 的机会 id）
- * 与 `demo_student_ref`（data/profiles.json 的示例档案 id），再按真实机会调整示例学生的资格字段与预算 / 名额。
+ * 两个 ref 已填好：`opportunity_ref` 目前是 device-loan 场景里的示例机会 placeholder-inperson-event（不是目录里的真实机会），
+ * `demo_student_ref` 是 data/profiles.json 的一份示例档案。模板支持以后把 `opportunity_ref` 换成已核实目录
+ * （data/opportunities.json）里的真实机会 id，届时再按那个机会调整示例学生的资格字段与预算 / 名额。
  */
 export const sharedSupportTemplate: ScenarioTemplate = assertScenarioTemplateShape(sharedSupportJson as unknown, 'shared-support');
 

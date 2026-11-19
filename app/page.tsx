@@ -112,6 +112,12 @@ export default function Home() {
             <Link href="/organizer">Organizer what-if</Link>
             <span className="rpg-small rpg-muted"> &middot; support module &middot; simulated</span>
           </li>
+          <li>
+            <Link href="/connect">Connect (local demo)</Link>
+            <span className="rpg-small rpg-muted">
+              {" "}&middot; post a sample quest or choose what a sample publisher could see. No real publishers, nothing leaves this browser.
+            </span>
+          </li>
         </ul>
       </section>
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fmt } from "@/lib/format";
+import { hasOfficialPage } from "@/lib/official-link";
 import { planAcrossOpportunities } from "@/lib/planner";
 import type { JournalEntry, Material, Opportunity, StudentProfile } from "@/lib/types";
 import { missingInfoLabel } from "./missing-info";
@@ -48,7 +49,8 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
           title: opp.title,
           deadline: opp.deadline,
           deadline_note: opp.deadline_note ?? null,
-          official_url: opp.official_url,
+          // The calendar file labels this "Official page": leave it out for sample / user-posted records.
+          official_url: hasOfficialPage(opp) ? opp.official_url : null,
           application: entry.application,
           program_start: opp.time_commitment?.start_date ?? null,
           program_end: opp.time_commitment?.end_date ?? null,
