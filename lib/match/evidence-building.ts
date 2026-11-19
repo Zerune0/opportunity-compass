@@ -39,6 +39,7 @@ import { dayNumber, parseISODate } from '../eligibility/dates';
 import { findCoveringEvidence } from '../reachability/coverage';
 import { asArray, safeOpportunity, safeProfile } from '../gap/inputs';
 import { normalizedTagSet, sharedTags } from '../tags';
+import { fmt } from '../format';
 import type {
   EvalOptions,
   EvidenceKind,
@@ -213,4 +214,28 @@ export function findEvidenceBuildingCandidates(
 /** 一条对应关系的英文短语，如 `the prep item "Build a small project"` / `the requirement "Portfolio"`。 */
 export function linkPhrase(link: EvidenceLink): string {
   return link.kind === 'requirement' ? `the requirement "${link.label}"` : `the prep item "${link.prep.title}"`;
+}
+
+/**
+ * 候选机会记录里的费用与参与形式，如实写成两句英文（只陈述记录，不做新的可达性判断）：
+ * - 费用：fee_usd 为有限且 ≥ 0 的数 → "Its listed fee is $X."（含 $0）；未知 → "Its fee is not stated."
+ * - 形式：online → "It takes place online."；in_person / hybrid → "It is in person / hybrid (partly in person)[ in <城市, 州, 国家>];
+ *   travel time and cost are not included."；未知 → "Its format is not stated."
+ */
+export function candidateFactsText(c: Opportunity): string {
+  const fee = c.cost?.fee_usd;
+  const feeText =
+    typeof fee === 'number' && Number.isFinite(fee) && fee >= 0 ? `Its listed fee is $${fmt(fee)}.` : 'Its fee is not stated.';
+  const loc = c.location;
+  let formatText: string;
+  if (loc?.format === 'online') {
+    formatText = 'It takes place online.';
+  } else if (loc?.format === 'in_person' || loc?.format === 'hybrid') {
+    const place = [loc.city, loc.state, loc.country].filter((x): x is string => typeof x === 'string' && x.trim() !== '').join(', ');
+    const kind = loc.format === 'in_person' ? 'in person' : 'hybrid (partly in person)';
+    formatText = `It is ${kind}${place ? ` in ${place}` : ''}; travel time and cost are not included.`;
+  } else {
+    formatText = 'Its format is not stated.';
+  }
+  return `${feeText} ${formatText}`;
 }

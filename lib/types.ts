@@ -1456,7 +1456,7 @@ export interface AlternativeSuggestion {
   /**
    * 与原机会共有的领域标签（Opportunity.fields 的交集，按 lib/tags.ts 的 normalizeTag 比较），
    * 用建议机会原本的写法；next_cycle 时为原机会的全部 fields（按 normalizeTag 去重，保留第一个写法）。
-   * stepping_stone / remote_option 同 same_field 取交集（可为空数组：stepping_stone 的关系可以只是证据种类）；
+   * stepping_stone / remote_option（指向目录中的其他机会）同 same_field 取交集，且不会是空数组（两者都要求与目标至少一个共同领域标签）；
    * remote_option 指向目标自身时同 next_cycle。
    */
   shared_fields: string[];

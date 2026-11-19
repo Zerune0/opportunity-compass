@@ -17,7 +17,7 @@ import {
   saveViewPreference,
   storageKey,
 } from './store';
-import { ROUTE_STEP_OFFICIAL_KINDS, ROUTE_TYPES, VIEW_PREFERENCES, type PlanResult, type ViewPreference } from './types';
+import { ROUTE_STEP_OFFICIAL_KINDS, ROUTE_TYPES, VIEW_PREFERENCES, type PlanResult, type StudentProfile, type ViewPreference } from './types';
 import { validateOpportunities, validateOpportunity } from './validation';
 import opportunitiesJson from '@/data/opportunities.json';
 
@@ -183,14 +183,18 @@ describe('契约 p4：引擎行为不变', () => {
   // 「与改动前引擎逐字相同」的基线只对记录时的数据快照有效；数据（data/*.json，归队友 A）变了就跳过，不失败。
   const baseline = lookupBaseline();
 
-  it('基线查找：当前数据指纹是否命中已知基线不影响通过；命中时下面两条必须逐字相等', () => {
-    expect(() => lookupBaseline()).not.toThrow();
-    expect(baseline === null || typeof baseline.plan === 'string').toBe(true);
-    for (const b of Object.values(BASELINE_HASHES)) {
-      expect(b.plan).toMatch(/^[0-9a-f]{8}$/);
-      expect(b.alternatives).toMatch(/^[0-9a-f]{8}$/);
-      expect(b.gaps).toMatch(/^[0-9a-f]{8}$/);
-    }
+  it('基线查找：当前数据指纹是否命中已知基线不影响通过；命中时下面几条必须逐字相等', () => {
+    // 哈希函数本身正确（32 位 FNV-1a 的公开测试向量），否则「指纹」与「逐字相同」的对照都没有意义。
+    expect(fnv1a('')).toBe('811c9dc5');
+    expect(fnv1a('a')).toBe('e40c292c');
+    expect(fnv1a('foobar')).toBe('bf9cf968');
+    // 查找只按当前数据的指纹取表里的那一项：命中时就是那一项，未命中时为 null（不抛错）。
+    const fp = fnv1a(JSON.stringify(catalogOpportunities()) + JSON.stringify(sampleProfiles()));
+    expect(lookupBaseline()).toBe(BASELINE_HASHES[fp] ?? null);
+    // 指纹对数据敏感：改一个字就不再命中（证明跳过条件不是恒真 / 恒假）。
+    const edited = fnv1a(JSON.stringify(catalogOpportunities().map((o, i) => (i === 0 ? { ...o, title: `${o.title}!` } : o))) + JSON.stringify(sampleProfiles()));
+    expect(edited).not.toBe(fp);
+    expect(BASELINE_HASHES[edited]).toBeUndefined();
   });
 
   it.skipIf(baseline === null)(
@@ -226,6 +230,36 @@ describe('契约 p4：引擎行为不变', () => {
       }
       expect(fnv1a(alts)).toBe(baseline.alternatives);
       expect(fnv1a(gaps)).toBe(baseline.gaps);
+    },
+  );
+
+  it.skipIf(baseline === null || baseline.diff == null)(
+    '没有 competition 路线的输入上，diffRoutes 与第四阶段修补之前逐字相同 (runs only on the data snapshots it was recorded for)',
+    () => {
+      let all = '';
+      for (const p of profiles) {
+        for (const o of catalog) {
+          const today = '2026-11-19';
+          const variants: StudentProfile[] = [
+            { ...p, hours_per_week_available: (p.hours_per_week_available ?? 1) * 3 },
+            { ...p, grade: (p.grade ?? 9) + 1 },
+            {
+              ...p,
+              evidence: [
+                ...p.evidence,
+                ...o.preparation.slice(0, 1).map((pr) => ({ id: 'ev-x', title: 'X', kind: 'project' as const, skills: [], prep_item_ids: [`${o.id}:${pr.id}`], status: 'self_reported' as const, added_on: '2026-11-01' })),
+              ],
+            },
+          ];
+          const before = planRoutes(p, o, { today, catalog });
+          for (const v of variants) {
+            const after = planRoutes(v, o, { today, catalog });
+            expect([...before.routes, ...after.routes].some((r) => r.type === 'competition')).toBe(false);
+            all += JSON.stringify(diffRoutes(before, after)) + JSON.stringify(diffRoutes(planRoutes(v, o, { today }), before));
+          }
+        }
+      }
+      expect(fnv1a(all)).toBe(baseline?.diff);
     },
   );
 
@@ -299,13 +333,22 @@ function fnv1a(str: string): string {
  * 想恢复这项对照，需用改动前的引擎在新数据上重新生成（不要直接改成当前输出）。
  * BASELINE_DIGESTS 在这两份数据上相同。
  */
-const BASELINE_HASHES: Record<string, { label: string; plan: string; alternatives: string; gaps: string }> = {
+interface Baseline {
+  label: string;
+  plan: string;
+  alternatives: string;
+  gaps: string;
+  /** diffRoutes 在没有 competition 的输入上的序列化哈希（用评审修补前的 diff.ts，64afaee，生成）；没记录时为缺省。 */
+  diff?: string;
+}
+
+const BASELINE_HASHES: Record<string, Baseline> = {
   c738bec7: { label: 'data at 0905b62', plan: '04e20ec5', alternatives: 'f4ac4dab', gaps: 'cd27af04' },
-  aea3ba98: { label: 'data at origin/main 3509d8e', plan: '09311aab', alternatives: '4a7b4cff', gaps: 'dbe476c8' },
+  aea3ba98: { label: 'data at origin/main 3509d8e', plan: '09311aab', alternatives: '4a7b4cff', gaps: 'dbe476c8', diff: 'f8b41e6e' },
 };
 
 /** 当前数据命中已知基线时返回它，否则 null（不抛错）。 */
-function lookupBaseline(): { label: string; plan: string; alternatives: string; gaps: string } | null {
+function lookupBaseline(): Baseline | null {
   const fp = fnv1a(JSON.stringify(catalogOpportunities()) + JSON.stringify(sampleProfiles()));
   return BASELINE_HASHES[fp] ?? null;
 }

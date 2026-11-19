@@ -18,7 +18,7 @@ import { findAlternatives } from './match';
 import { CONFIRM_ONLINE, STEPPING_STONE_NOTE } from './match';
 import { CATEGORY_PRODUCES, findEvidenceBuildingCandidates } from './match/evidence-building';
 import { diffRoutes, planRoutes } from './path';
-import { TEAM_RELATION, competitionDisclaimer, prepOfficial } from './path/plan';
+import { TEAM_RELATION, UNCLEAR_REQUIRED_RELATION, competitionDisclaimer, prepOfficial } from './path/plan';
 import { planAcrossOpportunities } from './planner';
 import type { Opportunity, PlanResult, PrepItem, Route, StudentProfile, TeamRequirement } from './types';
 
@@ -411,7 +411,7 @@ describe('findAlternatives：stepping_stone', () => {
     expect(s.shared_fields).toEqual(['Software-Development']);
     expect(s.reason).toBe(
       `Taking part in ${HACK.title} can give you project evidence for the requirement "A project you built", the prep item "Build a small web app" of ${PF_TARGET.title}. ` +
-        `It is also in Software-Development. You meet its hard requirements that we can check. ${STEPPING_STONE_NOTE}`,
+        `It is also in Software-Development. You meet its hard requirements that we can check. Its listed fee is $0. It takes place online. ${STEPPING_STONE_NOTE}`,
     );
     expect(STEPPING_STONE_NOTE).toBe('This builds evidence; it is not a prerequisite.');
   });
@@ -599,6 +599,170 @@ describe('analyzeGaps：team_requirement', () => {
     ['team_requirement 为 null', null],
   ])('%s → 不加，结果与没有这个字段时逐字相同', (_label, t) => {
     expect(withTeam(t)).toStrictEqual(base);
+  });
+});
+
+// ───────────────────────────── 评审修补（2026-11-19）的回归测试 ─────────────────────────────
+
+describe('修补 1：stepping_stone 看时间', () => {
+  const PF: Opportunity = {
+    ...TARGET,
+    id: 'p4-fix-pf',
+    requirements: [...TARGET.requirements, { id: 'req-pf', type: 'portfolio', evidence_kind: 'project', label: 'A project you built', hard: true, source_text: 'Submit one project you built.' }],
+  };
+  const stones = (target: Opportunity, cand: Opportunity, today: string | undefined = TODAY) =>
+    findAlternatives(STUDENT, target, [cand], today ? { today } : undefined).filter((a) => a.kind === 'stepping_stone');
+
+  it('回归：目标截止已过且 recurring_annually === false → 不给', () => {
+    expect(stones({ ...PF, deadline: '2026-11-01', recurring_annually: false }, HACK)).toEqual([]);
+  });
+
+  it('回归：目标截止已过、recurring 为 true → 给，reason 写明这一轮已关闭、是为以后的轮次', () => {
+    const [s] = stones({ ...PF, deadline: '2026-11-01', recurring_annually: true }, HACK);
+    expect(s.reason).toContain(`This round of ${PF.title} has closed, so this would be for a future round, not this one.`);
+    expect(s.reason).not.toContain('Whether it runs every year is not confirmed');
+  });
+
+  it('回归：目标截止已过、recurring 为 null / 缺省 → 再加「是否每年举办未确认」', () => {
+    for (const recurring of [null, undefined]) {
+      const [s] = stones({ ...PF, deadline: '2026-11-01', recurring_annually: recurring }, HACK);
+      expect(s.reason).toContain('has closed, so this would be for a future round, not this one.');
+      expect(s.reason).toContain('Whether it runs every year is not confirmed — check with the organizer.');
+    }
+  });
+
+  it('回归：目标截止未过时，候选结束日期晚于 / 等于目标截止、或未知 → 不给；早于 → 给', () => {
+    const tc = HACK.time_commitment;
+    expect(stones(PF, { ...HACK, time_commitment: { ...tc, end_date: '2027-03-02' } })).toEqual([]);
+    expect(stones(PF, { ...HACK, time_commitment: { ...tc, end_date: '2027-03-01' } })).toEqual([]);
+    expect(stones(PF, { ...HACK, time_commitment: { hours_per_week: 8, total_weeks: 1 } })).toEqual([]);
+    expect(stones(PF, { ...HACK, time_commitment: { ...tc, end_date: '2027-02-28' } })).toHaveLength(1);
+    // 没传 today 时也比较结束日期。
+    expect(stones(PF, { ...HACK, time_commitment: { hours_per_week: 8, total_weeks: 1 } }, undefined)).toEqual([]);
+  });
+
+  it('目标没有截止日期时不比较结束日期', () => {
+    const noDeadline = { ...PF, deadline: null };
+    expect(stones(noDeadline, { ...HACK, time_commitment: { hours_per_week: 8, total_weeks: 1 } })).toHaveLength(1);
+  });
+
+  it('回归：候选已经开始（start_date < today）→ 不给；start_date 未知且报名没截止 → 给', () => {
+    expect(stones(PF, { ...HACK, time_commitment: { ...HACK.time_commitment, start_date: '2026-11-10', end_date: '2026-12-07' } })).toEqual([]);
+    expect(stones(PF, { ...HACK, time_commitment: { hours_per_week: 8, total_weeks: 1, end_date: '2026-12-07' } })).toHaveLength(1);
+  });
+
+  it('reason 如实写出候选的费用与形式（线下 / 地点 / 不含差旅），未知时写 not stated', () => {
+    const paid = { ...HACK, cost: { fee_usd: 40, requires_travel_expense: null }, location: { format: 'in_person' as const, city: 'Example City', state: 'CA', country: 'US' } };
+    const [s] = stones(PF, paid);
+    expect(s.reason).toContain('Its listed fee is $40. It is in person in Example City, CA, US; travel time and cost are not included.');
+    const unknown = { ...HACK, cost: { fee_usd: null, requires_travel_expense: null }, location: {} as Opportunity['location'] };
+    expect(stones(PF, unknown)[0].reason).toContain('Its fee is not stated. Its format is not stated.');
+  });
+});
+
+describe('修补 2：competition 路线不接受已开始的候选', () => {
+  const comp = (tc: Partial<Opportunity['time_commitment']>) =>
+    competitionOf(planRoutes(STUDENT, TARGET, { today: TODAY, catalog: [{ ...HACK, time_commitment: { hours_per_week: 8, total_weeks: 1, ...tc } }] }));
+
+  it('回归：start_date < today（已开始）→ 不生成', () => {
+    expect(comp({ start_date: '2026-11-10', end_date: '2026-12-07' })).toBeUndefined();
+  });
+  it('回归：start_date 未知 → 不生成', () => {
+    expect(comp({ end_date: '2026-12-07' })).toBeUndefined();
+  });
+  it('边界：start = today 可以生成；end = today 且 start < today 不生成', () => {
+    expect(comp({ start_date: TODAY, end_date: '2026-12-07' })).toBeDefined();
+    expect(comp({ start_date: '2026-11-15', end_date: TODAY })).toBeUndefined();
+  });
+  it('end_date 必须早于目标截止', () => {
+    expect(comp({ start_date: '2026-12-05', end_date: '2027-03-01' })).toBeUndefined();
+    expect(comp({ start_date: '2026-12-05', end_date: '2027-02-28' })).toBeDefined();
+  });
+  it('竞赛那一步写明日期、费用与形式', () => {
+    const r = comp({ start_date: '2026-12-05', end_date: '2026-12-07' }) as Route;
+    expect(r.steps[1].description).toContain('It runs 2026-12-05 to 2026-12-07, before the');
+    expect(r.steps[1].description).toContain('Its listed fee is $0. It takes place online.');
+  });
+});
+
+describe('修补 3：标为必需、原文含 "team" 时不说成团队建议', () => {
+  const target = withPrep(TARGET, {
+    'prep-essay': { source_text: 'Every team member must submit an essay.' },
+    'prep-js': { required_for_application: true, source_text: null },
+  });
+  const steps = new Map(routesOf(planRoutes(STUDENT, target, { today: TODAY }))[0].steps.map((s) => [s.id, s]));
+
+  it('回归：必需 + 原文含 "team" → official 仍保守为 team_suggestion，relation 用中性句子', () => {
+    const s = steps.get('prep-essay');
+    expect(s?.official).toBe('team_suggestion');
+    expect(s?.relation).toBe(UNCLEAR_REQUIRED_RELATION);
+    expect(UNCLEAR_REQUIRED_RELATION).toBe('We could not tell whether the organizer requires this. Read the source text and confirm with the organizer.');
+    expect(s?.relation).not.toContain('Suggested by our team');
+    expect(s?.description?.startsWith('Marked as needed to apply in our records')).toBe(true);
+  });
+
+  it('必需但没有原文 → TEAM_RELATION，description 不写 "Required to apply."', () => {
+    const s = steps.get('prep-js');
+    expect(s?.relation).toBe(TEAM_RELATION);
+    expect(s?.description).toBe('Marked as needed to apply in our records; no source text is recorded, so confirm with the organizer.');
+  });
+
+  it('同一步的 description 与 relation / official 不互相矛盾（多种准备项写法）', () => {
+    const variants = [target, TARGET, withPrep(TARGET, { 'prep-app': { required_for_application: true, source_text: 'Build an app (team suggestion).' } })];
+    for (const t of variants) {
+      for (const r of routesOf(planRoutes(STUDENT, t, { today: TODAY }))) {
+        for (const s of r.steps) {
+          if (s.prep_item_id == null) continue;
+          const d = s.description ?? '';
+          if (s.official === 'official_requirement') expect(d.startsWith('Required to apply.')).toBe(true);
+          else expect(d.startsWith('Required to apply.')).toBe(false);
+          if (s.relation === TEAM_RELATION) expect(d).not.toMatch(/^Required to apply\.|source text does not read/);
+          if (s.relation === UNCLEAR_REQUIRED_RELATION) expect(d.startsWith('Marked as needed to apply in our records, but the source text')).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe('建议 5 / 6：diffRoutes 的竞赛原因、rationale 的周数', () => {
+  const withComp = planRoutes(STUDENT, TARGET, { today: TODAY, catalog: [HACK] });
+
+  it('竞赛路线出现：说明是哪场竞赛、替代了哪一项、不是官方要求', () => {
+    const d = diffRoutes(planRoutes(STUDENT, TARGET, { today: TODAY }), withComp);
+    expect(d.reasons).toContain(`New Beginner competition route: "${HACK.title}" in the verified catalog fits this plan and takes the place of "Build a small web app". It is one way to build evidence, not an official requirement.`);
+  });
+
+  it('竞赛路线消失、因为新证据覆盖了被替代的那一步 → 说出这个原因', () => {
+    const covered = { ...STUDENT, evidence: [{ id: 'ev-app', title: 'My web app', kind: 'project' as const, skills: [], prep_item_ids: ['p4-target-studio:prep-app'], status: 'self_reported' as const, added_on: '2026-11-18' }] };
+    const after = planRoutes(covered, TARGET, { today: TODAY, catalog: [HACK] });
+    expect(competitionOf(after)).toBeUndefined();
+    const d = diffRoutes(withComp, after);
+    expect(d.reasons).toContain('The Beginner competition route is gone: the step it replaced, "Build a small web app", is now covered by your evidence (Already covered by "My web app").');
+  });
+
+  it('竞赛路线消失、原因看不出来（目录里竞赛不再适用）→ 如实的通用句子', () => {
+    const after = planRoutes(STUDENT, TARGET, { today: TODAY, catalog: [] });
+    const d = diffRoutes(withComp, after);
+    expect(d.reasons).toContain(
+      'The Beginner competition route is gone: no competition in the verified catalog fits this plan any more (the step it replaced may now be covered, or the competition may have started or closed).',
+    );
+    expect(d.reasons.join(' ')).not.toMatch(/is gone\.$/);
+  });
+
+  it('竞赛换了一场：不说成「机会的准备项更新了」', () => {
+    const other = { ...HACK, id: 'p4-hack-2', title: 'Another Fictional Hack (sample, not real)' };
+    const d = diffRoutes(withComp, planRoutes(STUDENT, TARGET, { today: TODAY, catalog: [other] }));
+    expect(d.reasons.some((r) => r.includes('a different competition in the verified catalog now fits this plan'))).toBe(true);
+    expect(d.reasons.some((r) => r.includes(HACK.title) && r.includes('that competition no longer fits this plan'))).toBe(true);
+    expect(d.reasons.join(' ')).not.toContain("prep items were updated");
+  });
+
+  it('小时未知时 rationale 不说「约 N 周」，而是 at least', () => {
+    const hack = { ...HACK, time_commitment: { ...HACK.time_commitment, hours_per_week: null } };
+    const r = competitionOf(planRoutes(STUDENT, TARGET, { today: TODAY, catalog: [hack] })) as Route;
+    expect(r.feasible_by_deadline).toBeNull();
+    expect(r.rationale).toContain('it takes at least 2 weeks; we can\'t say how long in total.');
+    expect(r.rationale).not.toContain('takes about');
   });
 });
 

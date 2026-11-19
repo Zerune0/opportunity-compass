@@ -80,7 +80,9 @@
  * 5. stepping_stone（第四阶段，最多 3 条）：仅当 steppingStoneAllowed——至少一条 fixable 阻断（缺技能 / 缺作品）、
  *    或截止已过、或未化解的 cost 障碍（费用放不下），并且没有任何 permanent 阻断。只因年级 / 年龄低于下限、
  *    时间、交通、设备受阻时不给。候选 = ./evidence-building.ts 的 findEvidenceBuildingCandidates（顺序沿用：截止日期 → id），
- *    reason 写明能积累哪类证据、对应目标的哪条要求 / 准备项，固定带 STEPPING_STONE_NOTE
+ *    时间规则见 steppingStones 的注释（截止已过且不再举办 → 不给；截止已过 → 写明为以后的轮次；未过 → 候选须在目标截止前结束；
+ *    候选已开始 → 不给）。reason 写明能积累哪类证据、对应目标的哪条要求 / 准备项、候选的费用与形式（candidateFactsText），
+ *    固定带 STEPPING_STONE_NOTE
  *    "This builds evidence; it is not a prerequisite."；eligibility_overall 不会是 not_eligible；shared_fields 非空。
  * 6. remote_option（第四阶段）：仅当目标有未化解的 transport 障碍（引擎把「需自费差旅」也记在 transport 障碍里，
  *    所以「自费差旅导致的费用问题」也由它触发；cost 障碍本身不触发）。(a) 目标为 hybrid 且截止没过 → 一条指向目标自身，
@@ -101,7 +103,7 @@ import { dayNumber, parseISODate } from '../eligibility/dates';
 import { asArray, safeOpportunity, safeProfile } from '../gap/inputs';
 import { normalizedTagSet, sharedTags } from '../tags';
 import { blockNature, type BlockNature } from './block';
-import { findEvidenceBuildingCandidates, linkPhrase } from './evidence-building';
+import { candidateFactsText, findEvidenceBuildingCandidates, linkPhrase } from './evidence-building';
 import { BARRIER_TYPES } from '../types';
 import type {
   AlternativeSuggestion,
@@ -364,23 +366,56 @@ function eligibilityText(overall: OverallEligibility): string {
     : 'Some of its hard requirements need to be confirmed with its organizer.';
 }
 
-function steppingStones(p: StudentProfile, o: Opportunity, catalog: Opportunity[], options: EvalOptions | undefined): AlternativeSuggestion[] {
-  return findEvidenceBuildingCandidates(p, o, catalog, options)
-    .slice(0, MAX_STEPPING_STONE)
-    .map((cand) => {
-      const kinds = [...new Set(cand.links.map((l) => EVIDENCE_KIND_ZH[l.evidence_kind] ?? l.evidence_kind))];
-      const targets = cand.links.map(linkPhrase);
-      return {
-        kind: 'stepping_stone' as const,
-        opportunity_id: cand.opportunity.id,
-        title: cand.opportunity.title,
-        reason:
-          `Taking part in ${cand.opportunity.title} can give you ${kinds.join(' / ')} evidence for ${targets.join(', ')} of ${o.title}. ` +
-          `It is also in ${cand.shared_fields.join(', ')}. ${eligibilityText(cand.eligibility_overall)} ${STEPPING_STONE_NOTE}`,
-        eligibility_overall: cand.eligibility_overall,
-        shared_fields: cand.shared_fields,
-      };
+function dayOfDate(d: unknown): number | null {
+  const ymd = typeof d === 'string' ? parseISODate(d) : null;
+  return ymd ? dayNumber(ymd) : null;
+}
+
+/**
+ * stepping_stone 的时间规则：
+ * - 目标截止已过且 recurring_annually === false → 不给（不会再办，积累的证据没有去处）；
+ * - 目标截止已过、recurring 为 true / null / 缺省 → 可以给，reason 写明这一轮已关闭、是为以后的轮次（null / 缺省再加
+ *   「是否每年举办未确认」），不比较候选结束日期；
+ * - 目标截止未过（含没传 today）且目标截止日期可解析 → 候选 end_date 必须可解析且早于目标截止；目标没有截止日期时不比较；
+ * - 候选 start_date 可解析且早于 today → 不给（已经开始）；start_date 未知时只要它的报名截止没过（共用筛选已查）就可以。
+ */
+function steppingStones(
+  p: StudentProfile,
+  o: Opportunity,
+  catalog: Opportunity[],
+  options: EvalOptions | undefined,
+  b: BlockState,
+  todayDay: number | null,
+): AlternativeSuggestion[] {
+  if (b.pastDeadline && o.recurring_annually === false) return [];
+  const targetDeadline = dayOfDate(o.deadline);
+  const out: AlternativeSuggestion[] = [];
+  for (const cand of findEvidenceBuildingCandidates(p, o, catalog, options)) {
+    if (out.length >= MAX_STEPPING_STONE) break;
+    const tc = cand.opportunity.time_commitment;
+    const start = dayOfDate(tc?.start_date);
+    if (start != null && todayDay != null && start < todayDay) continue;
+    if (!b.pastDeadline && targetDeadline != null) {
+      const end = dayOfDate(tc?.end_date);
+      if (end == null || end >= targetDeadline) continue;
+    }
+    const kinds = [...new Set(cand.links.map((l) => EVIDENCE_KIND_ZH[l.evidence_kind] ?? l.evidence_kind))];
+    const targets = cand.links.map(linkPhrase);
+    const future = b.pastDeadline
+      ? ` This round of ${o.title} has closed, so this would be for a future round, not this one.${o.recurring_annually == null ? ` ${NOT_CONFIRMED_YEARLY}` : ''}`
+      : '';
+    out.push({
+      kind: 'stepping_stone',
+      opportunity_id: cand.opportunity.id,
+      title: cand.opportunity.title,
+      reason:
+        `Taking part in ${cand.opportunity.title} can give you ${kinds.join(' / ')} evidence for ${targets.join(', ')} of ${o.title}. ` +
+        `It is also in ${cand.shared_fields.join(', ')}. ${eligibilityText(cand.eligibility_overall)} ${candidateFactsText(cand.opportunity)}${future} ${STEPPING_STONE_NOTE}`,
+      eligibility_overall: cand.eligibility_overall,
+      shared_fields: cand.shared_fields,
     });
+  }
+  return out;
 }
 
 /**
@@ -488,7 +523,7 @@ export function findAlternatives(
     if (nc) out.push(nc);
 
     // 第四阶段：先算两类新建议，同一机会只出现一次（stepping_stone > remote_option > same_field）。
-    const stones = steppingStoneAllowed(block) ? steppingStones(p, o, asArray<Opportunity>(catalog), evalOptions) : [];
+    const stones = steppingStoneAllowed(block) ? steppingStones(p, o, asArray<Opportunity>(catalog), evalOptions, block, todayDay) : [];
     const stoneIds = new Set(stones.map((x) => x.opportunity_id as string));
     const remotes = block.unresolvedBarriers.has('transport')
       ? remoteOptions(p, o, asArray<Opportunity>(catalog), block, evalOptions, todayDay, stoneIds)

@@ -22,8 +22,9 @@
  * 6. 新手竞赛路线 competition（第四阶段；只在传了 options.catalog 时考虑，blocked 时不生成；排在其他路线之后，最多一条）：
  *    - 候选来自 lib/match/evidence-building.ts 的 findEvidenceBuildingCandidates（已核实目录、非 user_posted、
  *      非目标自身、截止没过、资格不是 not_eligible、领域标签有交集并且能产出目标还缺的证据），且类别为 hackathon / competition；
- *    - 日期：options.today、目标 deadline、候选 time_commitment.end_date 都可解析，且 today ≤ end_date < deadline；
- *      任一不清楚 → 不生成（更保守：无法确认能在截止前完成就不给）；
+ *    - 日期：options.today、目标 deadline、候选 time_commitment.start_date / end_date 都可解析，且
+ *      today ≤ start_date ≤ end_date < deadline（已开始的不算：start = today 可以，start < today 不行）；
+ *      任一不清楚 → 不生成（无法确认还能参加、能在截止前完成就不给）；competition-<id> 与准备项 id 冲突时跳到下一个候选；
  *    - 目标有未被证据覆盖的实践类准备项（口径同 practice_first：evidence_kind ∈ PRACTICE_KINDS），且候选的对应关系里有它；
  *      取候选顺序（截止日期 → id）中第一个满足的候选、该候选对应的第一个这样的准备项；
  *    - 路线 = 其他步骤照旧，被替代的那个准备项换成「参加 <候选标题>」一步（id `competition-<候选 id>`，
@@ -31,6 +32,7 @@
  *    - 小时 = hours_per_week × total_weeks、费用 = cost.fee_usd，取自候选记录；为 null 时按 0 计入并加 warning
  *      （"…so this route's total is a minimum." / "…total cost is a minimum."）；小时未知时合计只是下限，
  *      feasible_by_deadline 若按下限算出 true 则改报 null（无法判断，并加 "We can't tell yet…" 提醒），下限已放不下的 false 保留；
+ *      rationale 的周数写成 "at least N weeks"；说明里如实写出候选的费用与形式 / 地点（candidateFactsText）；
  *      线下且不确定无差旅费时提醒差旅费未计入；
  *    - 说明固定包含 "This is one way to build evidence. It is not an official requirement of <目标标题>."；
  *      official = team_suggestion，relation 写明替代了哪个准备项；合计、feasible_by_deadline、预算提醒走 buildRoute。
@@ -38,7 +40,9 @@
  * 7. 步骤说明字段（第四阶段）：每一步都填 relation / official / evidence_needed：
  *    - 准备项：official 见 prepOfficial（必需 + 有官网原文 + 原文不含 "team" / "not an official" → official_requirement，
  *      其余一律 team_suggestion）；relation：能对上官方要求（requirementForPrep）→ 写那条要求，否则官方准备项 →
- *      "Prepares …"，否则 TEAM_RELATION；evidence_needed = material_kind ?? evidence_kind ?? null。
+ *      "Prepares …"，否则标为必需且有原文（只因措辞判成 team_suggestion）→ UNCLEAR_REQUIRED_RELATION，否则 TEAM_RELATION；
+ *      description 开头与之一致（prepDescriptionLead：官方 "Required to apply."；标为必需但无法确认 → "Marked as needed to apply
+ *      in our records, …"；非必需 "Recommended; …"）；evidence_needed = material_kind ?? evidence_kind ?? null。
  *    - 「提交申请」→ application_step、evidence_needed null；「找到同伴或导师」→ team_suggestion、TEAM_RELATION、null。
  *
  * 公平性：不读取 school_name、display_name。
@@ -50,7 +54,7 @@ import { dayNumber, daysBetween, parseISODate } from '../eligibility/dates';
 import { exactAgeOnReference } from '../eligibility/age';
 import { belowMinimumLater } from '../requirement-timing';
 import { findCoveringEvidence, requiredPrepClosure } from '../reachability/coverage';
-import { findEvidenceBuildingCandidates, type EvidenceBuildingCandidate } from '../match/evidence-building';
+import { candidateFactsText, findEvidenceBuildingCandidates, type EvidenceBuildingCandidate } from '../match/evidence-building';
 import type {
   AlternativeHint,
   EligibilityItem,
@@ -222,13 +226,30 @@ function requirementForPrep(prep: PrepItem, opp: Opportunity): Requirement | nul
   return null;
 }
 
+/** 标为必需、但原文措辞像团队建议时的 relation（中性，不说是团队建议，也不说是官方要求）。 */
+export const UNCLEAR_REQUIRED_RELATION = 'We could not tell whether the organizer requires this. Read the source text and confirm with the organizer.';
+
+const hasSource = (prep: PrepItem) => typeof prep.source_text === 'string' && prep.source_text.trim() !== '';
+
 function prepRelation(prep: PrepItem, opp: Opportunity, official: RouteStepOfficial): string {
   const req = requirementForPrep(prep, opp);
   if (req) {
     return `Works toward "${req.label}", which the organizer lists as ${req.hard ? 'a requirement' : 'a plus (not required)'}.`;
   }
   if (official === 'official_requirement') return `Prepares "${prep.title}", which the organizer lists as needed to apply.`;
+  // 标为必需、有原文，只是原文措辞（含 "team" / "not an official"）让我们保守地判成 team_suggestion：不能说成团队建议。
+  if (prep.required_for_application === true && hasSource(prep)) return UNCLEAR_REQUIRED_RELATION;
   return TEAM_RELATION;
+}
+
+/** 准备项步骤的说明开头：与 official / relation 不矛盾。 */
+function prepDescriptionLead(prep: PrepItem, official: RouteStepOfficial): string {
+  if (prep.required_for_application !== true) return 'Recommended; can make your application stronger.';
+  if (official === 'official_requirement') return 'Required to apply.';
+  if (hasSource(prep)) {
+    return 'Marked as needed to apply in our records, but the source text does not read as an organizer requirement; confirm with the organizer.';
+  }
+  return 'Marked as needed to apply in our records; no source text is recorded, so confirm with the organizer.';
 }
 
 /** 完成准备项后能记下的种类代码：material_kind 优先，其次 evidence_kind，都没有为 null。 */
@@ -240,7 +261,7 @@ function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem,
   const covering = findCoveringEvidence(profile, opp, prep);
   const skipped = covering.length > 0;
   const official = prepOfficial(prep);
-  const descParts = [prep.required_for_application ? 'Required to apply.' : 'Recommended; can make your application stronger.'];
+  const descParts = [prepDescriptionLead(prep, official)];
   if (prep.source_text) descParts.push(` Source: ${prep.source_text}`);
   return {
     id: prep.id,
@@ -454,7 +475,8 @@ interface RouteContext {
   cyclicWarning: string | null;
 }
 
-function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: RouteContext): Route {
+/** hoursAreMinimum：合计小时只是下限（competition 候选的小时未知）时，rationale 里的周数写成 "at least"。 */
+function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: RouteContext, hoursAreMinimum = false): Route {
   const { opp } = ctx;
   const steps: RouteStep[] = [];
   if (type === 'community') {
@@ -522,9 +544,11 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
   let rationale = RATIONALE[type];
   if (hpw != null && estimated_weeks != null) {
     rationale +=
-      estimated_weeks === 0
-        ? ` At the ${plural(hpw, 'hour')} per week in your profile, this route needs no extra weeks of prep.`
-        : ` At the ${plural(hpw, 'hour')} per week in your profile, this route takes about ${plural(estimated_weeks, 'week')}.`;
+      hoursAreMinimum
+        ? ` Some of the time this route needs is not stated, so at the ${plural(hpw, 'hour')} per week in your profile it takes at least ${plural(estimated_weeks, 'week')}; we can't say how long in total.`
+        : estimated_weeks === 0
+          ? ` At the ${plural(hpw, 'hour')} per week in your profile, this route needs no extra weeks of prep.`
+          : ` At the ${plural(hpw, 'hour')} per week in your profile, this route takes about ${plural(estimated_weeks, 'week')}.`;
   }
 
   return {
@@ -559,6 +583,7 @@ interface CompetitionPick {
   cand: EvidenceBuildingCandidate;
   /** 被替代的实践类准备项（目标 opp.preparation 里的那一项，对应 items 中未跳过的实践类步骤）。 */
   replaced: BaseStep;
+  startDate: string;
   endDate: string;
 }
 
@@ -578,16 +603,20 @@ function pickCompetition(profile: StudentProfile, opp: Opportunity, items: BaseS
   const candidates = findEvidenceBuildingCandidates(profile, opp, options.catalog ?? [], { today: options.today });
   for (const cand of candidates) {
     if (!COMPETITION_CATEGORIES.includes(cand.opportunity.category)) continue;
+    const startRaw = cand.opportunity.time_commitment?.start_date;
+    const startYMD = typeof startRaw === 'string' ? parseISODate(startRaw) : null;
     const endRaw = cand.opportunity.time_commitment?.end_date;
     const endYMD = typeof endRaw === 'string' ? parseISODate(endRaw) : null;
-    if (endYMD == null) continue; // 不知道何时结束 → 无法确认来得及 → 不生成。
+    // 不知道何时开始 / 结束 → 无法确认还能参加、能在截止前完成 → 不生成。已经开始（start < today）的也不生成。
+    if (startYMD == null || endYMD == null) continue;
+    const startDay = dayNumber(startYMD);
     const endDay = dayNumber(endYMD);
-    if (endDay < todayDay || endDay >= deadlineDay) continue;
+    if (startDay < todayDay || endDay < startDay || endDay >= deadlineDay) continue;
     if (takenIds.has(competitionStepId(cand.opportunity.id))) continue;
     for (const link of cand.links) {
       if (link.kind !== 'prep_item') continue;
       const b = byId.get(link.prep.id);
-      if (b && b.practice && !b.step.skipped) return { cand, replaced: b, endDate: endRaw as string };
+      if (b && b.practice && !b.step.skipped) return { cand, replaced: b, startDate: startRaw as string, endDate: endRaw as string };
     }
   }
   return null;
@@ -613,7 +642,6 @@ function competitionRoute(opp: Opportunity, items: BaseStep[], pick: Competition
   const prep = opp.preparation.find((x) => x.id === replaced.step.id) as PrepItem;
   const link = cand.links.find((l) => l.kind === 'prep_item' && l.prep.id === replaced.step.id);
   const kindLabel = link ? EVIDENCE_KIND_ZH[link.evidence_kind] ?? link.evidence_kind : 'project';
-  const start = typeof tc?.start_date === 'string' && parseISODate(tc.start_date) ? tc.start_date : null;
 
   const step: RouteStep = {
     id: stepId,
@@ -621,7 +649,8 @@ function competitionRoute(opp: Opportunity, items: BaseStep[], pick: Competition
     description:
       `${competitionDisclaimer(opp.title)} In this route it takes the place of the prep item "${replaced.step.title}": ` +
       `what you make there can be recorded as ${kindLabel} evidence. ` +
-      `${start ? `It runs ${start} to ${pick.endDate}` : `It ends ${pick.endDate}`}, before the ${opp.title} deadline (${opp.deadline}). ` +
+      `It runs ${pick.startDate} to ${pick.endDate}, before the ${opp.title} deadline (${opp.deadline}). ` +
+      `${candidateFactsText(c)} ` +
       `Check the details on its official page: ${c.official_url}`,
     prep_item_id: null,
     depends_on: [...replaced.step.depends_on],
@@ -644,7 +673,7 @@ function competitionRoute(opp: Opportunity, items: BaseStep[], pick: Competition
   const practiceIds = swapped.filter((b) => b.practice && !b.step.skipped).map((b) => b.step.id);
   const ancestors = withAncestors(swapped, practiceIds);
   const { order, cyclic } = topoSort(swapped, (b) => (b.practice ? 0 : ancestors.has(b.step.id) ? 1 : 2));
-  const route = buildRoute('competition', order, cyclic, ctx);
+  const route = buildRoute('competition', order, cyclic, ctx, hours == null);
 
   if (hours == null) {
     route.warnings.push(`The time needed for ${c.title} is not stated by its organizer, so this route's total is a minimum.`);
