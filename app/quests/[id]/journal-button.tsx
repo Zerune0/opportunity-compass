@@ -33,11 +33,11 @@ export function JournalButton({ opportunity, profile, today }: {
   useEffect(() => {
     // The journal lives in localStorage, so it is read after mount and re-read when it may have changed.
     const refresh = () => setInJournal(profileId ? getJournalEntry(profileId, opportunity.id) !== null : false);
-    const initialRead = window.requestAnimationFrame(refresh);
+    const initialRead = window.setTimeout(refresh, 0);
     window.addEventListener("storage", refresh);
     window.addEventListener("pageshow", refresh);
     return () => {
-      window.cancelAnimationFrame(initialRead);
+      window.clearTimeout(initialRead);
       window.removeEventListener("storage", refresh);
       window.removeEventListener("pageshow", refresh);
     };
