@@ -1,10 +1,12 @@
 /**
- * 第四阶段契约（2026-11-18）测试：只覆盖新增的类型常量、存储函数、校验与「引擎行为不变」。
- * 引擎尚未生成 competition 路线、stepping_stone / remote_option 建议，也尚未填写 RouteStep 的三个说明字段。
+ * 第四阶段契约（2026-11-18）测试：新增的类型常量、存储函数、校验，以及第 1 层实现后仍须守住的「不变」：
+ * 不传 options.catalog 时 planRoutes 去掉三个说明字段后与 0905b62 逐字相同；真实目录上 findAlternatives 的旧两类、
+ * analyzeGaps 与 0905b62 逐字相同。新功能本身的测试见 lib/engine-p4.test.ts。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyBackup, parseBackup } from './backup';
 import { catalogOpportunities, sampleProfiles } from './data';
+import { analyzeGaps } from './gap';
 import { findAlternatives } from './match';
 import { diffRoutes, planRoutes } from './path';
 import {
@@ -15,7 +17,7 @@ import {
   saveViewPreference,
   storageKey,
 } from './store';
-import { ROUTE_STEP_OFFICIAL_KINDS, ROUTE_TYPES, VIEW_PREFERENCES, type PlanResult, type ViewPreference } from './types';
+import { ROUTE_STEP_OFFICIAL_KINDS, ROUTE_TYPES, VIEW_PREFERENCES, type PlanResult, type StudentProfile, type ViewPreference } from './types';
 import { validateOpportunities, validateOpportunity } from './validation';
 import opportunitiesJson from '@/data/opportunities.json';
 
@@ -178,54 +180,88 @@ describe('契约 p4：引擎行为不变', () => {
   const catalog = catalogOpportunities();
   const TODAY = '2026-11-18';
 
-  it('contract only: planRoutes 不生成 competition 路线、findAlternatives 不给两种新 kind（下一层实现时有意修改本测试）', () => {
-    expect(profiles.length).toBeGreaterThan(0);
-    expect(catalog.length).toBeGreaterThan(0);
-    for (const profile of profiles) {
-      for (const opp of catalog) {
-        for (const options of [undefined, { today: TODAY }, { today: TODAY, catalog }]) {
-          let plan: PlanResult | null = null;
-          try {
-            plan = planRoutes(profile, opp, options);
-          } catch {
-            plan = null;
-          }
-          if (plan) {
-            expect(plan.routes.some((r) => r.type === 'competition')).toBe(false);
-            for (const route of plan.routes) {
-              for (const step of route.steps) {
-                expect(step).not.toHaveProperty('relation');
-                expect(step).not.toHaveProperty('official');
-                expect(step).not.toHaveProperty('evidence_needed');
-              }
-            }
-          }
-          const alts = findAlternatives(profile, opp, catalog, options);
-          expect(alts.some((a) => a.kind === 'stepping_stone' || a.kind === 'remote_option')).toBe(false);
-        }
-      }
-    }
+  // 「与改动前引擎逐字相同」的基线只对记录时的数据快照有效；数据（data/*.json，归队友 A）变了就跳过，不失败。
+  const baseline = lookupBaseline();
+
+  it('基线查找：当前数据指纹是否命中已知基线不影响通过；命中时下面几条必须逐字相等', () => {
+    // 哈希函数本身正确（32 位 FNV-1a 的公开测试向量），否则「指纹」与「逐字相同」的对照都没有意义。
+    expect(fnv1a('')).toBe('811c9dc5');
+    expect(fnv1a('a')).toBe('e40c292c');
+    expect(fnv1a('foobar')).toBe('bf9cf968');
+    // 查找只按当前数据的指纹取表里的那一项：命中时就是那一项，未命中时为 null（不抛错）。
+    const fp = fnv1a(JSON.stringify(catalogOpportunities()) + JSON.stringify(sampleProfiles()));
+    expect(lookupBaseline()).toBe(BASELINE_HASHES[fp] ?? null);
+    // 指纹对数据敏感：改一个字就不再命中（证明跳过条件不是恒真 / 恒假）。
+    const edited = fnv1a(JSON.stringify(catalogOpportunities().map((o, i) => (i === 0 ? { ...o, title: `${o.title}!` } : o))) + JSON.stringify(sampleProfiles()));
+    expect(edited).not.toBe(fp);
+    expect(BASELINE_HASHES[edited]).toBeUndefined();
   });
 
-  it('contract only: 传入 options.catalog 时 planRoutes 的结果与不传完全相同', () => {
-    for (const profile of profiles) {
-      for (const opp of catalog) {
-        let without: unknown;
-        let withCatalog: unknown;
-        try {
-          without = planRoutes(profile, opp, { today: TODAY });
-        } catch (e) {
-          without = String(e);
-        }
-        try {
-          withCatalog = planRoutes(profile, opp, { today: TODAY, catalog });
-        } catch (e) {
-          withCatalog = String(e);
-        }
-        expect(withCatalog).toStrictEqual(without);
+  it.skipIf(baseline === null)(
+    '不传 options.catalog 时，去掉三个说明字段后与改动前引擎（0905b62）逐字相同 (runs only on the data snapshots it was recorded for)',
+    () => {
+      if (!baseline) return;
+      // 摘要：路线类型、步骤 id / 小时 / 费用 / 是否跳过、合计与 feasible（today = 2026-11-19）。
+      const digests = profiles.flatMap((p) => catalog.map((o) => `${p.id}|${o.id}|${planDigest(planRoutes(p, o, { today: '2026-11-19' }))}`));
+      expect(digests).toEqual(BASELINE_DIGESTS);
+      // 全文对照：带 / 不带 today 的完整结果去掉三个说明字段后，序列化哈希与基线相同。
+      let all = '';
+      for (const options of [{ today: '2026-11-19' }, undefined]) {
+        for (const p of profiles) for (const o of catalog) all += JSON.stringify(stripStepNotes(planRoutes(p, o, options)));
       }
-    }
-  });
+      expect(fnv1a(all)).toBe(baseline.plan);
+    },
+  );
+
+  it.skipIf(baseline === null)(
+    '真实目录上 findAlternatives 去掉两种新 kind 后、analyzeGaps 整体，与改动前引擎逐字相同 (runs only on the data snapshots it was recorded for)',
+    () => {
+      if (!baseline) return;
+      let alts = '';
+      let gaps = '';
+      for (const today of ['2026-11-19', '2027-02-01', undefined]) {
+        for (const p of profiles) {
+          for (const o of catalog) {
+            const opt = today ? { today } : undefined;
+            alts += JSON.stringify(findAlternatives(p, o, catalog, opt).filter((a) => a.kind !== 'stepping_stone' && a.kind !== 'remote_option'));
+            gaps += JSON.stringify(analyzeGaps(p, o, [], opt));
+          }
+        }
+      }
+      expect(fnv1a(alts)).toBe(baseline.alternatives);
+      expect(fnv1a(gaps)).toBe(baseline.gaps);
+    },
+  );
+
+  it.skipIf(baseline === null || baseline.diff == null)(
+    '没有 competition 路线的输入上，diffRoutes 与第四阶段修补之前逐字相同 (runs only on the data snapshots it was recorded for)',
+    () => {
+      let all = '';
+      for (const p of profiles) {
+        for (const o of catalog) {
+          const today = '2026-11-19';
+          const variants: StudentProfile[] = [
+            { ...p, hours_per_week_available: (p.hours_per_week_available ?? 1) * 3 },
+            { ...p, grade: (p.grade ?? 9) + 1 },
+            {
+              ...p,
+              evidence: [
+                ...p.evidence,
+                ...o.preparation.slice(0, 1).map((pr) => ({ id: 'ev-x', title: 'X', kind: 'project' as const, skills: [], prep_item_ids: [`${o.id}:${pr.id}`], status: 'self_reported' as const, added_on: '2026-11-01' })),
+              ],
+            },
+          ];
+          const before = planRoutes(p, o, { today, catalog });
+          for (const v of variants) {
+            const after = planRoutes(v, o, { today, catalog });
+            expect([...before.routes, ...after.routes].some((r) => r.type === 'competition')).toBe(false);
+            all += JSON.stringify(diffRoutes(before, after)) + JSON.stringify(diffRoutes(planRoutes(v, o, { today }), before));
+          }
+        }
+      }
+      expect(fnv1a(all)).toBe(baseline?.diff);
+    },
+  );
 
   it('diffRoutes 不比较 RouteStep 的 relation / official / evidence_needed', () => {
     const profile = profiles[0];
@@ -250,3 +286,120 @@ describe('契约 p4：引擎行为不变', () => {
     expect(annotated.route_changes.every((c) => c.change === 'unchanged')).toBe(true);
   });
 });
+
+// ───────────── 第四阶段第 1 层：「不传 catalog 时与之前相同」的基线（由改动前的引擎 0905b62 生成） ─────────────
+
+function planDigest(plan: PlanResult): string {
+  if (plan.status === 'blocked') return `blocked:${plan.blocking_requirements.map((b) => b.requirement_id).join(',')}`;
+  return plan.routes
+    .map(
+      (r) =>
+        `${r.type}[${r.steps.map((s) => `${s.id}/${s.hours}/${s.cost_usd}/${s.skipped ? 's' : '-'}`).join(' ')}] h=${r.total_hours} $=${r.total_cost_usd} f=${r.feasible_by_deadline}`,
+    )
+    .join(' | ');
+}
+
+/** 去掉 RouteStep 的 relation / official / evidence_needed（保持其余键的顺序）。 */
+function stripStepNotes(plan: PlanResult): PlanResult {
+  if (plan.status !== 'routes') return plan;
+  return {
+    ...plan,
+    routes: plan.routes.map((r) => ({
+      ...r,
+      steps: r.steps.map((s) => {
+        const { relation: _r, official: _o, evidence_needed: _e, ...rest } = s;
+        void _r;
+        void _o;
+        void _e;
+        return rest;
+      }),
+    })),
+  };
+}
+
+/** 32 位 FNV-1a，只用来比较序列化结果是否逐字相同。 */
+function fnv1a(str: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/**
+ * 序列化哈希依赖 data/*.json 的内容，所以按数据指纹（目录 + 示例档案的序列化哈希）分别记录，
+ * 用不含第四阶段第 1 层的引擎（origin/main 8f8b87a）算出；main 上的引擎再变时需重新生成。数据变了（指纹未知）时相关测试跳过，不失败；
+ * 想恢复这项对照，需用改动前的引擎在新数据上重新生成（不要直接改成当前输出）。
+ * BASELINE_DIGESTS 在这两份数据上相同。
+ */
+interface Baseline {
+  label: string;
+  plan: string;
+  alternatives: string;
+  gaps: string;
+  /** diffRoutes 在没有 competition 的输入上的序列化哈希（用评审修补前的 diff.ts，64afaee，生成）；没记录时为缺省。 */
+  diff?: string;
+}
+
+const BASELINE_HASHES: Record<string, Baseline> = {
+  // 由 origin/main 8f8b87a（含「参与形式未知」改动、不含第四阶段第 1 层）的引擎在这份数据上生成。
+  aea3ba98: { label: 'data at origin/main 3509d8e–8f8b87a', plan: '09311aab', alternatives: '4a7b4cff', gaps: '13286278', diff: 'f8b41e6e' },
+};
+
+/** 当前数据命中已知基线时返回它，否则 null（不抛错）。 */
+function lookupBaseline(): Baseline | null {
+  const fp = fnv1a(JSON.stringify(catalogOpportunities()) + JSON.stringify(sampleProfiles()));
+  return BASELINE_HASHES[fp] ?? null;
+}
+
+const BASELINE_DIGESTS: string[] = [
+  "sample-maya|mlh-open-source-week-2026|learning_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | practice_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- practice-open-source-pr/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-maya|rutgers-newark-summer-research-2027|blocked:undergraduate",
+  "sample-maya|doe-suli-summer-2027|blocked:postsecondary-level",
+  "sample-maya|cooke-transfer-scholarship-2027|learning_first[outline-transfer-goals/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-transfer-goals/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-maya|noaa-hollings-scholarship-2027|learning_first[outline-noaa-interests/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-noaa-interests/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-maya|doe-cci-summer-2027|learning_first[draft-community-college-resume/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- draft-community-college-resume/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-maya|planet-hunters-tess|learning_first[review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-maya|nasa-exoplanet-watch|learning_first[review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-maya|nasa-aurorasaurus|learning_first[review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-maya|nasa-texas-aerospace-scholars-senior-2026|blocked:senior-cohort,texas",
+  "sample-maya|dan-herbatschek-fellowship-2027|learning_first[outline-fellowship-project/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-fellowship-project/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-maya|nasa-cloudspotting-mars|learning_first[review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-leo|mlh-open-source-week-2026|learning_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | practice_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- practice-open-source-pr/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-leo|rutgers-newark-summer-research-2027|blocked:undergraduate",
+  "sample-leo|doe-suli-summer-2027|blocked:postsecondary-level",
+  "sample-leo|cooke-transfer-scholarship-2027|learning_first[outline-transfer-goals/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-transfer-goals/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-leo|noaa-hollings-scholarship-2027|learning_first[outline-noaa-interests/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-noaa-interests/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-leo|doe-cci-summer-2027|learning_first[draft-community-college-resume/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- draft-community-college-resume/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-leo|planet-hunters-tess|learning_first[review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-leo|nasa-exoplanet-watch|learning_first[review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-leo|nasa-aurorasaurus|learning_first[review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-leo|nasa-texas-aerospace-scholars-senior-2026|blocked:senior-cohort,texas",
+  "sample-leo|dan-herbatschek-fellowship-2027|learning_first[outline-fellowship-project/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-fellowship-project/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-leo|nasa-cloudspotting-mars|learning_first[review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-ana|mlh-open-source-week-2026|learning_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | practice_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- practice-open-source-pr/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-ana|rutgers-newark-summer-research-2027|blocked:undergraduate",
+  "sample-ana|doe-suli-summer-2027|blocked:postsecondary-level",
+  "sample-ana|cooke-transfer-scholarship-2027|learning_first[outline-transfer-goals/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-transfer-goals/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-ana|noaa-hollings-scholarship-2027|learning_first[outline-noaa-interests/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-noaa-interests/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-ana|doe-cci-summer-2027|learning_first[draft-community-college-resume/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- draft-community-college-resume/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-ana|planet-hunters-tess|learning_first[review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-ana|nasa-exoplanet-watch|learning_first[review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-ana|nasa-aurorasaurus|learning_first[review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-ana|nasa-texas-aerospace-scholars-senior-2026|blocked:texas",
+  "sample-ana|dan-herbatschek-fellowship-2027|learning_first[outline-fellowship-project/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-fellowship-project/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-ana|nasa-cloudspotting-mars|learning_first[review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-noor|mlh-open-source-week-2026|learning_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | practice_first[practice-open-source-pr/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- practice-open-source-pr/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-noor|rutgers-newark-summer-research-2027|learning_first[review-research-interests/2/0/- review-lab-safety-basics/1/0/- practice-lab-data-cleanup/2/0/s write-research-project-note/1/0/- submit-application/0/0/-] h=4 $=0 f=true | practice_first[practice-lab-data-cleanup/2/0/s write-research-project-note/1/0/- review-research-interests/2/0/- review-lab-safety-basics/1/0/- submit-application/0/0/-] h=4 $=0 f=true | community[find-partner/2/0/- review-research-interests/2/0/- practice-lab-data-cleanup/2/0/s write-research-project-note/1/0/- review-lab-safety-basics/1/0/- submit-application/0/0/-] h=6 $=0 f=true",
+  "sample-noor|doe-suli-summer-2027|learning_first[draft-research-resume/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- draft-research-resume/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-noor|cooke-transfer-scholarship-2027|learning_first[outline-transfer-goals/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-transfer-goals/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-noor|noaa-hollings-scholarship-2027|learning_first[outline-noaa-interests/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-noaa-interests/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-noor|doe-cci-summer-2027|learning_first[draft-community-college-resume/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- draft-community-college-resume/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-noor|planet-hunters-tess|learning_first[review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-tess-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-noor|nasa-exoplanet-watch|learning_first[review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=1 $=0 f=null | community[find-partner/2/0/- review-exoplanet-workflow/1/0/- submit-application/0/0/-] h=3 $=0 f=null",
+  "sample-noor|nasa-aurorasaurus|learning_first[review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-aurora-reporting/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+  "sample-noor|nasa-texas-aerospace-scholars-senior-2026|blocked:senior-cohort,texas",
+  "sample-noor|dan-herbatschek-fellowship-2027|learning_first[outline-fellowship-project/2/0/- submit-application/0/0/-] h=2 $=0 f=true | community[find-partner/2/0/- outline-fellowship-project/2/0/- submit-application/0/0/-] h=4 $=0 f=true",
+  "sample-noor|nasa-cloudspotting-mars|learning_first[review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=0.5 $=0 f=null | community[find-partner/2/0/- review-cloudspotting-tutorial/0.5/0/- submit-application/0/0/-] h=2.5 $=0 f=null",
+];

@@ -391,11 +391,469 @@ describe('findAlternatives：确定性与健壮性', () => {
   });
 });
 
+/**
+ * Snapshots of real opportunities as of 2026-11-19, kept in the test so data edits do not change it.
+ * 真实机会在 2026-11-19 的副本（逐字复制自 data/opportunities.json），固定在测试里：队友改数据不会让这里的精确断言失败；
+ * 这些测试守的是引擎在这些记录上的行为，不是数据本身（数据合法性由 lib/data.test.ts / lib/validation.test.ts 检查）。
+ */
+const SNAPSHOT_OPPS: Record<string, Opportunity> = {
+  'rutgers-newark-summer-research-2027': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "review-research-interests",
+        "title": "Draft a short summary of biomedical research interests",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "practice-lab-data-cleanup",
+        "title": "Practice cleaning a small public biomedical dataset",
+        "skill": "python",
+        "evidence_kind": "project",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      },
+      {
+        "id": "write-research-project-note",
+        "title": "Write a short project note explaining methods and limitations",
+        "skill": "scientific_writing",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [
+          "practice-lab-data-cleanup"
+        ],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": "portfolio",
+        "reusable_across_opportunities": true
+      },
+      {
+        "id": "review-lab-safety-basics",
+        "title": "Review introductory laboratory safety guidance",
+        "skill": "laboratory_safety",
+        "evidence_kind": null,
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      }
+    ],
+    "id": "rutgers-newark-summer-research-2027",
+    "title": "Rutgers Newark Undergraduate Summer Research Program",
+    "organizer": "Rutgers School of Graduate Studies",
+    "category": "research",
+    "fields": [
+      "biomedical_research",
+      "life_sciences"
+    ],
+    "summary": "A 10-week supervised undergraduate biomedical research program in Newark, New Jersey.",
+    "official_url": "https://njms.rutgers.edu/sgs/prospective_students/info/summer_undergrad_research.php",
+    "deadline": "2027-03-05",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "state": "NJ",
+      "city": "Newark"
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The organizer lists stipends based on housing arrangements."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": 10,
+      "note": "See the organizer for the weekly schedule.",
+      "start_date": "2027-06-07",
+      "end_date": "2027-08-13"
+    },
+    "requirements": [
+      {
+        "id": "undergraduate",
+        "type": "grade",
+        "min": 13,
+        "max": 16,
+        "hard": true,
+        "label": "Undergraduate student",
+        "source_text": "This program provides the opportunity for undergraduates"
+      },
+      {
+        "id": "us-citizen-or-permanent-resident",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen or lawful permanent resident",
+        "source_text": "you must be a U.S. citizen or Permanent resident."
+      }
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+  'mlh-open-source-week-2026': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "practice-open-source-pr",
+        "title": "Practice opening a pull request",
+        "skill": "git",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion — not an official requirement",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      }
+    ],
+    "id": "mlh-open-source-week-2026",
+    "title": "Global Hack Week: Open Source Week",
+    "organizer": "Major League Hacking",
+    "category": "hackathon",
+    "fields": [
+      "software_development",
+      "open_source"
+    ],
+    "summary": "A free online week of open-source projects, challenges, and live workshops.",
+    "official_url": "https://events.mlh.com/events/15199-global-hack-week-open-source-week",
+    "deadline": null,
+    "deadline_note": "See the organizer for registration availability.",
+    "location": {
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": false,
+      "note": "Free participation confirmed at https://ghw.mlh.com/ (Global Hack Week umbrella page)."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": 1,
+      "note": "Check the event schedule for individual sessions.",
+      "start_date": "2026-12-04",
+      "end_date": "2026-12-10"
+    },
+    "requirements": [],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+  'doe-suli-summer-2027': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-19",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "draft-research-resume",
+        "title": "Draft a resume highlighting coursework and research interests",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "resume",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
+    "id": "doe-suli-summer-2027",
+    "title": "DOE Science Undergraduate Laboratory Internships · Summer 2027",
+    "organizer": "U.S. Department of Energy Office of Science",
+    "category": "internship",
+    "fields": [
+      "stem",
+      "laboratory_research"
+    ],
+    "summary": "A paid summer internship at a participating DOE laboratory. Review the eligibility page for full requirements and exceptions for recent graduates. Eligibility source: https://science.osti.gov/wdts/suli/Eligibility",
+    "official_url": "https://science.osti.gov/wdts/suli/How-to-Apply",
+    "deadline": "2027-01-06",
+    "deadline_note": "5:00 PM Eastern Time",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "note": "Location and dates vary by host laboratory.",
+      "state": null,
+      "city": null
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "Compensation and travel support depend on program terms."
+    },
+    "time_commitment": {
+      "hours_per_week": 40,
+      "total_weeks": 10,
+      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
+    },
+    "requirements": [
+      {
+        "id": "postsecondary-level",
+        "min": 13,
+        "type": "grade",
+        "hard": true,
+        "label": "Postsecondary applicant (recent graduate exceptions require official confirmation)",
+        "source_text": "Currently enrolled as a full-time student at an accredited community college, two-year college, or four-year institution. Recently graduated with an undergraduate degree."
+      },
+      {
+        "id": "us-citizen-or-permanent-resident",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen or lawful permanent resident",
+        "source_text": "United States Citizen or Lawful Permanent Resident"
+      },
+      {
+        "id": "minimum-age",
+        "label": "At least 18 when the internship begins",
+        "source_text": "18 years or older at the time the internship begins",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "enrollment",
+        "label": "Full-time undergraduate or qualifying recent graduate",
+        "source_text": "Currently enrolled as a full-time student at an accredited community college, two-year college, or four-year institution. Recently graduated with an undergraduate degree.",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "transcript-credits",
+        "label": "At least 6 STEM and 12 total undergraduate credits by the deadline",
+        "source_text": "By the application deadline, applicants must have completed at least 6 credit hours in STEM fields and a minimum of 12 total undergraduate credit hours.",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "minimum-gpa",
+        "label": "At least a 3.0 cumulative GPA on a 4.0 scale",
+        "source_text": "cumulative GPA of at least 3.0",
+        "type": "manual",
+        "hard": true
+      }
+    ],
+    "source_tier": "official",
+    "recurring_annually": true,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+  'doe-cci-summer-2027': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-19",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "draft-community-college-resume",
+        "title": "Draft a resume highlighting laboratory and STEM coursework",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "resume",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
+    "id": "doe-cci-summer-2027",
+    "title": "DOE Community College Internships · Summer 2027",
+    "organizer": "U.S. Department of Energy Office of Science",
+    "category": "internship",
+    "fields": [
+      "stem",
+      "laboratory_research"
+    ],
+    "summary": "An on-site internship for eligible community college students at participating DOE laboratories.",
+    "official_url": "https://science.osti.gov/wdts/cci",
+    "deadline": "2027-01-06",
+    "deadline_note": "5:00 PM Eastern Time",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "note": "All internships are conducted on site at a host DOE laboratory; remote participation is not available. Placement depends on the host laboratory. Source: https://science.osti.gov/wdts/cci/Benefits",
+      "state": null,
+      "city": null
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The application fee and candidate-specific travel expense were not confirmed."
+    },
+    "time_commitment": {
+      "hours_per_week": 40,
+      "total_weeks": 10,
+      "note": "Approximately 40 hours per week, typically 10 consecutive weeks for the summer term. On-site participation only; remote internships are not available. Confirm the appointment schedule with the host laboratory. Sources: https://science.osti.gov/wdts/cci/Participant-Obligations ; https://science.osti.gov/wdts/cci/Benefits . Human verification: Jiale Li, 2026-11-18. Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
+    },
+    "requirements": [
+      {
+        "id": "community-college-eligibility",
+        "label": "Check the current enrollment and additional eligibility requirements for community college applicants.",
+        "source_text": "DOE Community College Internships eligibility",
+        "type": "manual",
+        "hard": true
+      }
+    ],
+    "source_tier": "official",
+    "recurring_annually": true,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+  'nasa-texas-aerospace-scholars-senior-2026': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-18",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "outline-stem-interests",
+        "title": "Draft a summary of STEM interests and goals",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": null,
+      "note": "No program cost for selected students. Personal travel expenses were not confirmed and must be checked separately. Human verification: Jiale Li, 2026-11-18. Source: https://www.nasa.gov/learning-resources/texas-aerospace-scholars/tas-senior-experience/"
+    },
+    "id": "nasa-texas-aerospace-scholars-senior-2026",
+    "title": "NASA Texas Aerospace Scholars · Senior Experience",
+    "organizer": "NASA Johnson Space Center",
+    "category": "summer_program",
+    "fields": [
+      "aerospace",
+      "stem"
+    ],
+    "summary": "A STEM experience for U.S. citizens who are Texas residents enrolled as seniors in a Texas high school. Internet access, STEM interest and commitment to the online course are required.",
+    "official_url": "https://www.nasa.gov/learning-resources/texas-aerospace-scholars/tas-senior-experience/",
+    "deadline": "2026-12-04",
+    "location": {
+      "format": "hybrid",
+      "country": "US",
+      "state": "TX",
+      "note": "Virtual activities and Johnson Space Center, Houston. Confirm the senior cohort schedule.",
+      "city": null
+    },
+    "requirements": [
+      {
+        "id": "senior-cohort",
+        "type": "grade",
+        "min": 12,
+        "max": 12,
+        "hard": true,
+        "label": "High school senior",
+        "source_text": "Enrolled as a senior"
+      },
+      {
+        "id": "texas",
+        "type": "region",
+        "countries": [
+          "US"
+        ],
+        "states": [
+          "TX"
+        ],
+        "hard": true,
+        "label": "Texas resident",
+        "source_text": "Texas resident"
+      },
+      {
+        "id": "us-citizen",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen",
+        "source_text": "U.S. Citizen"
+      },
+      {
+        "id": "texas-school-enrollment",
+        "type": "manual",
+        "hard": true,
+        "label": "Enrolled as a senior in a Texas high school; confirm school enrollment",
+        "source_text": "Texas high school"
+      },
+      {
+        "id": "internet-access",
+        "type": "manual",
+        "hard": true,
+        "label": "Able to access the internet; home internet is not specifically required",
+        "source_text": "access the internet"
+      },
+      {
+        "id": "stem-interest",
+        "type": "manual",
+        "hard": true,
+        "label": "Interested in science, technology, engineering or mathematics",
+        "source_text": "Interested in science"
+      },
+      {
+        "id": "online-course-commitment",
+        "type": "manual",
+        "hard": true,
+        "label": "Committed to completing the online course",
+        "source_text": "Committed to completing"
+      }
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null,
+    "deadline_note": "Application window: November 9–December 4, 2026. Check the official page for current application availability."
+  } as unknown as Opportunity,
+};
+/** 测试内固定的小目录（上面五条副本）：DOE CCI、Texas Aerospace Scholars 与 DOE SULI 同属 stem，用来守「截止已过的同领域机会不推荐」。 */
+const SNAPSHOT_CATALOG: Opportunity[] = Object.values(SNAPSHOT_OPPS);
+
 describe('findAlternatives：示例档案 × 真实机会', () => {
   const opps = opportunitiesJson as unknown as Opportunity[];
   const profiles = profilesJson as unknown as StudentProfile[];
   const P = (id: string) => profiles.find((p) => p.id === id)!;
-  const O = (id: string) => opps.find((o) => o.id === id)!;
+  // 精确断言用测试内固定的副本与小目录；「全部跑通」那条仍跑在真实数据上（只断言性质）。
+  const O = (id: string) => SNAPSHOT_OPPS[id];
 
   it('四个档案 × 三条机会 × 两个日期全部跑通，same_field 不含 not_eligible', () => {
     expect(profiles).toHaveLength(4);
@@ -413,7 +871,7 @@ describe('findAlternatives：示例档案 × 真实机会', () => {
   });
 
   it('sample-maya（11 年级）× Rutgers（只收本科生）→ 一条 next_cycle，注明是否每年举办未确认；目录里没有同领域机会', () => {
-    const r = fa(P('sample-maya'), O('rutgers-newark-summer-research-2027'), opps, TODAY);
+    const r = fa(P('sample-maya'), O('rutgers-newark-summer-research-2027'), SNAPSHOT_CATALOG, TODAY);
     expect(kinds(r)).toEqual(['next_cycle']);
     expect(r[0].opportunity_id).toBe('rutgers-newark-summer-research-2027');
     expect(r[0].shared_fields).toEqual(['biomedical_research', 'life_sciences']);
@@ -421,16 +879,16 @@ describe('findAlternatives：示例档案 × 真实机会', () => {
   });
 
   it('sample-noor × Rutgers：资格符合但有交通障碍 → 受阻，但不给 next_cycle，目录里也没有同领域机会 → []', () => {
-    expect(fa(P('sample-noor'), O('rutgers-newark-summer-research-2027'), opps, TODAY)).toEqual([]);
+    expect(fa(P('sample-noor'), O('rutgers-newark-summer-research-2027'), SNAPSHOT_CATALOG, TODAY)).toEqual([]);
   });
 
   it('没有受阻的组合（sample-maya × MLH，线上、资格符合）→ []', () => {
-    expect(fa(P('sample-maya'), O('mlh-open-source-week-2026'), opps, TODAY)).toEqual([]);
+    expect(fa(P('sample-maya'), O('mlh-open-source-week-2026'), SNAPSHOT_CATALOG, TODAY)).toEqual([]);
   });
 
   it('DOE SULI 截止（2027-01-06）之后 → 每个档案都得到一条「已过截止」的 next_cycle', () => {
     for (const p of profiles) {
-      const r = fa(p, O('doe-suli-summer-2027'), opps, { today: '2027-02-01' });
+      const r = fa(p, O('doe-suli-summer-2027'), SNAPSHOT_CATALOG, { today: '2027-02-01' });
       expect(kinds(r)).toEqual(['next_cycle']);
       expect(r[0].reason).toContain('has passed');
     }
@@ -487,11 +945,15 @@ describe('标签写法归一化（连字符 / 下划线 / 空格 / 大小写）'
         for (const t of m.shared_interests) expect(o.fields).toContain(t); // 原写法
       }
     }
-    expect(hits.length).toBeGreaterThan(0);
+    // 「至少有一个组合非空」依赖数据内容：在测试内固定的副本上检查（真实数据上只检查上面的「原写法」性质）。
+    const snapHits = (profilesJson as unknown as StudentProfile[]).flatMap((p) => SNAPSHOT_CATALOG.map((o) => explainMatch(p, o, TODAY).shared_interests)).filter((x) => x.length > 0);
+    expect(snapHits.length).toBeGreaterThan(0);
     // 具体组合：sample-noor 的 biomedical_research 对上 Rutgers 的 biomedical_research（shared_interests 用机会原写法）
     const noor = (profilesJson as unknown as StudentProfile[]).find((p) => p.id === 'sample-noor');
-    const rutgers = opps.find((o) => o.id === 'rutgers-newark-summer-research-2027');
-    if (noor && rutgers) expect(explainMatch(noor, rutgers, TODAY).shared_interests).toEqual(['biomedical_research']);
+    // 用测试内固定的 Rutgers 副本：队友改它的领域标签不影响这条。
+    const rutgers = SNAPSHOT_OPPS['rutgers-newark-summer-research-2027'];
+    expect(noor).toBeDefined();
+    if (noor) expect(explainMatch(noor, rutgers, TODAY).shared_interests).toEqual(['biomedical_research']);
   });
 
   it('示例档案的 interests 统一用下划线写法', () => {

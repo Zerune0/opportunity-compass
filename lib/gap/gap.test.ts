@@ -506,11 +506,291 @@ describe('analyzeGaps — 确定性、不修改输入、健壮性', () => {
   });
 });
 
+/**
+ * Snapshots of real opportunities as of 2026-11-19, kept in the test so data edits do not change it.
+ * 真实机会在 2026-11-19 的副本（逐字复制自 data/opportunities.json），固定在测试里：队友改数据不会让这里的精确断言失败；
+ * 这些测试守的是引擎在这些记录上的行为，不是数据本身（数据合法性由 lib/data.test.ts / lib/validation.test.ts 检查）。
+ */
+const SNAPSHOT_OPPS: Record<string, Opportunity> = {
+  'rutgers-newark-summer-research-2027': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "review-research-interests",
+        "title": "Draft a short summary of biomedical research interests",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "practice-lab-data-cleanup",
+        "title": "Practice cleaning a small public biomedical dataset",
+        "skill": "python",
+        "evidence_kind": "project",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      },
+      {
+        "id": "write-research-project-note",
+        "title": "Write a short project note explaining methods and limitations",
+        "skill": "scientific_writing",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [
+          "practice-lab-data-cleanup"
+        ],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": "portfolio",
+        "reusable_across_opportunities": true
+      },
+      {
+        "id": "review-lab-safety-basics",
+        "title": "Review introductory laboratory safety guidance",
+        "skill": "laboratory_safety",
+        "evidence_kind": null,
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for preparation only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      }
+    ],
+    "id": "rutgers-newark-summer-research-2027",
+    "title": "Rutgers Newark Undergraduate Summer Research Program",
+    "organizer": "Rutgers School of Graduate Studies",
+    "category": "research",
+    "fields": [
+      "biomedical_research",
+      "life_sciences"
+    ],
+    "summary": "A 10-week supervised undergraduate biomedical research program in Newark, New Jersey.",
+    "official_url": "https://njms.rutgers.edu/sgs/prospective_students/info/summer_undergrad_research.php",
+    "deadline": "2027-03-05",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "state": "NJ",
+      "city": "Newark"
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "The organizer lists stipends based on housing arrangements."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": 10,
+      "note": "See the organizer for the weekly schedule.",
+      "start_date": "2027-06-07",
+      "end_date": "2027-08-13"
+    },
+    "requirements": [
+      {
+        "id": "undergraduate",
+        "type": "grade",
+        "min": 13,
+        "max": 16,
+        "hard": true,
+        "label": "Undergraduate student",
+        "source_text": "This program provides the opportunity for undergraduates"
+      },
+      {
+        "id": "us-citizen-or-permanent-resident",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen or lawful permanent resident",
+        "source_text": "you must be a U.S. citizen or Permanent resident."
+      }
+    ],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+  'doe-suli-summer-2027': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-19",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "draft-research-resume",
+        "title": "Draft a resume highlighting coursework and research interests",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
+        "material_kind": "resume",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
+    "id": "doe-suli-summer-2027",
+    "title": "DOE Science Undergraduate Laboratory Internships · Summer 2027",
+    "organizer": "U.S. Department of Energy Office of Science",
+    "category": "internship",
+    "fields": [
+      "stem",
+      "laboratory_research"
+    ],
+    "summary": "A paid summer internship at a participating DOE laboratory. Review the eligibility page for full requirements and exceptions for recent graduates. Eligibility source: https://science.osti.gov/wdts/suli/Eligibility",
+    "official_url": "https://science.osti.gov/wdts/suli/How-to-Apply",
+    "deadline": "2027-01-06",
+    "deadline_note": "5:00 PM Eastern Time",
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "note": "Location and dates vary by host laboratory.",
+      "state": null,
+      "city": null
+    },
+    "cost": {
+      "fee_usd": null,
+      "requires_travel_expense": null,
+      "note": "Compensation and travel support depend on program terms."
+    },
+    "time_commitment": {
+      "hours_per_week": 40,
+      "total_weeks": 10,
+      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
+    },
+    "requirements": [
+      {
+        "id": "postsecondary-level",
+        "min": 13,
+        "type": "grade",
+        "hard": true,
+        "label": "Postsecondary applicant (recent graduate exceptions require official confirmation)",
+        "source_text": "Currently enrolled as a full-time student at an accredited community college, two-year college, or four-year institution. Recently graduated with an undergraduate degree."
+      },
+      {
+        "id": "us-citizen-or-permanent-resident",
+        "type": "citizenship",
+        "countries": [
+          "US"
+        ],
+        "hard": true,
+        "label": "U.S. citizen or lawful permanent resident",
+        "source_text": "United States Citizen or Lawful Permanent Resident"
+      },
+      {
+        "id": "minimum-age",
+        "label": "At least 18 when the internship begins",
+        "source_text": "18 years or older at the time the internship begins",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "enrollment",
+        "label": "Full-time undergraduate or qualifying recent graduate",
+        "source_text": "Currently enrolled as a full-time student at an accredited community college, two-year college, or four-year institution. Recently graduated with an undergraduate degree.",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "transcript-credits",
+        "label": "At least 6 STEM and 12 total undergraduate credits by the deadline",
+        "source_text": "By the application deadline, applicants must have completed at least 6 credit hours in STEM fields and a minimum of 12 total undergraduate credit hours.",
+        "type": "manual",
+        "hard": true
+      },
+      {
+        "id": "minimum-gpa",
+        "label": "At least a 3.0 cumulative GPA on a 4.0 scale",
+        "source_text": "cumulative GPA of at least 3.0",
+        "type": "manual",
+        "hard": true
+      }
+    ],
+    "source_tier": "official",
+    "recurring_annually": true,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+  'mlh-open-source-week-2026': {
+    "verified_by": "Jiale Li",
+    "verified_on": "2026-11-17",
+    "required_devices": [],
+    "preparation": [
+      {
+        "id": "practice-open-source-pr",
+        "title": "Practice opening a pull request",
+        "skill": "git",
+        "evidence_kind": "project",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion — not an official requirement",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      }
+    ],
+    "id": "mlh-open-source-week-2026",
+    "title": "Global Hack Week: Open Source Week",
+    "organizer": "Major League Hacking",
+    "category": "hackathon",
+    "fields": [
+      "software_development",
+      "open_source"
+    ],
+    "summary": "A free online week of open-source projects, challenges, and live workshops.",
+    "official_url": "https://events.mlh.com/events/15199-global-hack-week-open-source-week",
+    "deadline": null,
+    "deadline_note": "See the organizer for registration availability.",
+    "location": {
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": false,
+      "note": "Free participation confirmed at https://ghw.mlh.com/ (Global Hack Week umbrella page)."
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": 1,
+      "note": "Check the event schedule for individual sessions.",
+      "start_date": "2026-12-04",
+      "end_date": "2026-12-10"
+    },
+    "requirements": [],
+    "source_tier": "official",
+    "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
+  } as unknown as Opportunity,
+};
+
 describe('analyzeGaps — 示例档案 × 真实机会', () => {
   const profiles = profilesJson as unknown as StudentProfile[];
   const opps = opportunitiesJson as unknown as Opportunity[];
   const P = (id: string) => profiles.find((p) => p.id === id) as StudentProfile;
-  const O = (id: string) => opps.find((o) => o.id === id) as Opportunity;
+  // 下面几条精确断言用测试内固定的副本（SNAPSHOT_OPPS），不读 data/；「全部组合」那条仍跑在真实数据上（只断言性质）。
+  const O = (id: string) => SNAPSHOT_OPPS[id];
   const counts = (g: GapAnalysis) => GAP_CATEGORIES.map((c) => g.counts[c]);
 
   it('全部组合不抛错，counts 与 items 一致，reachable 与 analyzeReachability 一致', () => {
