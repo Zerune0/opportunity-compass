@@ -51,8 +51,8 @@ export function SavedComparison({ context, enabled }: {
                     <td>{facts.format}</td><td>{facts.location}</td>
                     <td>{facts.fee}<p>{facts.travel}</p>{opportunity.cost.note && <p>{opportunity.cost.note}</p>}</td>
                     <td>{facts.hours}</td>
-                    <td>{!reach ? "Not assessed — no profile loaded" : !opportunity.requirements.length ? "Unconfirmed — no official requirements recorded" : eligibilityLabels[reach.eligibility.overall]}</td>
-                    <td>{!reach ? "Not assessed — no profile loaded" : reach.reachable === true ? "Practically reachable" : reach.reachable === false ? "Open barriers or unmet eligibility" : "Unconfirmed"}
+                    <td>{!reach ? <Link href="/passport">Load a profile to see this</Link> : !opportunity.requirements.length ? "Unconfirmed — no official requirements recorded" : eligibilityLabels[reach.eligibility.overall]}</td>
+                    <td>{!reach ? <Link href="/passport">Load a profile to see this</Link> : reach.reachable === true ? "Practically reachable" : reach.reachable === false ? "Open barriers or unmet eligibility" : "Unconfirmed"}
                         {reach && reach.missing_info.length > 0 && <p>Some participation details remain unconfirmed.</p>}
                         {reach && grants.some(grant => grant.is_sample && reach.applied_grant_ids.includes(grant.id)) && <p>Simulated support</p>}
                     </td>
@@ -62,5 +62,6 @@ export function SavedComparison({ context, enabled }: {
                 </tr>)}</tbody>
             </table>
         </div>
+        <p>This table lists facts side by side. It does not rank these opportunities.</p>
     </details>;
 }

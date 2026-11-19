@@ -69,7 +69,7 @@ export function QuestAssessment({ opportunity, context }: {
     // When the catalog has no alternative, fall back to the route planner's "next cycle / same field" hints.
     const plan = profile && eligibility?.overall === "not_eligible" && !alternatives.length ? planRoutes(profile, opportunity, options) : null;
     const planHints = plan?.status === "blocked" ? plan.alternatives : [];
-    const questionDraft = buildOrganizerQuestions(opportunity, eligibility, reach?.missing_info ?? []);
+    const questionDraft = buildOrganizerQuestions(opportunity, eligibility, reach?.missing_info ?? [], profile ?? null);
     return <>
  <VerificationAge opportunity={opportunity} today={context.today} />
  {(profile?.is_sample || grants.some(g => g.is_sample)) && <p className="rpg-row">{profile?.is_sample && <span className="rpg-tag rpg-tag--warning">Sample student profile</span>}{grants.some(g => g.is_sample) && <span className="rpg-tag rpg-tag--warning">Simulated support</span>}</p>}

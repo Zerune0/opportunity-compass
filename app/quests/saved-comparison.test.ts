@@ -56,6 +56,11 @@ describe("saved comparison rendering", () => {
         expect(page).toContain('role="region"');
         expect(page).toContain('tabindex="0"');
         expect(page).toContain("Not assessed");
+        expect(page).toContain('<a href="/passport">Load a profile to see this</a>');
+        expect(page).not.toContain("no profile loaded");
+        const fixedSentence = "This table lists facts side by side. It does not rank these opportunities.";
+        expect(page).toContain(fixedSentence);
+        expect(page.indexOf(fixedSentence)).toBeGreaterThan(page.indexOf("</table>"));
         expect(page).toContain('href="/quests/sample-comparison-a"');
         expect(page).toContain("Weekly hours");
         expect(page).toContain("Barrier types");

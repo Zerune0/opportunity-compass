@@ -37,13 +37,13 @@ export default function QuestBoard() {
     const [filtersExpanded, setFiltersExpanded] = useState(false);
     const activeLabels = [
         filters.q.trim() && `Search: ${filters.q.trim()}`,
-        filters.category && `Type: ${categories[filters.category as Opportunity["category"]] ?? filters.category}`,
+        filters.category && `Type: ${Object.hasOwn(categories, filters.category) ? categories[filters.category as Opportunity["category"]] : filters.category}`,
         filters.field && `Field: ${filters.field.replaceAll("_", " ")}`,
         filters.country && `Country: ${filters.country}`,
         filters.state && `State or region: ${filters.state}`,
         filters.hours && `Weekly hours ≤ ${filters.hours}`,
         filters.grade && `Grade or year: ${filters.grade}`,
-        filters.maxFee && `Fee ≤ ${filters.maxFee}`,
+        filters.maxFee && `Fee ≤ $${filters.maxFee}`,
         filters.closingSoon && "Closing in the next 30 days",
         filters.remote && "Online or hybrid",
         filters.free && "No program or travel fee",

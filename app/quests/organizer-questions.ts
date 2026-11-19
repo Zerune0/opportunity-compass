@@ -1,10 +1,11 @@
-import type { EligibilityResult, Opportunity } from "../../lib/types";
+import type { EligibilityResult, Opportunity, StudentProfile } from "../../lib/types";
 
 const participationQuestions: Record<string, string> = {
     "opportunity.cost.fee_usd": "Could you please confirm the participation or application fee in USD, including whether there is no fee?",
     "opportunity.cost.requires_travel_expense": "Are participants responsible for travel or accommodation expenses?",
     "opportunity.time_commitment.hours_per_week": "Approximately how many hours per week are participants expected to commit?",
     "opportunity.time_commitment.total_weeks": "How many weeks does participation last?",
+    "opportunity.location": "In which city and state does the in-person part take place?",
     "opportunity.location.format": "Is participation online, in person, or hybrid? Which activities require attendance?",
     "opportunity.location.country": "In which country does participation take place?",
     "opportunity.location.state": "In which state or region does participation take place?",
@@ -16,29 +17,59 @@ const participationQuestions: Record<string, string> = {
     "opportunity.team_requirement.max_size": "What is the maximum team size?",
     "opportunity.deadline": "What is the current application deadline, including the time zone?",
 };
+/**
+ * Profile field names exactly as the engines emit them: `used_profile_fields` in
+ * lib/eligibility/index.ts (no prefix) and `profile.*` entries of `missing_info` in lib/reachability.
+ */
 const profileLabels: Record<string, string> = {
-    age: "Age", grade: "Grade", status: "Student status", citizenship: "Citizenship",
-    country: "Country", state: "State or region", city: "City",
-    available_hours_per_week: "Available hours per week", budget_usd: "Available budget",
-    transport: "Transportation", has_reliable_transport: "Transportation",
-    devices: "Available equipment", skills: "Skills", evidence: "Experience and evidence",
+    grade: "Grade", age: "Age or date of birth", birth_date: "Age or date of birth",
+    region: "Country or region", "region.state": "State or province",
+    citizenships: "Citizenship or legal residency", statuses: "Student status",
+    skills: "Skills", evidence: "Evidence",
+    devices: "Devices", budget_usd: "Budget", transport: "Transportation",
+    hours_per_week_available: "Available hours per week",
 };
+const profileLabel = (field: string) => Object.hasOwn(profileLabels, field) ? profileLabels[field] : "Other missing profile information";
+const stripProfilePrefix = (field: string) => field.trim().replace(/^profile\./, "");
+/** null / undefined / blank string / empty array count as missing. Dotted paths are read level by level. */
+function isProfileFieldMissing(profile: StudentProfile | null, field: string): boolean {
+    if (!profile) return true;
+    let value: unknown = profile;
+    for (const key of field.split(".")) {
+        if (value == null || typeof value !== "object" || !Object.hasOwn(value, key)) return true;
+        value = (value as Record<string, unknown>)[key];
+    }
+    if (value == null) return true;
+    if (typeof value === "string") return value.trim() === "";
+    if (Array.isArray(value)) return value.length === 0;
+    return false;
+}
 const unique = (values: string[]) => [...new Set(values.map(value => value.trim()).filter(Boolean))];
 const hasFieldPath = (value: string) => /\b(?:opportunity|profile)\.[a-z_]/i.test(value);
 
-/** Uses existing engine outputs only; no eligibility or reachability decisions. */
+/**
+ * Uses existing engine outputs only; no eligibility or reachability decisions.
+ * An unknown requirement that uses any profile field the student has not filled in goes to the
+ * Skill Passport list, not to the organizer message (the engine's hint for it is written to the student).
+ * Without a profile, every requirement that uses a profile field is treated as a profile gap.
+ */
 export function buildOrganizerQuestions(
     opportunity: Pick<Opportunity, "title">,
     eligibility: Pick<EligibilityResult, "items"> | null,
     missingInfo: readonly string[],
+    profile: StudentProfile | null,
 ) {
-    const profileFields = unique(missingInfo.filter(field => field.startsWith("profile.")));
-    const profileUpdates = unique(profileFields.map(field => profileLabels[field.slice(8)] ?? "Other missing profile information"));
+    const unknownItems = (eligibility?.items ?? []).filter(item => item.status === "unknown" && item.confirm_with_official?.trim());
+    const missingProfileFields: string[] = [];
+    const organizerItems = unknownItems.filter(item => {
+        const missing = item.used_profile_fields.map(stripProfilePrefix).filter(field => isProfileFieldMissing(profile, field));
+        missingProfileFields.push(...missing);
+        return missing.length === 0;
+    });
+    missingProfileFields.push(...missingInfo.filter(field => field.trim().startsWith("profile.")).map(stripProfilePrefix));
+    const profileUpdates = unique(unique(missingProfileFields).map(profileLabel));
     const questions = unique([
-        ...(eligibility?.items ?? []).filter(item =>
-            item.status === "unknown" && item.confirm_with_official?.trim() &&
-            !item.used_profile_fields.some(field => profileFields.includes(field.startsWith("profile.") ? field : `profile.${field}`)),
-        ).map(item => {
+        ...organizerItems.map(item => {
             const label = hasFieldPath(item.label) ? "this eligibility requirement" : item.label;
             const prompt = item.confirm_with_official!.trim();
             return hasFieldPath(prompt)
@@ -46,7 +77,7 @@ export function buildOrganizerQuestions(
                 : `Regarding ${label}: ${prompt}`;
         }),
         ...missingInfo.filter(field => field.startsWith("opportunity.")).map(field =>
-            participationQuestions[field] ?? "Could you please clarify the remaining participation details that are not specified on the official page?",
+            (Object.hasOwn(participationQuestions, field) ? participationQuestions[field] : undefined) ?? "Could you please clarify the remaining participation details that are not specified on the official page?",
         ),
     ]);
     const message = questions.length ? [
