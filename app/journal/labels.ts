@@ -44,6 +44,9 @@ export const eventLabels: Record<JournalEvent, string> = {
   not_admitted: "Recorded: not admitted",
   participated: "Recorded: took part",
   did_not_participate: "Recorded: did not take part",
+  eligibility_cleared: "Cleared: eligibility confirmation (correction)",
+  decision_cleared: "Cleared: admission decision (correction)",
+  participation_cleared: "Cleared: participation (correction)",
 };
 
 export const materialKindLabels: Record<MaterialKind, string> = {

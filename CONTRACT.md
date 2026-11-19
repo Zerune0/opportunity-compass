@@ -15,7 +15,7 @@
 | `Opportunity` | 一个真实机会 | `id`、`title`、`organizer`、`category`、`fields`、**`official_url`、`verified_on`、`verified_by`**、`deadline`（null=滚动/未写清）、`location`（`format`: online/in_person/hybrid）、`cost.fee_usd`、`time_commitment`（每周小时、周数）、`required_devices`、`requirements`、`preparation`、`is_sample` |
 | `Requirement` | 一条官方要求 | `id`、`type`（grade/age/region/citizenship/status/prerequisite_skill/portfolio/manual）、该类型的规则参数（如 `min`/`max`）、`hard`（true=硬性）、`label`、**`source_text`（官网原文）**。`manual` = 机器判定不了，永远 unknown |
 | `PrepItem` | 准备项（路线规划用） | `id`、`title`、`skill`、`evidence_kind`、`estimated_hours`、`estimated_cost_usd`、`depends_on`、`required_for_application` |
-| `StudentProfile` | 学生档案 | `id`、**`is_sample`**、`display_name`、`grade`、`age`、`region`、`citizenships`、`statuses`、`school_name`（只展示，**任何判断不得读取**）、`hours_per_week_available`、`budget_usd`、`transport`、`devices`、`skills`、`evidence`、`interests` |
+| `StudentProfile` | 学生档案 | `id`、**`is_sample`**、`display_name`、`grade`、`age`、`birth_date?`（第三阶段新增，可选，`ISODate \| null`；敏感信息，只存在学生自己的浏览器，不上传、不出现在任何分享视图里；规则见「`checkEligibility` 的年龄规则」）、`region`、`citizenships`、`statuses`、`school_name`（只展示，**任何判断不得读取**）、`hours_per_week_available`、`budget_usd`、`transport`、`devices`、`skills`、`evidence`、`interests` |
 | `EvidenceItem` | 作品 / 经历证据 | `id`、`title`、`kind`、`skills`、`prep_item_ids`、`status`（self_reported / evidence_attached / reviewed / unverified；附链接 ≠ 专业认证） |
 | `EligibilityResult` | 资格结果 | `overall`（eligible / not_eligible / unknown）、`items[]`：`status`（**satisfied / not_satisfied / unknown**）、`source_text`、`explanation`、`confirm_with_official`（unknown 时的「请向官方确认」提示） |
 | `ResourceGrant` | 主办方已分配给某学生的资源（针对某机会，或对该学生所有机会有效） | `student_id`、**`opportunity_id`（`string \| null`：字符串 = 只对该机会有效；`null` = 对该学生的所有机会都有效，如借出的笔记本、交通卡；只有 `=== null` 才算，缺该字段的 grant 不生效；`null` 主要用于可重复使用的资源 device / time_support，按金额计的 transport_subsidy / fee_waiver 建议指定具体机会）**、`intervention_id?`（来自哪个措施，若有）、`type`（device / transport_subsidy / fee_waiver / time_support / alternative_access）、`status`（approved / pending）、`amount_usd`、`device`、`hours_per_week`、`is_sample` |
@@ -68,7 +68,7 @@
 | `CrossPlan` | `planAcrossOpportunities` 的返回 | `profile_id`、`evaluated_on`（`ISODate \| null`）、`items`（按 `order` 升序）、`weekly_load`、`reuse`、`total_hours`、`total_hours_without_reuse`（两者只算 planned 的机会，差 = 复用省下的小时）、`conflicts`、`warnings`、`missing_info` |
 | `CrossPlanOptions` | `planAcrossOpportunities` 的可选末位参数（`extends EvalOptions`） | `today?`；`priorities?: string[]`（学生自己给的优先顺序，只用于冲突说明里的对照，不改变 `order`，也不代表系统建议放弃其他机会）；`materials?: Material[]`（学生已存的申请材料，**页面应把 `loadMaterials(profile_id)` 的结果传进来**；缺省 = 不考虑已有材料；只有 `status: 'ready'` 且 `profile_id` 与档案相同（或没写）的材料生效，规则见「第二阶段新函数」中 `planAcrossOpportunities`） |
 | `JournalApplicationStatus` / `EligibilityConfirmation` / `JournalDecision` | Quest Journal 的三项独立状态（学生自己记录，不是系统判断） | `JournalApplicationStatus`：`preparing` / `submitted` / `withdrawn`（学生的申请进度）；`EligibilityConfirmation`：`unconfirmed` / `confirmed` / `rejected`（官方是否确认了资格）；`JournalDecision`：`pending` / `admitted` / `not_admitted`（官方录取结果）。连同 `JournalEntry.participated`，**四项互相独立：提交 ≠ 官方确认资格 ≠ 被录取 ≠ 已参与**，界面分开显示，不能互相推断 |
-| `JournalEvent` / `JournalHistoryItem` | Journal 事件与事件记录 | `JournalEvent`（常量 `JOURNAL_EVENTS`）：`added`（创建条目时记录，不改其他字段）/ `submitted`（`application = 'submitted'`，`submitted_on` = 当天）/ `withdrawn`（`application = 'withdrawn'`，`submitted_on` 保留）/ `reopened`（`application` 回到 `'preparing'`，`submitted_on = null`）/ `eligibility_confirmed` / `eligibility_rejected`（`eligibility_confirmation` = `'confirmed'` / `'rejected'`）/ `admitted` / `not_admitted`（`decision`）/ `participated` / `did_not_participate`（`participated` = true / false）。`JournalHistoryItem` = `{ event, on }` |
+| `JournalEvent` / `JournalHistoryItem` | Journal 事件与事件记录 | `JournalEvent`（常量 `JOURNAL_EVENTS`）：`added`（创建条目时记录，不改其他字段）/ `submitted`（`application = 'submitted'`，`submitted_on` = 当天）/ `withdrawn`（`application = 'withdrawn'`，`submitted_on` 保留）/ `reopened`（`application` 回到 `'preparing'`，`submitted_on = null`）/ `eligibility_confirmed` / `eligibility_rejected`（`eligibility_confirmation` = `'confirmed'` / `'rejected'`）/ `admitted` / `not_admitted`（`decision`）/ `participated` / `did_not_participate`（`participated` = true / false）；**第三阶段新增更正事件**（撤回记错的记录，`JOURNAL_EVENTS` 末尾追加）：`eligibility_cleared`（`eligibility_confirmation` 回到 `'unconfirmed'`）/ `decision_cleared`（`decision` 回到 `'pending'`）/ `participation_cleared`（`participated` 回到 null），即恢复成 `createJournalEntry` 的初始值，每个只改自己那一项；申请进度的更正用已有的 `reopened`。`JournalHistoryItem` = `{ event, on }`；`on` 可以是过去的日期（补记），不晚于当天由页面限制 |
 | `JournalTask` | Journal 里的一条任务 | `id`、`title`、`prep_item_id?`、`done`、`done_on?` |
 | `Material`（`MaterialStatus`） | 一份申请材料（单独存放，Journal 条目用 `material_ids` 引用） | `id`（全局唯一）、`profile_id`（属于哪个档案）、`kind`（`MaterialKind`）、`title`、`reusable`、`opportunity_id`（`string \| null`；通用材料为 null）、`prep_item_id?`、`estimated_hours`（`number \| null`）、`status`（`not_started` / `in_progress` / `ready`，常量 `MATERIAL_STATUSES`）。可复用材料被多个条目引用时是同一条记录：改一次状态，所有引用它的条目都看到 |
 | `OutcomeFeedback` | 学生自愿记录的主观反馈 | 全部可缺（缺省 / null = 没记）：`discovered_new_opportunity?`、`understood_eligibility?`、`completed_materials?`、`helpful_note?`、`recorded_on?`。是否提交、是否参与以 `JournalEntry` 的 `application` / `participated` 为准，这里不重复。不是系统判断，也不是真实影响的证据 |
@@ -111,7 +111,7 @@
 
 第二阶段的辅助纯函数（不属于上表的共享函数，页面可以直接用）：
 - `lib/tags.ts`：`normalizeTag(s: string): string`（`' Data-Science '` → `'data_science'`）；`normalizedTagSet(tags: readonly unknown[]): Set<string>`（跳过非字符串与归一化后为空的项）；`sharedTags(tags: readonly string[], against: ReadonlySet<string>): string[]`（`tags` 中归一化后在 `against` 里的项，保留原写法与顺序，归一化后重复的只留第一个）。
-- `lib/journal.ts`：`isJournalEvent(v: unknown): v is JournalEvent`；`applyJournalEvent(entry: JournalEntry, event: JournalEvent, on: ISODate): JournalEntry`（返回新对象，按 `JournalEvent` 更新对应字段并追加 `history`，同一事件同一天不重复追加；页面一般不直接调用，用 `recordJournalEvent`）；`journalHeadline(entry: JournalEntry): string`（列表用的一句英文摘要，由四项派生，只说学生记录了什么）。
+- `lib/journal.ts`：`isJournalEvent(v: unknown): v is JournalEvent`；`applyJournalEvent(entry: JournalEntry, event: JournalEvent, on: ISODate): JournalEntry`（返回新对象，按 `JournalEvent` 更新对应字段并追加 `history`，同一事件同一天不重复追加；页面一般不直接调用，用 `recordJournalEvent`）；`journalHeadline(entry: JournalEntry): string`（列表用的一句英文摘要，由四项派生，只说学生记录了什么）；第三阶段新增 `sortJournalHistory(history): JournalHistoryItem[]`（按日期排序、同一天保持记录先后，返回新数组，显示 history 时用）与 `resolveRecordDate(input: string | null | undefined, today: ISODate): ISODate`（页面「记录日期」输入的取值：合法且不晚于 `today` 原样返回，空 / 非法 / 晚于 `today` 返回 `today`；不读系统时钟）。
 **现有参数不会删改；如需扩展，只在末位新增可选参数（向后兼容，见文末「变更记录」），其余只换实现**。第一阶段的六个共享函数都已是真实实现；第二阶段的四个函数都已是完整实现（`analyzeGaps`、`findAlternatives` 在第 1 层，`planAcrossOpportunities`、`explainMatch` 在第 2 层），签名与返回类型与示例版本相同。
 
 ### 第二阶段新函数：规则（四个函数均为完整实现，各自附「仍然不做」）
@@ -166,10 +166,20 @@
   - `reason` 的组成：「另一个同属 <共同领域> 的机会」；资格结论（符合可检查的硬性要求 / 列出待向官方确认的硬性要求）；现实条件一句话（看起来走得通但与录取无关 / 信息不足无法判断 / 也有未化解的障碍：列出哪几类）；`user_posted` 注明是示例发布、未经官网核实。
 - 结果顺序：`next_cycle` 在前，其后 `same_field`。
 
+**`checkEligibility` 的年龄规则（第三阶段起含可选的 `birth_date`）**——所有判断年龄要求的地方都从统一入口 `lib/eligibility/age.ts` 取年龄（`exactAgeOnReference`、`ageRangeOn`）
+- 参考日 R = `as_of ?? opp.deadline`；两者都没有时用 `options.today`。
+- **有可用的 `birth_date`**（合法 `YYYY-MM-DD`；给了 `today` 时不晚于 today）且能算出 R 当天的年龄 → 用确切年龄（`ageOn(birth_date, R)`），直接 satisfied / not_satisfied，不再给范围；R 来自 `as_of` / `deadline` 时不需要 `today`。`used_profile_fields` 为 `['birth_date']`。
+- 年龄按日历年月日算整岁；**2 月 29 日出生者在非闰年按 3 月 1 日满岁**。`ageOn(birthDate, onDate): number \| null`（`lib/eligibility/dates.ts`，也从 `lib/eligibility` 导出）：日期非法、出生日期晚于 onDate → null。
+- 有 `birth_date` 但没有任何参考日（R 与 `today` 都没有）→ 与没有 `today` 时的旧行为一致（有 `age` 就用当前年龄，否则 unknown），不读系统时钟。
+- `birth_date` 与 `age` 矛盾（按 `today` 由出生日期算出的年龄 ≠ `age`）→ 以 `birth_date` 为准，并在该条的 `explanation` 里写明不一致（不新增返回字段）；页面表单也会提示。
+- `birth_date` 非法或晚于 today → 不使用，按 `age` 判断，`explanation` 末尾说明出生日期没有被使用。
+- **没有 `birth_date`（缺省或 null）→ 与第一阶段完全相同**：由当前年龄推出 R 当天可能的年龄（R 不是今天且不是整年时有两个可能值），全满足 / 全不满足 / 混合 → satisfied / not_satisfied / unknown。
+- `validateProfile(value, options?)`：`birth_date` 缺省 / null / 合法日期都通过；非法格式报错；传了 `options.today` 时晚于 today 报错（不传不查）。`lib/store.ts` 读 / 更新档案时把非法的 `birth_date` 改为 null（只丢这个值，不丢档案）。`buildSharedProfileView` 不含 `birth_date` 与 `age`（有测试）。
+
 **年龄 / 年级「低于下限」的共同口径**（`lib/requirement-timing.ts` 的 `belowMinimumLater`，`analyzeGaps` 的「以后可能满足」说明与 `findAlternatives` 的 improvable 共用，结论一致）
-- 只有同时满足才算「会随时间改善」：要求是 `grade` / `age`，`min` 是数字，`max` 缺省或 `max ≥ min`；`grade`：档案年级 < `min`；`age`：在参考日（`as_of ?? deadline`）当天可能的年龄（与 `checkEligibility` 同一算法，生日未知时可能有两个）**全部** < `min`（参考日缺省时用当前年龄）。
+- 只有同时满足才算「会随时间改善」：要求是 `grade` / `age`，`min` 是数字，`max` 缺省或 `max ≥ min`；`grade`：档案年级 < `min`；`age`：在参考日（`as_of ?? deadline`）当天可能的年龄（与 `checkEligibility` 同一入口；有可用的 `birth_date` 时只有一个确切值，档案 `age` 可以没填；生日未知时可能有两个）**全部** < `min`（参考日缺省时用当前年龄）。
 - 其他情况（高于上限、现在低于下限但到参考日会超过上限、档案值缺失、区间无效）都不算。
-- 第一阶段 `planRoutes`（`lib/path/plan.ts`，不改）判断年龄时用档案里的当前年龄，与此在「现在低于下限、到参考日会超过上限」这类边界上可能不同（`planRoutes` 的 `alternatives` 可能仍有下一届提示）；`grade` 的规则相同。
+- `planRoutes`（`lib/path/plan.ts`）：档案有可用的 `birth_date` 时，年龄走向用同一个 `belowMinimumLater`，与此一致；**没有 `birth_date` 时仍用档案里的当前年龄**（刻意保留，保证行为不变），与此在「现在低于下限、到参考日会超过上限」这类边界上可能不同（`planRoutes` 的 `alternatives` 可能仍有下一届提示）；`grade` 的规则相同。
 
 **`planAcrossOpportunities`**（`lib/planner/index.ts`，完整实现）
 - 只把数字摆出来，**不替学生决定放弃哪个机会**，不给分数或排名。
@@ -230,6 +240,8 @@
   - 状态变化一律通过 `lib/store.ts` 的 `recordJournalEvent` 记录（它用 `lib/journal.ts` 的 `applyJournalEvent` 更新对应字段并追加 `history`），不要直接改这几个字段。
   - 列表里需要一句话摘要时用 `lib/journal.ts` 的 `journalHeadline(entry)`（由四项派生、不存储）；它不能代替四项的分开显示。
   - 不阻止「不合常理」的顺序（如没提交就记 `admitted`）——学生记录的是现实。页面引导而不拦截：未提交时把录取结果 / 资格确认放在次要位置并提示「通常在提交后才会有」；记这些事件时若仍是 `preparing`，询问是否同时记一次 `submitted`；已 `withdrawn` 时把 `reopened` 放在显眼处。
+  - **更正（第三阶段）**：记错了用更正事件撤回（`eligibility_cleared` / `decision_cleared` / `participation_cleared`，申请进度用 `reopened`），不要删 `history` 或直接改字段；`history` 只追加，更正本身也是一条历史。页面只在该行已有记录时显示 "Clear this record"，点击前确认。
+  - **补记日期（第三阶段）**：每个记录操作可以选一个过去的日期（默认当天，日期输入 `max` = 当天）；提交给 `recordJournalEvent` 前用 `resolveRecordDate(input, today)` 处理，不记未来日期。「同时记一次提交」用同一个日期。`history` 的存储顺序是记录先后；History 按记录先后显示（当前状态由记录先后推出），`sortJournalHistory` 仅供需要按日期查看时使用。
   - 读写 Journal 与材料时都带上当前档案的 `profile_id`（按档案隔离，见「浏览器存储」）。
 - **四个函数都要传 `{ today: 'YYYY-MM-DD' }`**（由页面传入今天）。不传时：
   - `analyzeGaps`：依赖日期的判断按信息不足处理——有截止日期的机会 `reachable` 不会是 true（没有其他确定的阻碍时为 null），`unknown_info` 里会多一条 `options.today`；有参考日期（`as_of` 或截止日期）的年龄要求为 unknown。
@@ -506,7 +518,7 @@
 - `createJournalEntry(profileId: string, opportunity: Pick<Opportunity, 'id' | 'official_url'>, on: ISODate): JournalEntry` —— 纯构造、不写存储：`application: 'preparing'`、`submitted_on: null`、`eligibility_confirmation: 'unconfirmed'`、`decision: 'pending'`、`participated: null`、`history: [{ event: 'added', on }]`、无任务、无材料、`official_url` 抄自机会。
 - `upsertJournalEntry(entry: JournalEntry): JournalEntry[]` —— 新增或替换（替换时保持原位置），返回**该档案**（`entry.profile_id`）更新后的条目列表；形状不对时不写，返回该档案现有列表（连 `profile_id` 都没有时返回 `[]`）。
 - `removeJournalEntry(profileId: string, opportunityId: string): JournalEntry[]` —— 删除该档案在该机会上的条目，返回该档案剩下的条目。**删除条目不删材料**（可复用材料可能还被别的条目用；不再需要的材料用 `removeMaterial` 删）。
-- `recordJournalEvent(profileId: string, opportunityId: string, event: JournalEvent, on: ISODate): JournalEntry | null` —— 记录一个事件：用 `lib/journal.ts` 的 `applyJournalEvent` 更新对应字段（见 `JournalEvent`）并在 `history` 追加 `{ event, on }`；同一事件同一天不重复追加。条目不存在或事件非法返回 null。不阻止不合常理的顺序（页面引导，见「页面必须遵守的约定」）。
+- `recordJournalEvent(profileId: string, opportunityId: string, event: JournalEvent, on: ISODate): JournalEntry | null` —— 记录一个事件：用 `lib/journal.ts` 的 `applyJournalEvent` 更新对应字段（见 `JournalEvent`）并在 `history` 追加 `{ event, on }`；同一事件同一天不重复追加。条目不存在或事件非法返回 null。不阻止不合常理的顺序（页面引导，见「页面必须遵守的约定」）。接受第三阶段的更正事件；`on` 可以是过去的日期（补记），存储层不检查是否晚于当天（由页面用 `resolveRecordDate` 限制）。
 - `toggleJournalTask(profileId: string, opportunityId: string, taskId: string, done: boolean, on?: ISODate): JournalEntry | null` —— `done: true` 时 `done_on = on`（没传为 null），`done: false` 时 `done_on = null`；条目或任务不存在返回 null。
 - `clearJournal(profileId?: string): void` —— 不传 = 清空全部条目（所有档案）；传 = 只清该档案的条目。
 
@@ -689,3 +701,13 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - **`explainMatch` 的 `reasons` 条数不固定**：每个种类最多一条，没有可说的不出现（如线上机会没有 `transport`；档案字段损坏或机会数据不完整时只有三条）。**页面不要按下标取理由**，用 `kind` 查找。此前固定三条。
   - `explainMatch` 新增 `format` / `time` / `cost` / `device` / `transport` 理由；资格 unknown 时按引擎提示区分「补填档案」与「向主办方确认」；not_eligible 且全部可自己补上时 `summary` 不再说本届不能申请。
   - `lib/types.ts` 中 `MatchReasonKind`、`MatchExplanation.reasons`、`CrossPlanItem.hours_before_reuse` / `note`、`CrossPlanOptions` 的注释同步。
+- 2026-11-18：**第三阶段：Journal 更正事件**（全部向后兼容：`JournalEvent` / `JOURNAL_EVENTS` 末尾追加成员，`lib/journal.ts` 新增两个纯函数；现有字段、事件与函数签名不改）：
+  - 新事件 `eligibility_cleared` / `decision_cleared` / `participation_cleared`：把对应一项恢复成未记录（`'unconfirmed'` / `'pending'` / null），不影响其他三项；`history` 照常追加（撤回也留痕），幂等规则不变（同一事件同一天只记一次）。申请进度不新增事件，更正用 `reopened`。
+  - 日期可补记：`recordJournalEvent` 的 `on` 可以是过去的日期；不晚于当天由页面限制（新函数 `resolveRecordDate`）。显示 `history` 用新函数 `sortJournalHistory`（按日期，同一天保持记录先后）。
+  - 旧数据照常读取；`isJournalEvent` 与存储的 sanitize 认识新事件。**对 `JournalEvent` 做穷尽式映射（如 `Record<JournalEvent, …>`）的代码需要补这三个键**（`app/journal/labels.ts` 已补）。
+- 2026-11-18：**第三阶段：birth_date**（全部向后兼容：`StudentProfile` 新增可选字段 `birth_date?: ISODate | null`；现有字段不改名、不删、不改类型）：
+  - 有可用的出生日期时，年龄要求按参考日当天的确切年龄判断（规则见「`checkEligibility` 的年龄规则」）；**没填时所有函数的行为不变**。统一入口 `lib/eligibility/age.ts`；新纯函数 `ageOn`（`lib/eligibility/dates.ts`，2 月 29 日出生者在非闰年按 3 月 1 日满岁）。
+  - `lib/requirement-timing.ts`：`ageCandidates` 第一参数放宽为 `number | null`，末位新增可选 `birthDate`（有出生日期时返回单一确切值）；`belowMinimumLater` 读 `birth_date`，所以 `analyzeGaps` / `findAlternatives` / `explainMatch` 的「以后可能满足」在有出生日期时给确定结论。`planRoutes` 的下一届提示在有出生日期时与之一致。
+  - 与 `age` 矛盾时以 `birth_date` 为准，在资格条目的 `explanation` 里写明。
+  - `validateProfile` 新增可选第二参数 `{ today? }`（检查出生日期不在未来）；`lib/store.ts` 丢弃非法的 `birth_date`；分享视图不含 `birth_date` / `age`。
+  - 页面：Skill Passport 的档案表单新增可选的 "Date of birth"（`max` = 当天），保留 Age 字段，两者不一致时提示以出生日期为准。测试：`lib/birth-date.test.ts`。

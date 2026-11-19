@@ -406,6 +406,13 @@ export interface StudentProfile {
   display_name: string;
   grade?: GradeLevel | null;
   age?: number | null;
+  /**
+   * 出生日期（`YYYY-MM-DD`，可选）；null / 缺省 = 没填。
+   * 只用于精确判断年龄要求：有它时按参考日（as_of ?? deadline，都没有时 options.today）算确切年龄，
+   * 不再给年龄范围；与 age 矛盾时以它为准。2 月 29 日出生者在非闰年按 3 月 1 日满岁。
+   * 敏感信息：只存在学生自己的浏览器（localStorage），不上传，不出现在任何分享视图（如 SharedProfileView）里。
+   */
+  birth_date?: ISODate | null;
   region?: StudentRegion | null;
   /** 国籍 / 合法居留国家（ISO 代码），null = 没填。 */
   citizenships?: string[] | null;
@@ -1618,7 +1625,13 @@ export type JournalDecision = 'pending' | 'admitted' | 'not_admitted';
  * - reopened：撤销退出 / 撤销提交，application 回到 'preparing'，submitted_on = null；
  * - eligibility_confirmed / eligibility_rejected：eligibility_confirmation = 'confirmed' / 'rejected'；
  * - admitted / not_admitted：decision = 'admitted' / 'not_admitted'；
- * - participated / did_not_participate：participated = true / false。
+ * - participated / did_not_participate：participated = true / false；
+ * - 更正事件（第三阶段新增，用于撤回记错的记录；history 仍只追加，更正本身也是一条历史）：
+ *   - eligibility_cleared：eligibility_confirmation 回到 'unconfirmed'（未记录）；
+ *   - decision_cleared：decision 回到 'pending'（未记录）；
+ *   - participation_cleared：participated 回到 null（未记录）。
+ *   每个更正事件只改自己那一项，不影响其他三项。申请进度不另设更正事件：用 reopened 回到 'preparing'。
+ * 日期 on 由调用方传入，可以是过去的日期（补记）；不晚于当天由页面限制。
  */
 export type JournalEvent =
   | 'added'
@@ -1630,7 +1643,10 @@ export type JournalEvent =
   | 'admitted'
   | 'not_admitted'
   | 'participated'
-  | 'did_not_participate';
+  | 'did_not_participate'
+  | 'eligibility_cleared'
+  | 'decision_cleared'
+  | 'participation_cleared';
 
 export const JOURNAL_EVENTS: readonly JournalEvent[] = [
   'added',
@@ -1643,6 +1659,9 @@ export const JOURNAL_EVENTS: readonly JournalEvent[] = [
   'not_admitted',
   'participated',
   'did_not_participate',
+  'eligibility_cleared',
+  'decision_cleared',
+  'participation_cleared',
 ] as const;
 
 /** history 中的一项。 */
@@ -1731,7 +1750,7 @@ export interface JournalEntry {
   decision: JournalDecision;
   /** 是否实际参与；null = 还没发生 / 没记录。 */
   participated: boolean | null;
-  /** 事件记录，按记录先后；通常第一项是 added。同一事件同一天只记一次。 */
+  /** 事件记录，按记录先后（日期可补记，不一定按日期递增；页面按记录先后显示，当前状态由记录先后推出）；通常第一项是 added。同一事件同一天只记一次。 */
   history: JournalHistoryItem[];
   /** 学生选的路线类型；没选为 null / 缺省。 */
   route_type?: RouteType | null;

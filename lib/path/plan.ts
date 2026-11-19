@@ -26,6 +26,8 @@
 import { checkEligibility } from '../eligibility';
 import { plural } from '../format';
 import { daysBetween, parseISODate } from '../eligibility/dates';
+import { exactAgeOnReference } from '../eligibility/age';
+import { belowMinimumLater } from '../requirement-timing';
 import { findCoveringEvidence, requiredPrepClosure } from '../reachability/coverage';
 import type {
   AlternativeHint,
@@ -69,13 +71,27 @@ interface BaseSteps {
 
 type BlockNature = 'improvable' | 'permanent' | 'fixable';
 
-/** 判断一条阻断要求随时间的走向。 */
-function blockNature(item: EligibilityItem, profile: StudentProfile, opp: Opportunity): BlockNature {
+/**
+ * 判断一条阻断要求随时间的走向。
+ * age：档案有可用的出生日期、能算出参考日当天的确切年龄时，走统一入口（lib/requirement-timing.ts 的
+ * belowMinimumLater → lib/eligibility/age.ts），与 analyzeGaps / findAlternatives 口径一致。
+ * 没有出生日期时仍按第一阶段的规则比较「当前年龄 < min」（刻意保留，保证没填出生日期时行为不变；
+ * 因此只在这种情况下仍与 requirement-timing 在「参考日年龄」口径上可能不同，见 CONTRACT.md）。
+ */
+function blockNature(
+  item: EligibilityItem,
+  profile: StudentProfile,
+  opp: Opportunity,
+  options?: EvalOptions,
+): BlockNature {
   const req = opp.requirements.find((r) => r.id === item.requirement_id);
   if (!req) return 'permanent';
   switch (req.type) {
     case 'grade':
     case 'age': {
+      if (req.type === 'age' && exactAgeOnReference(profile.birth_date, req, opp, options) != null) {
+        return belowMinimumLater(req, profile, opp, options) ? 'improvable' : 'permanent';
+      }
       const v = req.type === 'grade' ? profile.grade : profile.age;
       if (v != null && req.min != null && v < req.min && (req.max == null || req.max >= req.min)) {
         return 'improvable';
@@ -94,6 +110,7 @@ function blockedPlan(
   profile: StudentProfile,
   opp: Opportunity,
   blocking: EligibilityItem[],
+  options?: EvalOptions,
 ): PlanResult {
   const reasons = blocking.map((b) => {
     const base = `You don't meet the hard requirement "${b.label}": ${b.explanation} Official text: "${b.source_text}".`;
@@ -104,7 +121,7 @@ function blockedPlan(
   });
 
   const alternatives: AlternativeHint[] = [];
-  const natures = blocking.map((b) => blockNature(b, profile, opp));
+  const natures = blocking.map((b) => blockNature(b, profile, opp, options));
   const hasImprovable = natures.includes('improvable');
   const hasPermanent = natures.includes('permanent');
   if (opp.recurring_annually !== false && hasImprovable && !hasPermanent) {
@@ -434,7 +451,7 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
   const eligibility = checkEligibility(profile, opp, options);
   if (eligibility.overall === 'not_eligible') {
     const blocking = eligibility.items.filter((i) => i.hard && i.status === 'not_satisfied');
-    return blockedPlan(profile, opp, blocking);
+    return blockedPlan(profile, opp, blocking, options);
   }
 
   const warnings: string[] = [];
