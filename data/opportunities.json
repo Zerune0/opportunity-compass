@@ -171,7 +171,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -215,7 +215,7 @@
     "time_commitment": {
       "hours_per_week": 40,
       "total_weeks": 10,
-      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations"
+      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
     },
     "requirements": [
       {
@@ -266,7 +266,7 @@
       }
     ],
     "source_tier": "official",
-    "recurring_annually": null,
+    "recurring_annually": true,
     "is_sample": false,
     "posted_by": null
   },
@@ -400,7 +400,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-18",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -444,7 +444,7 @@
     "time_commitment": {
       "hours_per_week": 40,
       "total_weeks": 10,
-      "note": "Approximately 40 hours per week, typically 10 consecutive weeks for the summer term. On-site participation only; remote internships are not available. Confirm the appointment schedule with the host laboratory. Sources: https://science.osti.gov/wdts/cci/Participant-Obligations ; https://science.osti.gov/wdts/cci/Benefits . Human verification: Jiale Li, 2026-11-18."
+      "note": "Approximately 40 hours per week, typically 10 consecutive weeks for the summer term. On-site participation only; remote internships are not available. Confirm the appointment schedule with the host laboratory. Sources: https://science.osti.gov/wdts/cci/Participant-Obligations ; https://science.osti.gov/wdts/cci/Benefits . Human verification: Jiale Li, 2026-11-18. Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
     },
     "requirements": [
       {
@@ -456,7 +456,7 @@
       }
     ],
     "source_tier": "official",
-    "recurring_annually": null,
+    "recurring_annually": true,
     "is_sample": false,
     "posted_by": null
   },
