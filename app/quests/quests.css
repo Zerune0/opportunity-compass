@@ -5,3 +5,10 @@
 .quest-pages .rpg-tag { white-space: normal; overflow-wrap: anywhere; }
 .quest-pages dd { margin-inline-start: 0; }
 .quest-pages blockquote { margin-inline: 0; padding-inline-start: 1rem; border-inline-start: 2px solid currentColor; }
+
+/* Keep the full toolbar on desktop; mobile users can reveal it on demand. */
+.quest-pages .quest-filter-toggle { display: none; }
+@media (max-width: 40rem) {
+  .quest-pages .quest-filter-toggle { display: inline-flex; }
+  .quest-pages .quest-filters[data-expanded="false"] { display: none; }
+}

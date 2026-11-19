@@ -11,6 +11,8 @@ const formats = { online: "Online", hybrid: "Hybrid", in_person: "In person" };
 export default function QuestBoard() {
     const context = useQuestContext();
     const [filters, setFilters] = useState(emptyFilters);
+    const [filtersExpanded, setFiltersExpanded] = useState(false);
+    const activeFilterCount = Object.values(filters).filter(value => value !== "" && value !== false).length;
     const [sort, setSort] = useState("deadline");
     const [notice, setNotice] = useState("");
     const saved = context.saved;
@@ -27,7 +29,8 @@ export default function QuestBoard() {
         setNotice("Your browser could not save this change. Check storage settings and try again."); }
     return <div className="rpg-stack rpg-stack--loose" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
  <h1>Quest Board</h1><p>Explore official opportunities. Unknown details need confirmation with the organizer. Reachability does not guarantee admission.</p>
- <fieldset className="rpg-toolbar" style={{ minWidth: 0, flexWrap: "wrap" }}><legend>Filter opportunities</legend>
+ <button type="button" className="rpg-button rpg-button--secondary quest-filter-toggle" aria-expanded={filtersExpanded} aria-controls="quest-filters" onClick={() => setFiltersExpanded(expanded => !expanded)}>{filtersExpanded ? "Hide filters" : "Show filters"}{activeFilterCount > 0 && ` (${activeFilterCount} active)`}</button>
+ <fieldset id="quest-filters" data-expanded={filtersExpanded} className="rpg-toolbar quest-filters" style={{ minWidth: 0, flexWrap: "wrap" }}><legend>Filter opportunities</legend>
  <label className="rpg-field">Type<select value={filters.category} onChange={e => update("category", e.target.value)}><option value="">All types</option>{Object.entries(categories).map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>
  <label className="rpg-field">Field or interest<select value={filters.field} onChange={e => update("field", e.target.value)}><option value="">All fields</option>{fields.map(f => <option key={f} value={f}>{f.replaceAll("_", " ")}</option>)}</select></label>
  <label className="rpg-field">Country<select value={filters.country} onChange={e => setFilters(old => ({ ...old, country: e.target.value, state: "" }))}><option value="">All countries</option>{countries.map(c => <option key={c}>{c}</option>)}</select></label>
@@ -49,7 +52,7 @@ export default function QuestBoard() {
  {o.source_tier === "user_posted" ? <p className="rpg-tag rpg-tag--warning">User-posted · not verified against an official site · Sample</p> : o.is_sample && <p className="rpg-tag rpg-tag--warning">Sample opportunity</p>}
  <h2><Link href={`/quests/${encodeURIComponent(o.id)}`}>{o.title}</Link></h2><p>{o.organizer}</p><p>{o.summary}</p>
  <dl><dt>Deadline</dt><dd>{o.deadline ?? "Unknown, confirm with the organizer"}</dd><dt>Location</dt><dd>{[o.location.city, o.location.state, o.location.country].filter(Boolean).join(", ") || (o.location.format === "online" ? "Online" : "Unknown, confirm with the organizer")}</dd>
- <dt>Time</dt><dd>{o.time_commitment.hours_per_week == null ? "Weekly hours unknown" : `${o.time_commitment.hours_per_week} h/week`}; {o.time_commitment.total_weeks == null ? "duration unknown" : `${o.time_commitment.total_weeks} weeks`}</dd>
+ <dt>Time</dt><dd>{o.time_commitment.hours_per_week == null ? "Weekly hours unknown" : `${o.time_commitment.hours_per_week} h/week`}; {o.time_commitment.total_weeks == null ? "duration unknown" : `${o.time_commitment.total_weeks} ${o.time_commitment.total_weeks === 1 ? "week" : "weeks"}`}</dd>
  <dt>Program fee</dt><dd>{o.cost.fee_usd == null ? "Unknown, confirm with the organizer" : o.cost.fee_usd === 0 ? "Free" : `$${o.cost.fee_usd}`}</dd><dt>Source</dt><dd>{sourceLabels[o.source_tier ?? "official"]}</dd><dt>{o.source_tier === "user_posted" ? "Sample record date" : "Verified"}</dt><dd>{o.verified_on}</dd></dl>
  {sort === "match" && explanations.get(o.id)?.reasons.map(r => <p key={r.kind}>{r.text}</p>)}
  <button type="button" className="rpg-button rpg-button--secondary" disabled={!context.loaded} aria-pressed={saved.includes(o.id)} aria-label={`${saved.includes(o.id) ? "Unsave" : "Save"} ${o.title}`} onClick={() => toggle(o.id)}>{saved.includes(o.id) ? "Saved" : "Save opportunity"}</button>
