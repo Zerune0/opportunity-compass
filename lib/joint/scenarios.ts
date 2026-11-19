@@ -7,7 +7,8 @@
  *   含 first_generation（用于演示公平底线）。
  * - `venueTradeoffScenario`：data/scenarios/venue-tradeoff.json —— 同一主办方的工作日场与周末场（占位机会），
  *   已在运行的「工作日接驳车」给 3 名学生发了 approved grant；新的「周末卫星会场」与它互斥（演示权衡分析模式）。
- * - `SCENARIOS`：两个场景的清单（id、标题、一句说明、预设公平底线 suggestedFairnessFloors，均为示例）。
+ * - `SCENARIOS`：两个场景的清单（id、标题、一句说明、预设公平底线 suggestedFairnessFloors、
+ *   示例主办方名 sampleOrganizer（「回到学生端的桥」写入 grants 的 provider），均为示例）。
  * - `withEnabledInterventions(scenario, ids)`：只保留指定措施（What-if 页面「勾选措施」用）；
  *   前置依赖没有全部启用的措施一并移除（不放松依赖），并清理指向已移除措施的互斥引用。
  *   运行中的措施（有已有 grant 指向它）不能被移除：未勾选时保留在场景里、只是不接受新分配（opportunity_ids = []）。
@@ -89,7 +90,12 @@ export interface ScenarioEntry {
   scenario: Scenario;
   /** 预设公平底线（示例，basis 写明依据；主办方可以不用）。 */
   suggestedFairnessFloors: FairnessFloor[];
+  /** 示例主办方名字，写入 grants 的 provider；不得使用真实机构名。 */
+  sampleOrganizer: string;
 }
+
+/** 两个演示场景共用的示例主办方名字（与占位机会的 organizer 一致）。 */
+const SAMPLE_ORGANIZER = 'Sample organizer (placeholder)';
 
 /** 低收入学生覆盖 ≥ 50% 的示例底线（两个场景共用同一写法，依据为虚构的示例章程）。 */
 const lowIncomeFloor = (): FairnessFloor => ({
@@ -107,6 +113,7 @@ export const SCENARIOS: readonly ScenarioEntry[] = [
     description: 'Sample: 10 students without laptops share 5 loaner devices. See how capacity, budget, mutual exclusions and pending-approval measures affect coverage.',
     scenario: deviceLoanScenario,
     suggestedFairnessFloors: [lowIncomeFloor()],
+    sampleOrganizer: SAMPLE_ORGANIZER,
   },
   {
     id: venueTradeoffScenario.id,
@@ -114,6 +121,7 @@ export const SCENARIOS: readonly ScenarioEntry[] = [
     description: 'Sample: opening a weekend satellite venue means stopping the weekday shuttle that is already running. See gains, losses and revocations in trade-off mode.',
     scenario: venueTradeoffScenario,
     suggestedFairnessFloors: [lowIncomeFloor()],
+    sampleOrganizer: SAMPLE_ORGANIZER,
   },
 ];
 

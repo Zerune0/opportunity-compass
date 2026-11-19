@@ -19,11 +19,12 @@ import {
   PROTECT_LOSS_NOTE,
   missingPrerequisites,
   runWhatIf,
+  runWhatIfWithPlan,
   scrubStudentInfo,
   WHATIF_LABELS,
 } from './whatif';
 import type { WhatIfView } from './whatif';
-import type { Intervention, Scenario } from '../types';
+import type { FairnessFloor, Intervention, Scenario } from '../types';
 
 const S = deviceLoanScenario;
 const LAPTOP = IDS.laptopLoan;
@@ -730,5 +731,90 @@ describe('runWhatIf：基线表同口径的复核后可达（必须修 1）', ()
     const C = rows.find((r) => r.id === 'C_organizer_side')!;
     expect(B.description).toContain('never revokes an existing resource');
     expect(C.description).toContain('never revokes an existing resource');
+  });
+});
+
+describe('runWhatIfWithPlan：同一次计算另外给出主结果的方案明细（「回到学生端的桥」用）', () => {
+  const cases: [string, Scenario, Parameters<typeof runWhatIf>[1], readonly FairnessFloor[]][] = [
+    ['device loan default', S, defaultWhatIfInput(S), DL_FLOORS],
+    ['trade-off default', VT, defaultWhatIfInput(VT), VT_FLOORS],
+    ['trade-off tradeoff 3', VT, vtInput({ mode: 'tradeoff', lossCap: 3 }), VT_FLOORS],
+    ['device loan + floor 100%', S, dlInput({ fairnessFloorIds: [LOW_INCOME], minRatioOverrides: { [LOW_INCOME]: 1 } }), DL_FLOORS],
+  ];
+  for (const [name, sc, input, floors] of cases) {
+    it(`${name}：view 与 runWhatIf 完全相同；状态、复核与视图一致；分配只用已批准措施`, () => {
+      const { view, plan } = runWhatIfWithPlan(sc, input, floors);
+      expect(view).toEqual(runWhatIf(sc, input, floors));
+      expect(JSON.stringify(view)).toBe(JSON.stringify(runWhatIf(sc, input, floors)));
+      expect(plan.scenario_id).toBe(sc.id);
+      expect(plan.status).toBe(view.status);
+      expect(plan.status).toBe('OPTIMAL');
+      expect(plan.verification_passed).toBe(view.verification.passed);
+      expect(plan.verification_passed).toBe(true);
+      expect(plan.allocations.length).toBeGreaterThan(0);
+      const byId = new Map(plan.interventions.map((iv) => [iv.id, iv]));
+      for (const a of plan.allocations) {
+        expect(byId.has(a.intervention_id)).toBe(true);
+        expect(byId.get(a.intervention_id)!.status).not.toBe('pending');
+      }
+      // 分配与视图的汇总来自同一次求解：每项选中措施服务的不同学生数一致
+      for (const s of view.selected) {
+        expect(byId.has(s.id)).toBe(true);
+        expect(new Set(plan.allocations.filter((a) => a.intervention_id === s.id).map((a) => a.student_id)).size).toBe(s.students_served);
+      }
+      expect(new Set(plan.allocations.map((a) => a.intervention_id)).size).toBeLessThanOrEqual(view.selected.length);
+    });
+  }
+
+  it('设备借用默认：条件性结果（卫星会场获批）的分配给出、与主结果相同；不纳入待审批措施时为 null', () => {
+    const { plan } = runWhatIfWithPlan(S, defaultWhatIfInput(S), DL_FLOORS);
+    expect(plan.conditional_allocations).not.toBeNull();
+    expect(plan.conditional_allocations).toEqual(plan.allocations);
+    expect(plan.interventions.map((iv) => iv.id)).toEqual([LAPTOP, SUBSIDY, ONLINE, SATELLITE]);
+    const noPending = runWhatIfWithPlan(S, dlInput({ enabledIds: [LAPTOP, SUBSIDY] }), DL_FLOORS).plan;
+    expect(noPending.conditional_allocations).toBeNull();
+    expect(noPending.interventions.map((iv) => iv.id)).toEqual([LAPTOP, SUBSIDY]);
+  });
+
+  it('输入无效（权衡模式没填损失上限）：UNSUPPORTED_INPUT、分配为空、复核不通过、没有条件性结果', () => {
+    const { view, plan } = runWhatIfWithPlan(VT, vtInput({ mode: 'tradeoff', lossCap: null }), VT_FLOORS);
+    expect(view.status).toBe('UNSUPPORTED_INPUT');
+    expect(plan).toMatchObject({
+      scenario_id: VT.id,
+      status: 'UNSUPPORTED_INPUT',
+      verification_passed: false,
+      allocations: [],
+      conditional_allocations: null,
+    });
+    expect(plan.interventions.map((iv) => iv.id)).toEqual(VT.interventions.map((iv) => iv.id));
+  });
+
+  it('求解器判定输入不合法（负预算）：UNSUPPORTED_INPUT、分配为空', () => {
+    const { view, plan } = runWhatIfWithPlan(S, dlInput({ budget: -1 }));
+    expect(view.status).toBe('UNSUPPORTED_INPUT');
+    expect(plan).toMatchObject({ status: 'UNSUPPORTED_INPUT', verification_passed: false, allocations: [], conditional_allocations: null });
+  });
+
+  it('INFEASIBLE：主结果是空方案（分配为空），条件性结果仍给出（只用于说明，永不写入）', () => {
+    const { view, plan } = runWhatIfWithPlan(S, dlInput({ minGain: 6 }));
+    expect(view.status).toBe('INFEASIBLE');
+    expect(plan.status).toBe('INFEASIBLE');
+    expect(plan.allocations).toEqual([]);
+    expect(plan.verification_passed).toBe(view.verification.passed);
+    expect(plan.conditional_allocations).not.toBeNull();
+  });
+
+  it('交出的是副本：改动方案明细不影响场景，也不影响下一次计算', () => {
+    const before = JSON.stringify(S);
+    const first = runWhatIfWithPlan(S, defaultWhatIfInput(S));
+    const snapshot = JSON.stringify(first.plan);
+    first.plan.allocations[0].student_id = 'tampered';
+    first.plan.allocations.push({ ...first.plan.allocations[0] });
+    first.plan.interventions[0].resolves.push('time');
+    first.plan.interventions[0].title = 'tampered';
+    first.plan.conditional_allocations![0].intervention_id = 'tampered';
+    expect(first.plan.interventions[0]).not.toBe(S.interventions[0]);
+    expect(JSON.stringify(S)).toBe(before);
+    expect(JSON.stringify(runWhatIfWithPlan(S, defaultWhatIfInput(S)).plan)).toBe(snapshot);
   });
 });

@@ -2,11 +2,13 @@
 
 /**
  * 主办方 What-if 页面（客户端组件）。
- * 所有计算都在 lib/joint/whatif.ts 的纯函数 runWhatIf 里完成，这里只负责输入控件和渲染。
+ * 所有计算都在 lib/joint/whatif.ts 的纯函数 runWhatIfWithPlan（即 runWhatIf 加上方案明细）里完成，这里只负责输入控件和渲染。
  * 只显示汇总数字，不显示任何单个学生的姓名、学校或材料。所有结果都是模拟。
  *
  * 场景（可切换的两个演示场景）由 server component（./page.tsx）匿名化后连同预设公平底线作为 prop 传入；
- * 本文件不要 import lib/joint/scenarios（那个文件顶层导入了场景 JSON，会把示例学生的姓名、学校打包进浏览器）。
+ * 本文件不要 import lib/joint/scenarios（那个文件顶层导入了场景 JSON，会把示例学生的姓名、学校打包进浏览器），也不要 import lib/data。
+ * 结果区下方的「回到学生端的桥」（./student-bridge）是明确标注的本地演示操作：拿同一次计算的方案明细
+ * （runWhatIfWithPlan 的 plan，不再求解一次），只渲染关于载入档案的一句话，不渲染方案明细里的任何学生信息。
  */
 import { useId, useMemo, useState } from "react";
 import {
@@ -14,12 +16,14 @@ import {
   MODE_EXPLANATIONS,
   MODE_LABELS,
   missingPrerequisites,
-  runWhatIf,
+  runWhatIfWithPlan,
   WHATIF_LABELS,
 } from "@/lib/joint/whatif";
 import type { WhatIfBaselineRow, WhatIfFairnessRow, WhatIfView } from "@/lib/joint/whatif";
+import type { ClientBridgeInfo } from "@/lib/joint/bridge";
 import { plural, pluralNoun } from "@/lib/format";
 import type { FairnessFloor, Intervention, JointStatus, Scenario, SupportType } from "@/lib/types";
+import StudentBridge from "./student-bridge";
 
 /** 交给客户端的一个演示场景（已匿名化；底线为示例）。 */
 export interface ClientScenarioEntry {
@@ -28,6 +32,8 @@ export interface ClientScenarioEntry {
   description: string;
   scenario: Scenario;
   floors: FairnessFloor[];
+  /** 「回到学生端的桥」：可载入示例档案的匿名编号对应、示例主办方名、有 Quest Details 页面的机会。 */
+  bridge: ClientBridgeInfo;
 }
 
 type Mode = "protect" | "tradeoff";
@@ -156,12 +162,20 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
         </div>
       </header>
       {/* key：切换场景时重新挂载，所有控件回到该场景的默认值。 */}
-      <ScenarioWhatIf key={entry.id} scenario={entry.scenario} floors={entry.floors} />
+      <ScenarioWhatIf key={entry.id} scenario={entry.scenario} floors={entry.floors} bridge={entry.bridge} />
     </div>
   );
 }
 
-function ScenarioWhatIf({ scenario, floors }: { scenario: Scenario; floors: FairnessFloor[] }) {
+function ScenarioWhatIf({
+  scenario,
+  floors,
+  bridge,
+}: {
+  scenario: Scenario;
+  floors: FairnessFloor[];
+  bridge: ClientBridgeInfo;
+}) {
   const defaults = useMemo(() => defaultWhatIfInput(scenario), [scenario]);
   const [enabled, setEnabled] = useState<string[]>(defaults.enabledIds);
   const [required, setRequired] = useState<string[]>(defaults.requiredIds);
@@ -195,12 +209,13 @@ function ScenarioWhatIf({ scenario, floors }: { scenario: Scenario; floors: Fair
     ),
   );
 
-  // 输入无效时不调用 runWhatIf，结果区只显示提示。
-  const view = useMemo(
+  // 输入无效时不调用 runWhatIfWithPlan，结果区只显示提示，桥拿到的方案为 null。
+  // 视图与桥用同一次计算（runWhatIfWithPlan），不为了桥再求解一次。
+  const computed = useMemo(
     () =>
       inputError !== null || budget.value === null
         ? null
-        : runWhatIf(
+        : runWhatIfWithPlan(
             scenario,
             {
               enabledIds: enabled,
@@ -216,6 +231,8 @@ function ScenarioWhatIf({ scenario, floors }: { scenario: Scenario; floors: Fair
           ),
     [scenario, floors, enabled, required, budget.value, minGain.value, mode, lossCap.value, floorOn, overridesKey, inputError],
   );
+  const view = computed ? computed.view : null;
+  const plan = computed ? computed.plan : null;
 
   const order = (ids: Iterable<string>) => {
     const set = new Set(ids);
@@ -302,6 +319,9 @@ function ScenarioWhatIf({ scenario, floors }: { scenario: Scenario; floors: Fair
         />
         {view ? <Results view={view} /> : <InvalidInput message={inputError} />}
       </div>
+
+      {/* 全宽，放在设置与结果下方：输入无效时也显示（此时 plan 为 null，仍可撤回之前写入的）。 */}
+      <StudentBridge scenario={scenario} bridge={bridge} plan={plan} />
     </div>
   );
 }
