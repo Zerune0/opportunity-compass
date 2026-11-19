@@ -49,8 +49,8 @@ function verifyWith(s: Scenario, r: JointResult, opts: SolveOptions = {}) {
 }
 
 describe('示例场景的预设公平底线', () => {
-  it('SCENARIOS 列出两个场景，预设底线格式合法、写明是示例依据', () => {
-    expect(SCENARIOS.map((s) => s.id)).toEqual(['device-loan', 'venue-tradeoff']);
+  it('SCENARIOS 前两项固定是两个占位场景（共享支持场景填好 ref 后追加为第三项），预设底线格式合法、写明是示例依据', () => {
+    expect(SCENARIOS.slice(0, 2).map((s) => s.id)).toEqual(['device-loan', 'venue-tradeoff']);
     for (const entry of SCENARIOS) {
       expect(entry.scenario.is_sample).toBe(true);
       expect(entry.description).toContain('Sample');

@@ -1,0 +1,345 @@
+{
+  "id": "shared-support",
+  "title": "Sample / simulated scenario: laptop loans and transport support for an in-person opportunity",
+  "is_sample": true,
+  "evaluation_date": "2026-11-20",
+  "budget_usd": 150,
+  "opportunity_ref": "placeholder-inperson-event",
+  "demo_student_ref": "sample-maya",
+  "demo_student_position": 0,
+  "interventions": [
+    {
+      "id": "iv-ss-laptop-loan",
+      "title": "Loaner laptops (sample)",
+      "type": "device",
+      "resolves": [
+        "device"
+      ],
+      "unit_cost_usd": 20,
+      "fixed_cost_usd": 40,
+      "capacity": 3,
+      "capacity_scope": "total",
+      "device": "laptop",
+      "status": "approved"
+    },
+    {
+      "id": "iv-ss-transport-stipend",
+      "title": "Transport stipend (sample)",
+      "type": "transport_subsidy",
+      "resolves": [
+        "transport"
+      ],
+      "unit_cost_usd": 30,
+      "fixed_cost_usd": 0,
+      "capacity": null,
+      "amount_usd": 30,
+      "status": "approved"
+    },
+    {
+      "id": "iv-ss-extra-laptops",
+      "title": "Extra loaner laptops from a second partner (sample, pending approval)",
+      "type": "device",
+      "resolves": [
+        "device"
+      ],
+      "unit_cost_usd": 20,
+      "fixed_cost_usd": 0,
+      "capacity": 2,
+      "capacity_scope": "total",
+      "device": "laptop",
+      "status": "pending"
+    }
+  ],
+  "students": [
+    {
+      "id": "ss-s01",
+      "is_sample": true,
+      "display_name": "Sample student A (shared support scenario)",
+      "grade": 10,
+      "age": 15,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Lakeside High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "Sample: can take the bus"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "ss-s02",
+      "is_sample": true,
+      "display_name": "Sample student B (shared support scenario)",
+      "grade": 11,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Ridge High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "Sample: can take the bus"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "ss-s03",
+      "is_sample": true,
+      "display_name": "Sample student C (shared support scenario)",
+      "grade": 9,
+      "age": 14,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income"
+      ],
+      "school_name": "Example Orchard High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "Sample: no bus line nearby"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "ss-s04",
+      "is_sample": true,
+      "display_name": "Sample student D (shared support scenario)",
+      "grade": 12,
+      "age": 17,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "urban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income",
+        "first_generation"
+      ],
+      "school_name": "Example Lakeside High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "reliable",
+        "max_one_way_minutes": 40,
+        "note": "Sample: can take the bus"
+      },
+      "devices": [
+        "smartphone",
+        "home_internet"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "ss-s05",
+      "is_sample": true,
+      "display_name": "Sample student E (shared support scenario)",
+      "grade": 10,
+      "age": 16,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income"
+      ],
+      "school_name": "Example Orchard High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "limited",
+        "max_one_way_minutes": null,
+        "note": "Sample: the bus runs only twice a day"
+      },
+      "devices": [
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "ss-s06",
+      "is_sample": true,
+      "display_name": "Sample student F (shared support scenario)",
+      "grade": 11,
+      "age": 17,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "rural"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student"
+      ],
+      "school_name": "Example Ridge High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "none",
+        "max_one_way_minutes": null,
+        "note": "Sample: no one at home can drive"
+      },
+      "devices": [
+        "laptop",
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    },
+    {
+      "id": "ss-s07",
+      "is_sample": true,
+      "display_name": "Sample student G (shared support scenario)",
+      "grade": 12,
+      "age": 18,
+      "region": {
+        "country": "US",
+        "state": "CA",
+        "city": "Example City",
+        "locality": "suburban"
+      },
+      "citizenships": [
+        "US"
+      ],
+      "statuses": [
+        "high_school_student",
+        "low_income",
+        "first_generation"
+      ],
+      "school_name": "Example Orchard High School (fictional)",
+      "hours_per_week_available": 6,
+      "budget_usd": 20,
+      "transport": {
+        "level": "limited",
+        "max_one_way_minutes": null,
+        "note": "Sample: shares one car with family"
+      },
+      "devices": [
+        "laptop",
+        "smartphone"
+      ],
+      "skills": [
+        {
+          "name": "python",
+          "level": "beginner"
+        }
+      ],
+      "evidence": [],
+      "interests": [
+        "computer_science"
+      ]
+    }
+  ],
+  "existing_grants": []
+}
