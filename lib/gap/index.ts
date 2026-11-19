@@ -117,7 +117,8 @@ const FIELD_INFO: Record<string, FieldInfo> = {
   'opportunity.deadline': { label: 'the deadline (the date given cannot be read)', affects: 'the deadline and prep-time check' },
   'opportunity.requirements': { label: 'the list of official requirements', affects: 'the eligibility check' },
   'opportunity.cost': { label: 'the cost details', affects: 'the cost check' },
-  'opportunity.location': { label: 'where it takes place (in person or online)', affects: 'the transportation check' },
+  'opportunity.location': { label: 'where exactly it takes place', affects: 'the transportation check' },
+  'opportunity.location.format': { label: 'whether it takes place online or in person', affects: 'the transportation check' },
   'opportunity.time_commitment': { label: 'the time commitment', affects: 'the time check' },
   'options.today': { label: "today's date", affects: 'the deadline and prep-time check' },
 };

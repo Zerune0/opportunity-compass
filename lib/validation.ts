@@ -48,7 +48,7 @@ export const OPPORTUNITY_CATEGORIES = [
   'other',
 ] as const satisfies readonly OpportunityCategory[];
 
-export const OPPORTUNITY_FORMATS = ['online', 'in_person', 'hybrid'] as const satisfies readonly OpportunityFormat[];
+export const OPPORTUNITY_FORMATS = ['online', 'in_person', 'hybrid', 'unknown'] as const satisfies readonly OpportunityFormat[];
 
 export const DEVICE_TYPES = [
   'laptop',
@@ -599,7 +599,10 @@ export function opportunityWarnings(opp: unknown): string[] {
   const loc = isObj(opp.location) ? opp.location : null;
   const cost = isObj(opp.cost) ? opp.cost : null;
   if (cost && cost.fee_usd === null) warn('cost.fee_usd', 'is null, so the reachability cost check will be "can\'t tell".');
-  if (cost && cost.requires_travel_expense === null && loc && loc.format !== 'online') {
+  if (loc && loc.format === 'unknown') {
+    warn('location.format', 'is "unknown" (the official page does not say whether it is online or in person), so the reachability transportation check will be "can\'t tell". Confirm the format with the organizer.');
+  }
+  if (cost && cost.requires_travel_expense === null && loc && loc.format !== 'online' && loc.format !== 'unknown') {
     warn('cost.requires_travel_expense', 'is null (in-person / hybrid opportunity), so transportation and travel can only be judged from the student\'s transportation; info is incomplete.');
   }
   const tc = isObj(opp.time_commitment) ? opp.time_commitment : null;
