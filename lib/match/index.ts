@@ -46,6 +46,7 @@
  * ── findAlternatives（完整实现）──
  * 产品依据（Quest Recovery）：申请过期、费用难以承担或资格暂时不符时，找下一届或同领域的其他机会；
  * 不把任何候选说成目标机会的官方前置条件。只从传入的 catalog 里找，不编造机会。
+ * 第四阶段第 1 层新增 stepping_stone / remote_option（见第 5、6 条）。
  *
  * 0. options 为 MatchOptions：today 与 grants（缺省 []；与 analyzeGaps / explainMatch 的 grants 同义，
  *    页面上三者传同一组）。grants 只经由 analyzeReachability 起作用，引擎自己只认与该学生、该机会匹配的 approved grant。
@@ -74,18 +75,33 @@
  *    reason：共同领域、资格结论（符合 / 列出待向官方确认的硬性要求）、现实条件一句话（走得通 / 信息不足 /
  *    也有未化解的障碍：哪几类）；user_posted 注明是示例发布、未经官网核实。
  *    reason 不把候选说成前置条件或跳板，不出现分数、名次或录取可能性。
- * 4. 结果顺序：next_cycle 在前，其后 same_field。
+ * 4. same_field 的去重（第四阶段）：已作为 stepping_stone 或 remote_option（目录里的线上机会）给出的机会不再进 same_field
+ *    候选（在取前 3 条之前排除，所以 same_field 仍可有 3 条别的机会）。没有出现新类的输入上，same_field 与以前完全相同。
+ * 5. stepping_stone（第四阶段，最多 3 条）：仅当 steppingStoneAllowed——至少一条 fixable 阻断（缺技能 / 缺作品）、
+ *    或截止已过、或未化解的 cost 障碍（费用放不下），并且没有任何 permanent 阻断。只因年级 / 年龄低于下限、
+ *    时间、交通、设备受阻时不给。候选 = ./evidence-building.ts 的 findEvidenceBuildingCandidates（顺序沿用：截止日期 → id），
+ *    reason 写明能积累哪类证据、对应目标的哪条要求 / 准备项，固定带 STEPPING_STONE_NOTE
+ *    "This builds evidence; it is not a prerequisite."；eligibility_overall 不会是 not_eligible；shared_fields 非空。
+ * 6. remote_option（第四阶段）：仅当目标有未化解的 transport 障碍（引擎把「需自费差旅」也记在 transport 障碍里，
+ *    所以「自费差旅导致的费用问题」也由它触发；cost 障碍本身不触发）。(a) 目标为 hybrid 且截止没过 → 一条指向目标自身，
+ *    reason 以 "Confirm with the organizer whether you can take part online." 开头、不断言可以，eligibility_overall 为目标的
+ *    资格结论，shared_fields 同 next_cycle；目标为 in_person 时不给 (a)，也不提示「也许可以远程」。(b) 目录中线上、
+ *    同领域、非 user_posted、截止没过、资格不是 not_eligible 的其他机会，最多 3 条（eligible 在前 → 共同标签多 → 截止早 → id）。
+ *    同一机会已是 stepping_stone 时不再作为 remote_option。
+ * 7. 结果顺序：next_cycle → same_field → stepping_stone → remote_option（(a) 在 (b) 前）。同一机会只出现一次，
+ *    优先级 stepping_stone > remote_option > same_field（remote_option (a) 指向目标自身，与 next_cycle 可以同时出现）。
  *
  * 公平性：不读取学校名、显示名。纯函数：不读系统时钟、无随机、无 IO、不调 AI。永不抛异常
  * （候选判断出错的跳过；目标机会判断出错的那一类原因视为不存在）。
  */
-import { checkEligibility } from '../eligibility';
+import { EVIDENCE_KIND_ZH, checkEligibility } from '../eligibility';
 import { analyzeReachability } from '../reachability';
 import { planRoutes } from '../path';
 import { dayNumber, parseISODate } from '../eligibility/dates';
 import { asArray, safeOpportunity, safeProfile } from '../gap/inputs';
 import { normalizedTagSet, sharedTags } from '../tags';
 import { blockNature, type BlockNature } from './block';
+import { findEvidenceBuildingCandidates, linkPhrase } from './evidence-building';
 import { BARRIER_TYPES } from '../types';
 import type {
   AlternativeSuggestion,
@@ -123,6 +139,10 @@ interface BlockState {
   notReachable: boolean;
   /** 资格不是 not_eligible、截止没过，但 planRoutes 的每条路线都来不及（feasible_by_deadline === false）。 */
   tooLittleTime: boolean;
+  /** 未化解的现实障碍类型（不含「已过截止日期」那一条）；资格为 not_eligible 或无法判断时为空。 */
+  unresolvedBarriers: Set<BarrierType>;
+  /** checkEligibility 对目标的总体结论；出错时为 null。 */
+  overall: OverallEligibility | null;
 }
 
 function isPastDeadline(deadline: unknown, todayDay: number | null): boolean {
@@ -153,15 +173,19 @@ function blockState(
       : [];
 
   let notReachable = false;
+  const unresolvedBarriers = new Set<BarrierType>();
   if (!notEligible) {
     try {
       const r = analyzeReachability(p, o, grants, options);
       if (r.reachable === false) {
         // 「已过截止日期」障碍（time、shortfall 为 null、无法化解）单独算作 pastDeadline，不计入现实障碍。
-        notReachable = r.barriers.some((b) => !b.resolved && !(pastDeadline && b.type === 'time' && b.shortfall == null));
+        const open = r.barriers.filter((b) => !b.resolved && !(pastDeadline && b.type === 'time' && b.shortfall == null));
+        notReachable = open.length > 0;
+        for (const b of open) unresolvedBarriers.add(b.type);
       }
     } catch {
       notReachable = false;
+      unresolvedBarriers.clear();
     }
   }
 
@@ -175,7 +199,7 @@ function blockState(
     }
   }
 
-  return { blocking, pastDeadline, notReachable, tooLittleTime };
+  return { blocking, pastDeadline, notReachable, tooLittleTime, unresolvedBarriers, overall: elig?.overall ?? null };
 }
 
 function isBlocked(b: BlockState): boolean {
@@ -313,6 +337,133 @@ function sameFieldCandidate(
   };
 }
 
+// ───────────────────────────── stepping_stone / remote_option（第四阶段第 1 层）─────────────────────────────
+
+const MAX_STEPPING_STONE = 3;
+const MAX_REMOTE_OPTION = 3;
+
+/** stepping_stone 的 reason 里固定带的一句。 */
+export const STEPPING_STONE_NOTE = 'This builds evidence; it is not a prerequisite.';
+/** remote_option 指向目标自身（hybrid）时 reason 开头固定的一句。 */
+export const CONFIRM_ONLINE = 'Confirm with the organizer whether you can take part online.';
+
+/**
+ * 受阻原因是否「可以改善」、可以给 stepping_stone：至少有一条 fixable 阻断（缺技能 / 缺作品）、截止已过、
+ * 或未化解的 cost 障碍（费用放不下）；并且没有任何 permanent 阻断（高于上限、地区、国籍、身份……）。
+ * 只因年级 / 年龄低于下限（improvable）、时间、交通、设备受阻时不给。
+ */
+function steppingStoneAllowed(b: BlockState): boolean {
+  const natures = b.blocking.map((x) => x.nature);
+  if (natures.includes('permanent')) return false;
+  return natures.includes('fixable') || b.pastDeadline || b.unresolvedBarriers.has('cost');
+}
+
+function eligibilityText(overall: OverallEligibility): string {
+  return overall === 'eligible'
+    ? 'You meet its hard requirements that we can check.'
+    : 'Some of its hard requirements need to be confirmed with its organizer.';
+}
+
+function steppingStones(p: StudentProfile, o: Opportunity, catalog: Opportunity[], options: EvalOptions | undefined): AlternativeSuggestion[] {
+  return findEvidenceBuildingCandidates(p, o, catalog, options)
+    .slice(0, MAX_STEPPING_STONE)
+    .map((cand) => {
+      const kinds = [...new Set(cand.links.map((l) => EVIDENCE_KIND_ZH[l.evidence_kind] ?? l.evidence_kind))];
+      const targets = cand.links.map(linkPhrase);
+      return {
+        kind: 'stepping_stone' as const,
+        opportunity_id: cand.opportunity.id,
+        title: cand.opportunity.title,
+        reason:
+          `Taking part in ${cand.opportunity.title} can give you ${kinds.join(' / ')} evidence for ${targets.join(', ')} of ${o.title}. ` +
+          `It is also in ${cand.shared_fields.join(', ')}. ${eligibilityText(cand.eligibility_overall)} ${STEPPING_STONE_NOTE}`,
+        eligibility_overall: cand.eligibility_overall,
+        shared_fields: cand.shared_fields,
+      };
+    });
+}
+
+/**
+ * remote_option（只在目标有未化解的 transport 障碍时给；引擎把「需自费差旅」也记在 transport 障碍里）：
+ * (a) 目标 location.format === 'hybrid' 且截止没过 → 一条指向目标自身，reason 以 CONFIRM_ONLINE 开头，不断言可以；
+ *     in_person 的目标不给 (a)。
+ * (b) 目录里 location.format === 'online'、来源不是 user_posted、与目标至少一个共同领域标签、给了 today 时截止没过、
+ *     checkEligibility 不出错且不是 not_eligible 的其他机会，最多 MAX_REMOTE_OPTION 条；
+ *     排序：eligible 在 unknown 前 → 共同标签多的在前 → 截止日期早的在前（null 最后）→ id。
+ * excluded：已作为 stepping_stone 给出的机会 id（同一机会只出现一次）。
+ */
+function remoteOptions(
+  p: StudentProfile,
+  o: Opportunity,
+  catalog: Opportunity[],
+  b: BlockState,
+  options: EvalOptions | undefined,
+  todayDay: number | null,
+  excluded: Set<string>,
+): AlternativeSuggestion[] {
+  const out: AlternativeSuggestion[] = [];
+  if (o.location?.format === 'hybrid' && !b.pastDeadline) {
+    out.push({
+      kind: 'remote_option',
+      opportunity_id: o.id || null,
+      title: o.title,
+      reason: `${CONFIRM_ONLINE} The official listing marks ${o.title} as hybrid (partly online, partly in person); it does not tell us whether you could take part fully online.`,
+      eligibility_overall: b.overall,
+      shared_fields: sharedTags(o.fields, normalizedTagSet(o.fields)),
+    });
+  }
+  const targetTags = normalizedTagSet(o.fields);
+  if (targetTags.size === 0) return out;
+  const cands: { s: AlternativeSuggestion; overall: OverallEligibility; shared: number; deadlineDay: number | null; id: string }[] = [];
+  const seen = new Set<string>();
+  for (const raw of asArray<unknown>(catalog)) {
+    const id = raw != null && typeof raw === 'object' && typeof (raw as { id?: unknown }).id === 'string' ? (raw as { id: string }).id : '';
+    if (id === '' || id === o.id || seen.has(id)) continue;
+    seen.add(id);
+    if (excluded.has(id)) continue;
+    const c = safeOpportunity(raw);
+    if ((c.source_tier ?? 'official') === 'user_posted') continue;
+    if (c.location?.format !== 'online') continue;
+    const shared = sharedTags(c.fields, targetTags);
+    if (shared.length === 0) continue;
+    if (isPastDeadline(c.deadline, todayDay)) continue;
+    let overall: OverallEligibility;
+    try {
+      overall = checkEligibility(p, c, options).overall;
+    } catch {
+      continue;
+    }
+    if (overall === 'not_eligible') continue;
+    const d = typeof c.deadline === 'string' ? parseISODate(c.deadline) : null;
+    cands.push({
+      s: {
+        kind: 'remote_option',
+        opportunity_id: c.id,
+        title: c.title,
+        reason: `A separate opportunity in ${shared.join(', ')} that takes place online, so getting there is not an issue. ${eligibilityText(overall)}`,
+        eligibility_overall: overall,
+        shared_fields: shared,
+      },
+      overall,
+      shared: shared.length,
+      deadlineDay: d ? dayNumber(d) : null,
+      id: c.id,
+    });
+  }
+  cands.sort((x, y) => {
+    if (x.overall !== y.overall) return ELIG_ORDER[x.overall] - ELIG_ORDER[y.overall];
+    if (x.shared !== y.shared) return y.shared - x.shared;
+    if (x.deadlineDay !== y.deadlineDay) {
+      if (x.deadlineDay == null) return 1;
+      if (y.deadlineDay == null) return -1;
+      return x.deadlineDay - y.deadlineDay;
+    }
+    return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+  });
+  out.push(...cands.slice(0, MAX_REMOTE_OPTION).map((x) => x.s));
+  return out;
+}
+
 export function findAlternatives(
   profile: StudentProfile,
   opp: Opportunity,
@@ -336,6 +487,15 @@ export function findAlternatives(
     const nc = nextCycle(o, block);
     if (nc) out.push(nc);
 
+    // 第四阶段：先算两类新建议，同一机会只出现一次（stepping_stone > remote_option > same_field）。
+    const stones = steppingStoneAllowed(block) ? steppingStones(p, o, asArray<Opportunity>(catalog), evalOptions) : [];
+    const stoneIds = new Set(stones.map((x) => x.opportunity_id as string));
+    const remotes = block.unresolvedBarriers.has('transport')
+      ? remoteOptions(p, o, asArray<Opportunity>(catalog), block, evalOptions, todayDay, stoneIds)
+      : [];
+    const taken = new Set<string>(stoneIds);
+    for (const r of remotes) if (r.opportunity_id != null && r.opportunity_id !== o.id) taken.add(r.opportunity_id);
+
     const targetTags = normalizedTagSet(o.fields);
     if (targetTags.size > 0) {
       const seen = new Set<string>();
@@ -344,12 +504,14 @@ export function findAlternatives(
         const id = raw != null && typeof raw === 'object' && typeof (raw as { id?: unknown }).id === 'string' ? (raw as { id: string }).id : '';
         if (id === '' || id === o.id || seen.has(id)) continue;
         seen.add(id);
+        if (taken.has(id)) continue; // 已归入 stepping_stone / remote_option。
         const cand = sameFieldCandidate(p, raw, targetTags, grants, evalOptions, todayDay);
         if (cand) candidates.push(cand);
       }
       candidates.sort((a, b) => compareCandidates(a, b, block.notReachable));
       out.push(...candidates.slice(0, MAX_SAME_FIELD).map((c) => c.suggestion));
     }
+    out.push(...stones, ...remotes);
     return out;
   } catch {
     return [];

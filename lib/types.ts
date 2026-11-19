@@ -58,7 +58,7 @@ export interface EvalOptions {
   today?: ISODate;
   /**
    * （第四阶段契约）机会目录（已核实的机会列表），供 planRoutes 生成 competition 路线用；
-   * 不传时行为与现在完全相同。本次只是契约，引擎尚未读取它。
+   * 不传时不生成 competition 路线（与第四阶段之前相同）。只有 planRoutes 读取它。
    */
   catalog?: Opportunity[];
 }
@@ -637,7 +637,7 @@ export interface ReachabilityResult {
 
 /**
  * 路线类型：学习优先 / 实践优先 / 社区协作 / 新手竞赛（第四阶段契约新增 'competition'，只追加在末尾）。
- * 本次只是契约：planRoutes 尚未生成 competition 路线。页面若对 RouteType 做穷尽式映射，需要为 'competition' 补上，
+ * planRoutes 只在传了 options.catalog 且找到合适的已核实竞赛时生成 competition 路线（排在最后）。页面若对 RouteType 做穷尽式映射，需要为 'competition' 补上，
  * 遇到不认识的类型请走通用默认文字。
  */
 export type RouteType = 'learning_first' | 'practice_first' | 'community' | 'competition';
@@ -677,7 +677,7 @@ export interface RouteStep {
   satisfied_by_evidence_ids: string[];
   /*
    * 以下三个字段为第四阶段契约新增，全部可选：缺失 = 未记录（老快照没有）。
-   * 本次只是契约，planRoutes 尚未填写。diffRoutes 不比较这三个字段。
+   * planRoutes 从第四阶段第 1 层起给每一步都填写（规则见 lib/path/plan.ts 文件头第 7 条）。diffRoutes 不比较这三个字段。
    */
   /** 这一步与目标哪条要求 / 准备项有关（规则生成的一句话）；null / 缺失 = 未记录。 */
   relation?: string | null;
@@ -689,6 +689,11 @@ export interface RouteStep {
    * 页面显示前要查自己的标签表。这一步不产出可记录的东西（如「提交申请」）为 null；缺失 = 未记录。
    */
   evidence_needed?: EvidenceKind | MaterialKind | null;
+  /**
+   * （第四阶段第 1 层新增，可选）这一步指向的另一个已核实机会的 id：目前只有 competition 路线里
+   * 「参加 <机会>」那一步填写（页面可据此链接到 /quests/[id]）；其他步骤缺失或 null。diffRoutes 照常比较它。
+   */
+  related_opportunity_id?: string | null;
 }
 
 export interface Route {
@@ -726,7 +731,7 @@ export interface AlternativeHint {
 
 /**
  * planRoutes 的返回：
- * - status = 'routes'：给出 2–3 条路线（资格为 unknown 时也给，但 warnings 中提醒先向官方确认）；
+ * - status = 'routes'：给出 2–3 条路线（传了 options.catalog 时可能另加一条 competition，最多 4 条；资格为 unknown 时也给，但 warnings 中提醒先向官方确认）；
  * - status = 'blocked'：硬性资格不满足 → 不生成任何「绕过」路线，只给原因和替代提示。
  */
 export type PlanResult =
@@ -1423,7 +1428,7 @@ export interface AlternativeSuggestion {
    * 并且截止已过、或有会随时间改善的阻断（年级 / 年龄低于下限）、或（两者都没有时）每条路线都来不及；
    * 只有学生能自己补上的阻断（技能、作品）时不给。recurring_annually 为 null / 缺省时也给，reason 注明「是否每年举办未确认」。
    * same_field = 同领域的其他机会（该学生硬性资格不是 not_eligible 的机会；给了 options.today 时不含截止日期已过的机会）。
-   * （第四阶段契约新增，本次引擎尚未生成）
+   * （第四阶段新增，findAlternatives 第 1 层起生成；规则见 lib/match/index.ts 文件头第 5、6 条）
    * stepping_stone = 目录里一条该学生现在能参加、能为目标积累证据的已核实机会；**不是官方前置条件**，界面不得说成前置。
    * remote_option = 交通受阻时的线上参加途径；目标自身为 hybrid 时 opportunity_id 可指向目标自己，
    * 此时文字必须是「向官方确认」是否可线上参加，不得断言可以。

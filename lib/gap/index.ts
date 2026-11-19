@@ -848,6 +848,65 @@ function diagnose(p: StudentProfile, o: Opportunity, profileIssues: string[], op
   return out;
 }
 
+// ───────────────────────────── 组队要求（第四阶段）─────────────────────────────
+
+function sizeInt(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : null;
+}
+
+/** 人数范围的英文说明；都没写明时为 null。 */
+function teamSizeText(min: number | null, max: number | null): string | null {
+  if (min != null && max != null) return min === max ? `exactly ${plural(min, 'person', 'people')}` : `${min}–${max} people`;
+  if (min != null) return `at least ${plural(min, 'person', 'people')}`;
+  if (max != null) return `at most ${plural(max, 'person', 'people')}`;
+  return null;
+}
+
+/**
+ * opp.team_requirement（第四阶段）：
+ * - 是对象且 required === true → materials 类一条（id `materials:team_requirement`，basis 为 requirement、
+ *   requirement_id `team_requirement`、source_text 为官网原文，没有原文时为空字符串），写明人数范围（有就写）与官网原文；
+ *   行动：组队并按官网要求确认人数。放在 materials 组末尾（准备差距之后）。
+ * - 是对象且 required === null → unknown_info 类一条（id `unknown_info:team_requirement`，basis 为 missing_field
+ *   `opportunity.team_requirement`）：官网没写清是否要组队，向主办方确认。放在 missing_info 各条之前。
+ * - required === false、字段缺失、team_requirement 为 null 或不是对象 → 不加（结果与以前逐字相同）。
+ * 不新增障碍类型，不影响 eligibility_overall / reachable。
+ */
+function teamRequirementItems(o: Opportunity, groups: Record<GapCategory, GapItem[]>): void {
+  const raw = (o as unknown as Record<string, unknown>).team_requirement;
+  if (!isObject(raw)) return;
+  const src = typeof raw.source_text === 'string' && raw.source_text.trim() !== '' ? raw.source_text : null;
+  const official = src ? ` Official text: "${src}".` : '';
+  if (raw.required === true) {
+    const size = teamSizeText(sizeInt(raw.min_size), sizeInt(raw.max_size));
+    groups.materials.push(
+      item(
+        'materials',
+        'team_requirement',
+        size ? `Team needed (${size})` : 'Team needed',
+        (size
+          ? `The organizer requires you to take part as a team of ${size}.`
+          : 'The organizer requires you to take part as a team; the team size is not recorded.') + official,
+        { kind: 'requirement', requirement_id: 'team_requirement', source_text: src ?? '' },
+        `Find teammates${size ? ` (${size})` : ''} before you apply, and check the team rules on the official page.`,
+      ),
+    );
+    return;
+  }
+  if (raw.required === null) {
+    groups.unknown_info.push(
+      item(
+        'unknown_info',
+        'team_requirement',
+        'Unclear whether a team is required',
+        `The official information does not make clear whether you must take part as a team. We did not guess.${official}`,
+        { kind: 'missing_field', field: 'opportunity.team_requirement' },
+        'Confirm with the organizer whether you need a team, and if so how many people.',
+      ),
+    );
+  }
+}
+
 // ───────────────────────────── 汇总 ─────────────────────────────
 
 /** 保证 id 在结果内唯一且稳定：重复时依次加 `#2`、`#3`。 */
@@ -972,6 +1031,7 @@ export function analyzeGaps(
   requirementItems(r, p, o, uncovered, groups, opts);
   prepItems(r, o, uncovered, groups);
   barrierItems(r, p, o, g, groups, opts);
+  teamRequirementItems(o, groups);
   const todayGiven = opts?.today != null;
   for (const field of r.missing_info) groups.unknown_info.push(missingFieldItem(field, todayGiven));
 

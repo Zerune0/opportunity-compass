@@ -19,16 +19,36 @@
  *    同一优先级按 opp.preparation 原顺序。依赖不存在或依赖自身 → 忽略该依赖并提醒；
  *    依赖成环 → 卡住时只强行放入环上原顺序最靠前的一个步骤，然后继续正常排序（不在环上的依赖仍被遵守），并提醒。
  * 5. 合计 / 周数 / 是否来得及 / 预算提醒见 buildRoute。来得及 ≠ 会被录取。
+ * 6. 新手竞赛路线 competition（第四阶段；只在传了 options.catalog 时考虑，blocked 时不生成；排在其他路线之后，最多一条）：
+ *    - 候选来自 lib/match/evidence-building.ts 的 findEvidenceBuildingCandidates（已核实目录、非 user_posted、
+ *      非目标自身、截止没过、资格不是 not_eligible、领域标签有交集并且能产出目标还缺的证据），且类别为 hackathon / competition；
+ *    - 日期：options.today、目标 deadline、候选 time_commitment.end_date 都可解析，且 today ≤ end_date < deadline；
+ *      任一不清楚 → 不生成（更保守：无法确认能在截止前完成就不给）；
+ *    - 目标有未被证据覆盖的实践类准备项（口径同 practice_first：evidence_kind ∈ PRACTICE_KINDS），且候选的对应关系里有它；
+ *      取候选顺序（截止日期 → id）中第一个满足的候选、该候选对应的第一个这样的准备项；
+ *    - 路线 = 其他步骤照旧，被替代的那个准备项换成「参加 <候选标题>」一步（id `competition-<候选 id>`，
+ *      related_opportunity_id = 候选 id，依赖沿用被替代项；原本依赖被替代项的步骤改为依赖这一步），按 practice_first 的方式排序；
+ *    - 小时 = hours_per_week × total_weeks、费用 = cost.fee_usd，取自候选记录；为 null 时按 0 计入并加 warning
+ *      （"…so this route's total is a minimum." / "…total cost is a minimum."）；线下且不确定无差旅费时提醒差旅费未计入；
+ *    - 说明固定包含 "This is one way to build evidence. It is not an official requirement of <目标标题>."；
+ *      official = team_suggestion，relation 写明替代了哪个准备项；合计、feasible_by_deadline、预算提醒走 buildRoute。
+ *    - 不传 options.catalog 时与以前完全相同（只多了下一条的三个说明字段）。
+ * 7. 步骤说明字段（第四阶段）：每一步都填 relation / official / evidence_needed：
+ *    - 准备项：official 见 prepOfficial（必需 + 有官网原文 + 原文不含 "team" / "not an official" → official_requirement，
+ *      其余一律 team_suggestion）；relation：能对上官方要求（requirementForPrep）→ 写那条要求，否则官方准备项 →
+ *      "Prepares …"，否则 TEAM_RELATION；evidence_needed = material_kind ?? evidence_kind ?? null。
+ *    - 「提交申请」→ application_step、evidence_needed null；「找到同伴或导师」→ team_suggestion、TEAM_RELATION、null。
  *
  * 公平性：不读取 school_name、display_name。
  * 纯函数：日期只来自 options.today 与机会数据，不读系统时钟、无随机、无 IO、不调 AI。
  */
-import { checkEligibility } from '../eligibility';
+import { EVIDENCE_KIND_ZH, checkEligibility } from '../eligibility';
 import { plural } from '../format';
-import { daysBetween, parseISODate } from '../eligibility/dates';
+import { dayNumber, daysBetween, parseISODate } from '../eligibility/dates';
 import { exactAgeOnReference } from '../eligibility/age';
 import { belowMinimumLater } from '../requirement-timing';
 import { findCoveringEvidence, requiredPrepClosure } from '../reachability/coverage';
+import { findEvidenceBuildingCandidates, type EvidenceBuildingCandidate } from '../match/evidence-building';
 import type {
   AlternativeHint,
   EligibilityItem,
@@ -36,8 +56,10 @@ import type {
   Opportunity,
   PlanResult,
   PrepItem,
+  Requirement,
   Route,
   RouteStep,
+  RouteStepOfficial,
   RouteType,
   StudentProfile,
 } from '../types';
@@ -154,9 +176,68 @@ function blockedPlan(
 
 // ───────────────────────────── 步骤 ─────────────────────────────
 
+// ───────────────────────────── 步骤说明字段（relation / official / evidence_needed）─────────────────────────────
+
+/** 对不上任何官方要求的步骤的 relation（固定句子）。 */
+export const TEAM_RELATION = 'Suggested by our team; not tied to a requirement stated by the organizer.';
+
+/** source_text 里出现这些写法 = 团队建议（数据里写作 "Team suggestion…" / "…not an official application requirement…"）。 */
+const TEAM_SOURCE_RE = /\bteam\b|not an official/i;
+
+/**
+ * 准备项的性质：required_for_application === true、source_text 是非空字符串、且 source_text 不含团队建议的写法
+ * （"team" 一词或 "not an official"）→ official_requirement；其余一律 team_suggestion（判别不了时宁可少标官方）。
+ */
+export function prepOfficial(prep: PrepItem): Exclude<RouteStepOfficial, 'application_step'> {
+  if (prep.required_for_application !== true) return 'team_suggestion';
+  const src = prep.source_text;
+  if (typeof src !== 'string' || src.trim() === '') return 'team_suggestion';
+  return TEAM_SOURCE_RE.test(src) ? 'team_suggestion' : 'official_requirement';
+}
+
+const normSkill = (s: unknown) => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+
+/**
+ * 准备项对应的官方要求（按 opp.requirements 顺序取第一条；与 analyzeGaps 找「能补上要求的准备项」同一口径）：
+ * prerequisite_skill：准备项 skill 相同；portfolio：要求限定了 skill 时准备项 skill 相同，且
+ * （要求限定了 evidence_kind 时准备项 evidence_kind 相同或 material_kind 为 portfolio；没限定时准备项有 evidence_kind
+ * 或 material_kind 为 portfolio）。
+ */
+function requirementForPrep(prep: PrepItem, opp: Opportunity): Requirement | null {
+  const reqs = Array.isArray(opp.requirements) ? opp.requirements : [];
+  for (const r of reqs) {
+    if (r == null || typeof r !== 'object') continue;
+    if (r.type === 'prerequisite_skill') {
+      if (normSkill(prep.skill) !== '' && normSkill(prep.skill) === normSkill(r.skill)) return r;
+    } else if (r.type === 'portfolio') {
+      if (normSkill(r.skill) !== '' && normSkill(prep.skill) !== normSkill(r.skill)) continue;
+      const kindOk = r.evidence_kind
+        ? prep.evidence_kind === r.evidence_kind || prep.material_kind === 'portfolio'
+        : prep.evidence_kind != null || prep.material_kind === 'portfolio';
+      if (kindOk) return r;
+    }
+  }
+  return null;
+}
+
+function prepRelation(prep: PrepItem, opp: Opportunity, official: RouteStepOfficial): string {
+  const req = requirementForPrep(prep, opp);
+  if (req) {
+    return `Works toward "${req.label}", which the organizer lists as ${req.hard ? 'a requirement' : 'a plus (not required)'}.`;
+  }
+  if (official === 'official_requirement') return `Prepares "${prep.title}", which the organizer lists as needed to apply.`;
+  return TEAM_RELATION;
+}
+
+/** 完成准备项后能记下的种类代码：material_kind 优先，其次 evidence_kind，都没有为 null。 */
+function prepEvidenceNeeded(prep: PrepItem): RouteStep['evidence_needed'] {
+  return prep.material_kind ?? prep.evidence_kind ?? null;
+}
+
 function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem, deps: string[]): RouteStep {
   const covering = findCoveringEvidence(profile, opp, prep);
   const skipped = covering.length > 0;
+  const official = prepOfficial(prep);
   const descParts = [prep.required_for_application ? 'Required to apply.' : 'Recommended; can make your application stronger.'];
   if (prep.source_text) descParts.push(` Source: ${prep.source_text}`);
   return {
@@ -170,6 +251,9 @@ function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem,
     skipped,
     skip_reason: skipped ? `Already covered by ${covering.map((e) => `"${e.title}"`).join(', ')}` : null,
     satisfied_by_evidence_ids: covering.map((e) => e.id),
+    relation: prepRelation(prep, opp, official),
+    official,
+    evidence_needed: prepEvidenceNeeded(prep),
   };
 }
 
@@ -351,11 +435,10 @@ const RATIONALE: Record<RouteType, string> = {
   learning_first: 'Learn the basics and prepare application materials first, then build your project. Good if you are just starting and want a solid base.',
   practice_first: 'Start building a project / portfolio early and learn what you need along the way; the work itself can become part of your application. Good if you already know a little and want results soon.',
   community: 'Find a peer or mentor first, then work together, doing the required items first. Good if working alone is hard and you want company or guidance.',
-  // 第四阶段契约：competition 路线尚未生成（下一层实现），先给默认文字。
   competition: 'Take part in a beginner-friendly verified competition first to build evidence for this opportunity. It is not an official prerequisite.',
 };
 
-/** 本层 planRoutes 实际生成的路线类型（competition 尚未生成）。 */
+/** 不需要机会目录就能生成的三种路线（competition 另见 competitionRoute）。 */
 type BaseRouteType = Exclude<RouteType, 'competition'>;
 
 interface RouteContext {
@@ -385,6 +468,9 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
       skipped: false,
       skip_reason: null,
       satisfied_by_evidence_ids: [],
+      relation: TEAM_RELATION,
+      official: 'team_suggestion',
+      evidence_needed: null,
     });
   }
   for (const b of ordered) steps.push(cloneStep(b.step));
@@ -401,6 +487,9 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
     skipped: false,
     skip_reason: null,
     satisfied_by_evidence_ids: [],
+    relation: `The application itself for ${opp.title}.`,
+    official: 'application_step',
+    evidence_needed: null,
   });
 
   const active = steps.filter((s) => !s.skipped);
@@ -448,6 +537,129 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
     rationale,
     warnings,
   };
+}
+
+// ───────────────────────────── 新手竞赛路线（competition）─────────────────────────────
+
+/** 能生成 competition 路线的候选类别（OpportunityCategory 里与竞赛有关的两种）。 */
+export const COMPETITION_CATEGORIES: readonly string[] = ['hackathon', 'competition'];
+
+/** 竞赛那一步的说明里固定带的一句。 */
+export function competitionDisclaimer(targetTitle: string): string {
+  return `This is one way to build evidence. It is not an official requirement of ${targetTitle}.`;
+}
+
+function finiteNonNeg(n: unknown): number | null {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+interface CompetitionPick {
+  cand: EvidenceBuildingCandidate;
+  /** 被替代的实践类准备项（目标 opp.preparation 里的那一项，对应 items 中未跳过的实践类步骤）。 */
+  replaced: BaseStep;
+  endDate: string;
+}
+
+/**
+ * 选竞赛候选（规则见文件头第 6 条）：today、目标截止日期、候选 time_commitment.end_date 都可解析，
+ * 且 today ≤ end_date < 目标截止日期；候选的 links 里有一个准备项对应 items 中未跳过的实践类步骤。
+ * 候选按 findEvidenceBuildingCandidates 的顺序（截止日期 → id），取第一个满足的。
+ */
+function pickCompetition(profile: StudentProfile, opp: Opportunity, items: BaseStep[], options: EvalOptions): CompetitionPick | null {
+  const todayYMD = parseISODate(options.today);
+  const deadlineYMD = opp.deadline == null ? null : parseISODate(opp.deadline);
+  if (todayYMD == null || deadlineYMD == null) return null;
+  const todayDay = dayNumber(todayYMD);
+  const deadlineDay = dayNumber(deadlineYMD);
+  const byId = new Map(items.map((b) => [b.step.id, b]));
+  const takenIds = new Set(items.map((b) => b.step.id));
+  const candidates = findEvidenceBuildingCandidates(profile, opp, options.catalog ?? [], { today: options.today });
+  for (const cand of candidates) {
+    if (!COMPETITION_CATEGORIES.includes(cand.opportunity.category)) continue;
+    const endRaw = cand.opportunity.time_commitment?.end_date;
+    const endYMD = typeof endRaw === 'string' ? parseISODate(endRaw) : null;
+    if (endYMD == null) continue; // 不知道何时结束 → 无法确认来得及 → 不生成。
+    const endDay = dayNumber(endYMD);
+    if (endDay < todayDay || endDay >= deadlineDay) continue;
+    if (takenIds.has(competitionStepId(cand.opportunity.id))) continue;
+    for (const link of cand.links) {
+      if (link.kind !== 'prep_item') continue;
+      const b = byId.get(link.prep.id);
+      if (b && b.practice && !b.step.skipped) return { cand, replaced: b, endDate: endRaw as string };
+    }
+  }
+  return null;
+}
+
+export function competitionStepId(candidateId: string): string {
+  return `competition-${candidateId}`;
+}
+
+/**
+ * 生成 competition 路线：把被替代的实践类准备项换成「参加 <候选>」一步（依赖沿用被替代项的依赖；
+ * 原本依赖被替代项的步骤改为依赖这一步），其余步骤、排序方式（同 practice_first）、合计、来得及与预算提醒都走现有逻辑。
+ */
+function competitionRoute(opp: Opportunity, items: BaseStep[], pick: CompetitionPick, ctx: RouteContext): Route {
+  const { cand, replaced } = pick;
+  const c = cand.opportunity;
+  const stepId = competitionStepId(c.id);
+  const tc = c.time_commitment;
+  const hpw = finiteNonNeg(tc?.hours_per_week);
+  const weeks = finiteNonNeg(tc?.total_weeks);
+  const hours = hpw != null && weeks != null ? round2(hpw * weeks) : null;
+  const fee = finiteNonNeg(c.cost?.fee_usd);
+  const prep = opp.preparation.find((x) => x.id === replaced.step.id) as PrepItem;
+  const link = cand.links.find((l) => l.kind === 'prep_item' && l.prep.id === replaced.step.id);
+  const kindLabel = link ? EVIDENCE_KIND_ZH[link.evidence_kind] ?? link.evidence_kind : 'project';
+  const start = typeof tc?.start_date === 'string' && parseISODate(tc.start_date) ? tc.start_date : null;
+
+  const step: RouteStep = {
+    id: stepId,
+    title: `Take part in ${c.title}`,
+    description:
+      `${competitionDisclaimer(opp.title)} In this route it takes the place of the prep item "${replaced.step.title}": ` +
+      `what you make there can be recorded as ${kindLabel} evidence. ` +
+      `${start ? `It runs ${start} to ${pick.endDate}` : `It ends ${pick.endDate}`}, before the ${opp.title} deadline (${opp.deadline}). ` +
+      `Check the details on its official page: ${c.official_url}`,
+    prep_item_id: null,
+    depends_on: [...replaced.step.depends_on],
+    hours: hours ?? 0,
+    cost_usd: fee ?? 0,
+    skipped: false,
+    skip_reason: null,
+    satisfied_by_evidence_ids: [],
+    relation: `Builds ${kindLabel} evidence in place of the prep item "${replaced.step.title}". ${TEAM_RELATION}`,
+    official: 'team_suggestion',
+    evidence_needed: prep ? prepEvidenceNeeded(prep) : null,
+    related_opportunity_id: c.id,
+  };
+
+  const swapped: BaseStep[] = items.map((b) => {
+    if (b === replaced) return { step, practice: true, required: b.required, index: b.index };
+    if (!b.step.depends_on.includes(replaced.step.id)) return b;
+    return { ...b, step: { ...cloneStep(b.step), depends_on: b.step.depends_on.map((d) => (d === replaced.step.id ? stepId : d)) } };
+  });
+  const practiceIds = swapped.filter((b) => b.practice && !b.step.skipped).map((b) => b.step.id);
+  const ancestors = withAncestors(swapped, practiceIds);
+  const { order, cyclic } = topoSort(swapped, (b) => (b.practice ? 0 : ancestors.has(b.step.id) ? 1 : 2));
+  const route = buildRoute('competition', order, cyclic, ctx);
+
+  if (hours == null) {
+    route.warnings.push(`The time needed for ${c.title} is not stated by its organizer, so this route's total is a minimum.`);
+  }
+  if (fee == null) {
+    route.warnings.push(`The cost of ${c.title} is not stated by its organizer, so this route's total cost is a minimum.`);
+  }
+  if (c.location?.format !== 'online' && c.cost?.requires_travel_expense !== false) {
+    route.warnings.push(`Travel costs for ${c.title} are not counted; check its official page.`);
+  }
+  if (cand.eligibility_overall === 'unknown') {
+    route.warnings.push(`Some of the eligibility rules for ${c.title} need to be confirmed with its organizer.`);
+  }
+  if (prep?.required_for_application === true) {
+    route.warnings.push(`"${replaced.step.title}" is marked as needed to apply; check with the organizer whether work from ${c.title} can count for it.`);
+  }
+  return route;
 }
 
 // ───────────────────────────── 主函数 ─────────────────────────────
@@ -527,6 +739,11 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
     anyCyclic = anyCyclic || cyclic;
     return buildRoute(type, order, cyclic, ctx);
   });
+  // 新手竞赛路线：只在传了 options.catalog 时考虑，排在其他路线之后（规则见文件头第 6 条）。
+  if (options != null && Array.isArray(options.catalog)) {
+    const pick = pickCompetition(profile, opp, items, options);
+    if (pick) routes.push(competitionRoute(opp, items, pick, ctx));
+  }
   if (anyCyclic) warnings.push('Prep items in the opportunity data depend on each other in a loop; steps in the loop start from the earliest one in the original list.');
 
   return {
