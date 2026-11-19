@@ -5,7 +5,7 @@
  * 现实条件来自 analyzeReachability 的 barriers / missing_info；这里只把它们拆成分项理由、写成一句话。
  * 公平性：不读取学校名、显示名。纯函数：日期只来自 options.today 与机会数据，不读系统时钟、无随机、无 IO、不调 AI。
  */
-import { analyzeReachability, requiredPrepClosure } from '../reachability';
+import { analyzeReachability, isLocationUnclear, requiredPrepClosure } from '../reachability';
 import { nonNegOrZero } from '../reachability/coverage';
 import { daysBetween, parseISODate } from '../eligibility/dates';
 import { fmt, joinAnd, plural, pluralNoun } from '../format';
@@ -60,6 +60,8 @@ const FIELD_LABEL: Record<string, string> = {
   'opportunity.cost.requires_travel_expense': 'whether participants must pay for their own travel',
   'opportunity.time_commitment.hours_per_week': 'how many hours per week the program needs',
   'opportunity.deadline': 'the deadline (the date given cannot be read)',
+  'opportunity.location.format': 'whether it takes place online or in person',
+  'opportunity.location': 'where exactly it takes place',
   'options.today': "today's date",
 };
 
@@ -207,9 +209,20 @@ function placeText(o: Opportunity): string {
   return parts.length > 0 ? ` in ${parts.join(', ')}` : '';
 }
 
+/** 地点不明确时的开头：有国家时说「只给了国家」，连国家都没有时只说「没说在哪」。 */
+function unclearLead(format: unknown, o: Opportunity): string {
+  const lead = format === 'hybrid' ? 'It is hybrid (partly in person)' : 'It is in person';
+  const only = placeText(o) === '' ? 'has not said where' : 'has not said where (only the country is given)';
+  return `${lead}, but the organizer ${only}`;
+}
+
 function formatReason(p: StudentProfile, o: Opportunity, transportBarriers: Barrier[]): MatchReason {
   const format = isObject(o.location) ? (o.location as { format?: unknown }).format : undefined;
   if (format === 'online') return reason('format', true, 'It runs online, so you can take part without traveling.');
+  if (format === 'unknown') {
+    // 官网没说清参与形式：不当作线上、混合或线下。
+    return reason('format', null, 'The organizer has not said whether this is online or in person. Confirm the format with the organizer.');
+  }
   if (format !== 'in_person' && format !== 'hybrid') {
     return reason('format', null, "The opportunity information doesn't say clearly whether it is online or in person. Confirm it with the organizer.");
   }
@@ -221,10 +234,22 @@ function formatReason(p: StudentProfile, o: Opportunity, transportBarriers: Barr
     const travel = transportBarriers.some((b) => !b.resolved)
       ? ' Getting there still has an unresolved issue (such as paying for your own travel); see the transportation reason.'
       : '';
+    if (isLocationUnclear(o.location)) {
+      // 没有州和城市：地点没定，「附近」无从谈起 → 无法判断。
+      return reason('format', null, `${unclearLead(format, o)}, so we can't tell whether you can get there. Confirm the location with the organizer.${travel}`);
+    }
     return reason('format', true, `${what}, and your profile says you can reliably get to places nearby. Check how far it is from you.${travel}`);
   }
   if (t === 'limited' || t === 'none') {
     const own = t === 'none' ? 'you have almost no way to get to in-person places on your own' : 'your transportation is limited';
+    if (allResolved && isLocationUnclear(o.location)) {
+      // 支持已批准，但不知道去哪：无法确认它够不够用（引擎此时为 null，不给 true）。
+      return reason(
+        'format',
+        null,
+        `${unclearLead(format, o)}. Your profile says ${own}; the organizer approved transportation support, but without the location we can't confirm it is enough. Confirm the location with the organizer.`,
+      );
+    }
     if (allResolved) {
       return reason('format', true, `${what}. Your profile says ${own}, but the transportation support the organizer approved covers getting there.`);
     }
@@ -372,6 +397,13 @@ function deviceReason(r: ReachabilityResult, p: StudentProfile, o: Opportunity):
 
 // ───────────────────────────── transport ─────────────────────────────
 
+const TRANSPORT_FIELDS = [
+  'profile.transport',
+  'opportunity.cost.requires_travel_expense',
+  'opportunity.location.format',
+  'opportunity.location',
+];
+
 function transportReason(r: ReachabilityResult, p: StudentProfile, o: Opportunity, grants: ResourceGrant[]): MatchReason | null {
   const format = isObject(o.location) ? (o.location as { format?: unknown }).format : undefined;
   if (format === 'online') return null; // 线上机会没有交通问题，format 理由已说明。
@@ -388,9 +420,19 @@ function transportReason(r: ReachabilityResult, p: StudentProfile, o: Opportunit
     if (used.some((g) => g.type === 'transport_subsidy')) kinds.push('travel subsidy');
     if (used.some((g) => g.type === 'alternative_access')) kinds.push('alternative way to take part');
     const what = kinds.length > 0 ? joinAnd(kinds) : 'transportation support';
+    // 支持已批准，但形式未知或地点不明确：无法确认它够不够用，不说「covers getting there」（引擎此时为 null）。
+    const open = r.missing_info.filter((f) => f === 'opportunity.location.format' || f === 'opportunity.location');
+    if (open.length > 0) {
+      return reason(
+        'transport',
+        null,
+        `The organizer approved a ${what}, but ${joinAnd(open.map(fieldLabel))} ${pluralNoun(open.length, 'is', 'are')} not clear, so we can't confirm it is enough. ${missingText(open)}`,
+      );
+    }
     return reason('transport', true, `The ${what} the organizer approved covers getting there.`);
   }
-  const missing = r.missing_info.filter((f) => f === 'profile.transport' || f === 'opportunity.cost.requires_travel_expense');
+  // 形式未知 / 地点不明确也属于交通这一项的缺失信息：不能说没问题，也不说有障碍。
+  const missing = r.missing_info.filter((f) => TRANSPORT_FIELDS.includes(f));
   if (missing.length > 0) {
     return reason('transport', null, `We can't fully check transportation yet: ${joinAnd(missing.map(fieldLabel))} ${pluralNoun(missing.length, 'is', 'are')} missing or unclear. ${missingText(missing)}`);
   }

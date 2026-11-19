@@ -25,6 +25,14 @@
  *      任一 approved 的 transport_subsidy 或 alternative_access（替代参与方式，如线上入口、卫星会场）→ 化解，
  *      两者同等对待；resolved_by_grant_ids / pending_grant_ids 按 grants 输入顺序列出这两类 grant。
  *      若交通没填但官方明确需要自费差旅，仍记障碍，同时把 profile.transport 列为缺失信息。
+ *      线下 / 混合且「地点不明确」（isLocationUnclear：没有州也没有城市）、又没有未化解的交通障碍时
+ *      （本来没有障碍，或障碍已被 approved 的支持化解），把 opportunity.location 列为缺失信息 → 最多 null：
+ *      不知道去哪，就无法确认补助 / 替代方式够不够用。仍有未化解的交通障碍时不记（结论已是 false）。
+ *      format 为 unknown（官网没说清参与形式）——以及 location 不是对象、format 缺失或非法（坏数据）——
+ *      一律按 unknown：交通等级不造障碍，也不当作线上放行；记 opportunity.location.format，
+ *      交通没填记 profile.transport，「是否自费差旅」为 null 记 opportunity.cost.requires_travel_expense；
+ *      requires_travel_expense === true 时照常生成「需要自费差旅」障碍（文字只说差旅，不推断线下），
+ *      未化解 → false，化解后仍因形式未知为 null。approved 的支持不会让形式变成已知，所以永远不会因此可达。
  *    - time（最多两条）：
  *      a) 参与期每周时间：需要 > 可用 → 障碍（shortfall = 每周缺口）；time_support 小时和 ≥ 缺口 → 化解。
  *      b) 截止前准备时间：H = 必需准备（见第 2 条，含未覆盖的前置依赖）小时合计。
@@ -75,7 +83,35 @@ const MISSING_ZH: Record<string, string> = {
   'opportunity.time_commitment.hours_per_week': 'weekly hours needed during the program (not clear on the website)',
   'opportunity.deadline': "the deadline (date format can't be read)",
   'options.today': "today's date",
+  'opportunity.location.format': 'whether it is online or in person (not clear on the website)',
+  'opportunity.location': 'where exactly it takes place (the state or city is not given)',
 };
+
+function hasText(v: unknown): boolean {
+  return typeof v === 'string' && v.trim() !== '';
+}
+
+/**
+ * 读出参与形式：只认 online / in_person / hybrid；其余（'unknown'、缺失、非法值、location 不是对象）一律返回 'unknown'。
+ * 入参按 unknown 处理，永不抛异常。
+ */
+function readFormat(location: unknown): 'online' | 'in_person' | 'hybrid' | 'unknown' {
+  if (typeof location !== 'object' || location === null || Array.isArray(location)) return 'unknown';
+  const f = (location as Record<string, unknown>).format;
+  return f === 'online' || f === 'in_person' || f === 'hybrid' ? f : 'unknown';
+}
+
+/**
+ * 「地点不明确」：format 为 in_person 或 hybrid，且 city 与 state 都没有（空 / null / 缺失）。只有国家不算明确。
+ * 形式未知 / 缺失 / 非法时返回 false——那种情况由「形式未知」规则处理（记 opportunity.location.format），不重复记地点。
+ * explainMatch 与 analyzeReachability 共用这一个定义。入参按 unknown 处理，永不抛异常。
+ */
+export function isLocationUnclear(location: unknown): boolean {
+  const format = readFormat(location);
+  if (format !== 'in_person' && format !== 'hybrid') return false;
+  const loc = location as Record<string, unknown>;
+  return !hasText(loc.city) && !hasText(loc.state);
+}
 
 /** 能化解 transport 障碍的 grant 类型（与 SUPPORT_RESOLVES 中映射到 'transport' 的类型一致）。 */
 const TRANSPORT_FIX_TYPES: readonly SupportType[] = ['transport_subsidy', 'alternative_access'];
@@ -205,23 +241,35 @@ export function analyzeReachability(
   }
 
   // ── transport ──
-  if (opp.location.format !== 'online') {
+  // location 不是对象、format 缺失或不是四个合法值之一（只可能来自浏览器本地存储 / 备份导入的坏数据）：
+  // 一律按 unknown 处理，绝不当作线下或线上。
+  const format = readFormat(opp.location);
+  if (format !== 'online') {
+    const formatKnown = format === 'in_person' || format === 'hybrid';
     const transport = profile.transport;
+    const travel = opp.cost.requires_travel_expense;
     const reasons: string[] = [];
     if (transport == null) {
       miss('profile.transport');
-    } else if (transport.level === 'none') {
+    } else if (formatKnown && transport.level === 'none') {
       reasons.push('this is in person / hybrid, and right now you have almost no way to get there on your own');
-    } else if (transport.level === 'limited') {
+    } else if (formatKnown && transport.level === 'limited') {
       reasons.push('this is in person / hybrid, and your transportation is limited');
     }
-    if (opp.cost.requires_travel_expense === true) {
-      reasons.push('the organizer says you must pay for your own travel, so good local transportation is not enough');
+    if (travel === true) {
+      // 「需要自费差旅」是主办方写明的事实，形式未知时照样成立；但那时文字只说差旅，不推断是线下项目。
+      reasons.push(
+        formatKnown
+          ? 'the organizer says you must pay for your own travel, so good local transportation is not enough'
+          : 'the organizer says you must pay for your own travel',
+      );
     }
+    let unresolvedTransport = false;
     if (reasons.length > 0) {
       // 交通补助与替代参与方式同等对待：任一 approved 即化解（保持 grants 输入顺序）。
       const isTransportFix = (g: ResourceGrant) => TRANSPORT_FIX_TYPES.includes(g.type);
       const subsidies = approved.filter(isTransportFix);
+      unresolvedTransport = subsidies.length === 0;
       barriers.push({
         type: 'transport',
         description: `Transportation barrier: ${reasons.join('; ')}.`,
@@ -230,8 +278,17 @@ export function analyzeReachability(
         resolved_by_grant_ids: subsidies.map((g) => g.id),
         pending_grant_ids: pending.filter(isTransportFix).map((g) => g.id),
       });
-    } else if (opp.cost.requires_travel_expense == null) {
+    } else if (formatKnown && travel == null) {
       miss('opportunity.cost.requires_travel_expense');
+    }
+    if (!formatKnown) {
+      // 形式未知：不当作线下（交通等级不造障碍），也不当作线上（不放行）→ reachable 不会是 true。
+      if (travel == null) miss('opportunity.cost.requires_travel_expense');
+      miss('opportunity.location.format');
+    } else if (!unresolvedTransport && isLocationUnclear(opp.location)) {
+      // 线下 / 混合但没有州和城市：不知道去哪，就无法确认「附近」能到、也无法确认已批准的补助 / 替代方式够用 →
+      // 地点列为缺失信息（不造障碍、不给 true）。仍有未化解的交通障碍时结论已确定为 false，不再记。
+      miss('opportunity.location');
     }
   }
 

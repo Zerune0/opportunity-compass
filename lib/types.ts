@@ -105,8 +105,13 @@ export type OpportunityCategory =
   | 'project'
   | 'other';
 
-/** 参与形式：线上 / 线下 / 混合。 */
-export type OpportunityFormat = 'online' | 'in_person' | 'hybrid';
+/**
+ * 参与形式：线上 / 线下 / 混合 / 未知。
+ * unknown = 官网没有说清参与形式时用它。unknown 不等于 hybrid，也不等于线下；
+ * 「在线申请」只说明申请方式，不是线上参与的证据。引擎对 unknown 不造交通障碍，也不当作线上放行，
+ * 而是把 opportunity.location.format 列为缺失信息。
+ */
+export type OpportunityFormat = 'online' | 'in_person' | 'hybrid' | 'unknown';
 
 /** 机会举办地点。线上机会可以只填 format。 */
 export interface OpportunityLocation {

@@ -319,7 +319,8 @@ describe('analyzeReachability — transport', () => {
   });
 
   it('hybrid 形式也检查交通：none / limited → 障碍；reliable 且无需自费差旅 → 无障碍', () => {
-    const hybrid = makeOpp({ location: { format: 'hybrid', country: 'US' } });
+    // 给到州：只有国家时地点不明确，会另记 opportunity.location（见 lib/format-unknown.test.ts），这里只测交通规则。
+    const hybrid = makeOpp({ location: { format: 'hybrid', country: 'US', state: 'CA' } });
     const none = analyzeReachability({ ...GOOD, transport: { level: 'none' } }, hybrid, [], TODAY);
     expect(none.barriers.map((b) => b.type)).toEqual(['transport']);
     expect(none.reachable).toBe(false);
@@ -398,7 +399,8 @@ describe('analyzeReachability — transport', () => {
     const r = analyzeReachability({ ...GOOD, transport: null }, inPerson, [], TODAY);
     expect(r.missing_info).toEqual(['profile.transport']);
     expect(r.reachable).toBeNull();
-    const unclear = makeOpp({ location: { format: 'in_person' }, cost: { fee_usd: 0, requires_travel_expense: null } });
+    // 给到州：只测「差旅不明」；地点不明确另见 lib/format-unknown.test.ts。
+    const unclear = makeOpp({ location: { format: 'in_person', state: 'CA' }, cost: { fee_usd: 0, requires_travel_expense: null } });
     const r2 = analyzeReachability(GOOD, unclear, [], TODAY);
     expect(r2.missing_info).toEqual(['opportunity.cost.requires_travel_expense']);
     expect(r2.reachable).toBeNull();
@@ -524,6 +526,8 @@ describe('analyzeReachability — 综合', () => {
       'profile.budget_usd',
       'profile.transport',
       'opportunity.cost.requires_travel_expense',
+      // 线下且没有州 / 城市：地点不明确，列为缺失信息（format-unknown 改动）。
+      'opportunity.location',
       'profile.hours_per_week_available',
     ]);
     expect(r.summary).toContain('missing info');

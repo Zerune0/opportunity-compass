@@ -24,7 +24,8 @@ export function filterCatalog(catalog: Opportunity[], f: BoardFilters, saved: st
             return false;
         if (f.state && o.location.state !== f.state)
             return false;
-        if (f.remote && o.location.format === "in_person")
+        // 「Online or hybrid」只放行明确的 online / hybrid；参与形式未知（unknown）不算线上，排除。
+        if (f.remote && o.location.format !== "online" && o.location.format !== "hybrid")
             return false;
         if (f.free && (o.cost.fee_usd !== 0 || o.cost.requires_travel_expense !== false))
             return false;
