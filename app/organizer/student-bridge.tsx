@@ -17,24 +17,43 @@
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { BRIDGE_DEMO_NOTICE, decideBridge, rosterStudentId, summarizeApplied } from "@/lib/joint/bridge";
+import {
+  BRIDGE_DEMO_NOTICE,
+  decideBridge,
+  opportunitiesNeedingLocalCopy,
+  rosterStudentId,
+  summarizeApplied,
+} from "@/lib/joint/bridge";
 import type { BridgeDecision, BridgeProfileRef, ClientBridgeInfo } from "@/lib/joint/bridge";
 import type { WhatIfPlanDetail } from "@/lib/joint/whatif";
 import { plural, pluralNoun } from "@/lib/format";
 import type { ResourceGrant, Scenario } from "@/lib/types";
-import { applyBridgeGrants, readAppliedBridgeGrants, readLoadedProfileRef, undoBridgeGrants } from "./bridge-store";
+import {
+  applyBridgeGrants,
+  readAppliedBridgeGrants,
+  readLoadedProfileRef,
+  readLocalOpportunityIds,
+  storeLocalOpportunities,
+  undoBridgeGrants,
+} from "./bridge-store";
 
 /** 本浏览器里读到的数据；null = 还没读（服务器渲染与首次客户端渲染都是 null）。 */
-type LocalData = { profile: BridgeProfileRef | null; applied: ResourceGrant[] };
+/** localOpportunityIds：场景里的机会中，已作为本地示例存在本浏览器里的（学生端打得开）。 */
+type LocalData = { profile: BridgeProfileRef | null; applied: ResourceGrant[]; localOpportunityIds: string[] };
 
 const CHECKING_TEXT = "Checking this browser's local data…";
 const EXPLANATION =
   "It writes the support this plan allocates to the sample profile loaded in this browser as simulated grants, so that Quest Details can show the effect. Nothing leaves this browser.";
-const PLACEHOLDER_NOTE = "This scenario uses a placeholder opportunity, so there is no Quest Details page to open.";
+const LOCAL_COPY_NOTE =
+  "This scenario uses a sample opportunity that is not in the student-side catalog. Writing also saves a copy of it in this browser, labelled Sample, so that Quest Details can open it.";
+const PLACEHOLDER_NOTE =
+  "The sample opportunity is not saved in this browser, so there is no Quest Details page to open. Undo, then write again to restore it.";
+const COPY_KEPT_NOTE = " The sample opportunity stays on the Quest Board in this browser.";
 const RECHECK_NOTE = "Quest Details re-checks everything with the profile stored in this browser. Reachable does not mean admitted.";
 const PLAN_CHANGED_NOTE =
   "The plan shown now differs from what was written. Undo to remove it, then write again if the new plan allows it.";
-const WRITE_FAILED = "Could not write to this browser's storage. Nothing was changed.";
+const WRITE_FAILED = "Could not write to this browser's storage. No support was written.";
+const WRITE_FAILED_COPY = "Could not save the sample opportunity in this browser, so no support was written.";
 const UNDO_FAILED = "Could not update this browser's storage. Nothing was changed.";
 const DATA_CHANGED = "This browser's data changed, so nothing was written. Check the panel and try again.";
 
@@ -74,7 +93,11 @@ export default function StudentBridge({
   const focusNext = useRef<"write" | "undo" | null>(null);
 
   const refresh = useCallback(() => {
-    setLocal({ profile: readLoadedProfileRef(), applied: readAppliedBridgeGrants(scenario) });
+    setLocal({
+      profile: readLoadedProfileRef(),
+      applied: readAppliedBridgeGrants(scenario),
+      localOpportunityIds: readLocalOpportunityIds(scenario.opportunities.map((o) => o.id)),
+    });
   }, [scenario]);
 
   useEffect(() => {
@@ -129,6 +152,18 @@ export default function StudentBridge({
       refresh();
       return;
     }
+    // 学生端机会目录里没有的机会先存一份本地示例（否则 Quest Details 打不开）；存不进去就什么都不写。
+    const copies = opportunitiesNeedingLocalCopy({
+      scenarioOpportunities: scenario.opportunities,
+      grantOpportunityIds: fresh.opportunity_ids,
+      catalogOpportunityIds: bridge.quest_opportunity_ids,
+    });
+    if (!storeLocalOpportunities(copies).ok) {
+      focusNext.current = "write";
+      setMessage(WRITE_FAILED_COPY);
+      refresh();
+      return;
+    }
     const res = applyBridgeGrants(fresh.grants);
     if (res.ok) focusNext.current = "undo";
     setMessage(res.ok ? `Wrote ${plural(fresh.grants.length, "simulated grant")} in this browser.` : WRITE_FAILED);
@@ -138,7 +173,12 @@ export default function StudentBridge({
   const onUndo = () => {
     const res = undoBridgeGrants(scenario);
     if (res.ok) focusNext.current = "write";
-    setMessage(res.ok ? `Removed ${plural(res.removed, "simulated grant")}. Other grants were not touched.` : UNDO_FAILED);
+    const keptCopy = readLocalOpportunityIds(scenario.opportunities.map((o) => o.id)).length > 0;
+    setMessage(
+      res.ok
+        ? `Removed ${plural(res.removed, "simulated grant")}. Other grants were not touched.${keptCopy ? COPY_KEPT_NOTE : ""}`
+        : UNDO_FAILED,
+    );
     refresh();
   };
 
@@ -157,6 +197,9 @@ export default function StudentBridge({
         <p className="font-semibold">{BRIDGE_DEMO_NOTICE}</p>
       </div>
       <p className="text-sm text-gray-700">{EXPLANATION}</p>
+      {scenario.opportunities.some((o) => !bridge.quest_opportunity_ids.includes(o.id)) && (
+        <p className="text-sm text-gray-700">{LOCAL_COPY_NOTE}</p>
+      )}
 
       {local === null ? (
         <p className="text-sm text-gray-700">{CHECKING_TEXT}</p>
@@ -202,7 +245,7 @@ function BridgeBody({
   onWrite: () => void;
   onUndo: () => void;
 }) {
-  const { profile, applied } = local;
+  const { profile, applied, localOpportunityIds } = local;
   const membership = decision.membership_sentence;
   // 「不在本场景」时原因与那句话相同：只说一次，按钮的说明指向那句话。
   const reasonIsMembership = decision.reason !== null && decision.reason === membership;
@@ -244,7 +287,13 @@ function BridgeBody({
     );
   }
 
-  const summary = summarizeApplied({ applied, profile, decision, questOpportunityIds: bridge.quest_opportunity_ids });
+  // 有 Quest Details 页面的机会：目录里的，加上已存成本地示例的。
+  const summary = summarizeApplied({
+    applied,
+    profile,
+    decision,
+    questOpportunityIds: [...bridge.quest_opportunity_ids, ...localOpportunityIds],
+  });
   const { others, plan_changed: planChanged, quest_opportunity_ids: questIds, has_placeholder: hasPlaceholder } = summary;
   const titleOf = (id: string) => scenario.opportunities.find((o) => o.id === id)?.title ?? id;
 

@@ -320,3 +320,31 @@ export function summarizeApplied(args: {
     has_placeholder: oppIds.some((id) => !quest.has(id)),
   };
 }
+
+// ───────────────────────────── 学生端打不开的机会：本地示例副本 ─────────────────────────────
+
+/**
+ * 方案要写入支持的机会里，学生端机会目录里没有的那些（占位 / 示例机会）：桥写入 grants 的同时，
+ * 要把它们存成本地示例（lib/store 的 addUserPostedOpportunity，存储层会强制标 user_posted + is_sample），
+ * 学生端的 Quest Board 与 Quest Details 才打得开。目录里已有的机会不需要副本，也不得被本地副本顶替。
+ * 返回场景里的原对象（不复制、不改动），按场景顺序、按 id 去重。纯函数。
+ */
+export function opportunitiesNeedingLocalCopy<T extends { id: string }>(args: {
+  /** 场景里的机会（页面拿到的那一份）。 */
+  scenarioOpportunities: readonly T[];
+  /** 这次要写入支持的机会 id（BridgeDecision.opportunity_ids）。 */
+  grantOpportunityIds: readonly string[];
+  /** 学生端机会目录里已有的机会 id（ClientBridgeInfo.quest_opportunity_ids）。 */
+  catalogOpportunityIds: readonly string[];
+}): T[] {
+  const wanted = new Set(args.grantOpportunityIds);
+  const inCatalog = new Set(args.catalogOpportunityIds);
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const o of args.scenarioOpportunities) {
+    if (typeof o?.id !== 'string' || !wanted.has(o.id) || inCatalog.has(o.id) || seen.has(o.id)) continue;
+    seen.add(o.id);
+    out.push(o);
+  }
+  return out;
+}

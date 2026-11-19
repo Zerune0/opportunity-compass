@@ -34,6 +34,7 @@ import {
   assertScenarioShape,
   deviceLoanScenario,
   sharedSupportLowIncomeFloor,
+  sharedSupportOpportunitySource,
   sharedSupportReadinessProblems,
   sharedSupportScenario,
   sharedSupportTemplate,
@@ -294,16 +295,17 @@ describe('buildScenarioFromTemplate', () => {
       { loadableProfileIds: [DEMO.id, 'fx-s03'] },
       /Scenario-only student id "fx-s03" is also a loadable sample profile id/,
     );
-    refuse('机会是示例数据', { opportunity: { ...OPP, is_sample: true } }, /is marked is_sample; this template needs a real opportunity/);
-    refuse(
-      '机会标题含 Placeholder（页面会把它标成占位）',
-      { opportunity: { ...OPP, title: 'Placeholder build day' } },
-      /Opportunity "fixture-inperson-build-day" has "Placeholder" in its title/,
-    );
+    it('接受示例 / 占位机会（设备借用场景的那个机会，同一个对象）', () => {
+      const placeholder = deviceLoanScenario.opportunities[0];
+      expect(isPlaceholderOpportunity(placeholder)).toBe(true);
+      const t = { ...fixtureTemplate(), opportunity_ref: placeholder.id };
+      expect(templateInputProblems(t, { opportunity: placeholder, demoStudent: DEMO })).toEqual([]);
+      expect(buildScenarioFromTemplate(t, { opportunity: placeholder, demoStudent: DEMO }).opportunities[0]).toBe(placeholder);
+    });
     refuse(
       '机会是用户发布的',
       { opportunity: { ...OPP, source_tier: 'user_posted', is_sample: true, posted_by: 'sample-publisher' } },
-      /is user-posted; this template needs a real opportunity/,
+      /is user-posted; this template needs a verified catalog opportunity or a sample scenario's opportunity/,
     );
     refuse(
       'existing_grants 指向演示学生',
@@ -321,7 +323,10 @@ describe('buildScenarioFromTemplate', () => {
     refuse('演示学生与 demo_student_ref 对不上', { demoStudent: { ...DEMO, id: 'sample-other' } }, /Demo student "sample-other" does not match demo_student_ref/);
 
     it('多个原因一起列出', () => {
-      const problems = templateInputProblems(fixtureTemplate(), { opportunity: { ...OPP, is_sample: true }, demoStudent: { ...DEMO, is_sample: false } });
+      const problems = templateInputProblems(fixtureTemplate(), {
+        opportunity: { ...OPP, source_tier: 'user_posted', is_sample: true },
+        demoStudent: { ...DEMO, is_sample: false },
+      });
       expect(problems).toHaveLength(2);
     });
 
@@ -750,33 +755,51 @@ describe.skipIf(sharedSupportScenario !== null)('预演（两个 ref 还没填�
 
 // ───────────────────────────── 真实数据（两个 ref 都填好后自动运行）─────────────────────────────
 
-describe.skipIf(sharedSupportScenario === null)('真实数据：共享支持场景（目录里的真实机会 + 演示学生）', () => {
+describe.skipIf(sharedSupportScenario === null)('真实数据：共享支持场景（填好的 ref：机会 + 演示学生）', () => {
   // describe 体在跳过时也会执行：这里只放函数，取值都在 it 里。
   const real = () => {
     const scenario = sharedSupportScenario!;
-    const opp = findCatalogOpportunity(sharedSupportTemplate.opportunity_ref)!;
+    const ref = sharedSupportTemplate.opportunity_ref;
+    // 与 ./scenarios 相同的解析规则：先查已核实目录，查不到再用设备借用场景自己的示例 / 占位机会。
+    const fromCatalog = findCatalogOpportunity(ref);
+    const opp = fromCatalog ?? deviceLoanScenario.opportunities.find((o) => o.id === ref)!;
+    const isCatalog = fromCatalog !== null;
     const demo = sampleProfiles().find((p) => p.id === sharedSupportTemplate.demo_student_ref)!;
     const loadable = sampleProfiles().map((p) => p.id);
     const catalog = scenario.opportunities.filter((o) => findCatalogOpportunity(o.id) !== null).map((o) => o.id);
     const entry = SCENARIOS[2];
     const loop = (floorIds: string[] = []) =>
       demoLoop(scenario, demo.id, { loadable, catalog, provider: entry.sampleOrganizer, floors: entry.suggestedFairnessFloors, floorIds });
-    return { scenario, opp, demo, entry, loop, window: demoWindowDates(scenario.evaluation_date) };
+    return { scenario, opp, isCatalog, demo, entry, loop, window: demoWindowDates(scenario.evaluation_date) };
   };
 
-  it('机会就是目录里的那条记录，演示学生就是示例档案里的那条记录（原样，不改动）；机会是线下的、不会被标成占位', () => {
-    const { scenario, opp, demo } = real();
-    expect(opp).not.toBeNull();
+  it('机会就是目录 / 设备借用场景里的那个对象，演示学生就是示例档案里的那条记录（原样，不改动）；机会是线下的', () => {
+    const { scenario, opp, isCatalog, demo } = real();
+    expect(opp).toBeDefined();
     expect(demo).toBeDefined();
-    expect(scenario.opportunities).toEqual([findCatalogOpportunity(sharedSupportTemplate.opportunity_ref)]);
-    expect(scenario.opportunities[0]).toEqual(opp);
+    expect(scenario.opportunities).toHaveLength(1);
+    expect(scenario.opportunities[0]).toBe(opp);
+    expect(sharedSupportOpportunitySource).toBe(isCatalog ? 'catalog' : 'sample');
     const at = Math.min(sharedSupportTemplate.demo_student_position, sharedSupportTemplate.students.length);
-    expect(scenario.students[at]).toEqual(sampleProfiles().find((p) => p.id === sharedSupportTemplate.demo_student_ref));
+    expect(scenario.students[at]).toBe(demo);
     expect(scenario.students.filter((s) => s.id === demo.id)).toHaveLength(1);
-    expect(opp.is_sample).not.toBe(true);
     expect(opp.source_tier ?? 'official').not.toBe('user_posted');
-    expect(isPlaceholderOpportunity(opp)).toBe(false);
+    // 目录里的机会不会被标成占位；示例场景的机会照常是占位
+    expect(isPlaceholderOpportunity(opp)).toBe(!isCatalog);
     expect(opp.location.format).not.toBe('online');
+  });
+
+  it('页面文字：只有目录机会才说「真实」并带说明；占位机会照常标 Placeholder、假设说明是「机会是占位的」', () => {
+    const { isCatalog, entry, loop } = real();
+    const { view } = loop();
+    expect(entry.realOpportunityNote).toBe(isCatalog ? REAL_OPPORTUNITY_NOTE : undefined);
+    expect(entry.description.includes('real')).toBe(isCatalog);
+    expect(view.opportunities.map((o) => o.is_placeholder)).toEqual([!isCatalog]);
+    expect(
+      view.assumptions.includes(
+        'Opportunities are placeholders for now, to be replaced with real opportunities verified by a person (official link + verification date).',
+      ),
+    ).toBe(!isCatalog);
   });
 
   it('演示闭环的数据检查没有问题（import 时算好的 sharedSupportReadinessProblems 与现算的一致）', () => {
@@ -795,11 +818,10 @@ describe.skipIf(sharedSupportScenario === null)('真实数据：共享支持场�
     expectScarceSupport(l, SHARED_SUPPORT_IDS);
   });
 
-  it('桥：roster 与 Quest Details 机会非空；演示学生拿到 grants，学生端从不可达变为可达（整个演示窗口都一样）', () => {
+  it('桥：roster 里有演示学生；演示学生拿到 grants，学生端从不可达变为可达（整个演示窗口都一样）', () => {
     const { scenario, opp, demo, loop, window } = real();
     const { info, decision } = loop();
-    expect(Object.keys(info.roster)).toContain(demo.id);
-    expect(info.quest_opportunity_ids).toEqual([opp.id]);
+    expect(Object.keys(info.roster)).toEqual([demo.id]);
     expect(decision.state).toBe('ready');
     expect(decision.grants.length).toBeGreaterThan(0);
     expect(decision.grants.every((g) => g.provider !== opp.organizer && g.is_sample === true && g.status === 'approved')).toBe(true);
@@ -819,12 +841,13 @@ describe.skipIf(sharedSupportScenario === null)('真实数据：共享支持场�
     expect(l.decision.state).toBe('ready');
   });
 
-  it('SCENARIOS 有三项：前两项不变，第三项用模拟支持方、自己的底线依据，并带真实机会的说明', () => {
+  it('SCENARIOS 有三项：前两项不变，第三项用模拟支持方与自己的底线依据', () => {
     const { scenario, opp } = real();
     expect(SCENARIOS).toHaveLength(3);
+    expect(SCENARIOS[0].scenario).toBe(deviceLoanScenario);
+    expect(SCENARIOS[1].scenario).toBe(venueTradeoffScenario);
     const third = SCENARIOS[2];
     expect(third.scenario).toBe(scenario);
-    expect(third.realOpportunityNote).toBe(REAL_OPPORTUNITY_NOTE);
     expect(third.sampleOrganizer).toBe(PROVIDER);
     expect(third.sampleOrganizer).not.toBe(opp.organizer);
     expect(third.suggestedFairnessFloors).toEqual([sharedSupportLowIncomeFloor()]);

@@ -5,13 +5,23 @@
  * - 「这次写入了哪些」一律从存储里推出来（不靠 React state），所以刷新页面后照样能撤回；
  *   只认 lib/joint/bridge 的 isBridgeGrantOf 严格判定为本场景的桥写入的 grant，别的 grant 一律不动。
  * - 读档案只取 id 与 is_sample（BridgeProfileRef），不把姓名、学校等交给页面。
+ * - 学生端机会目录里没有的机会（占位 / 示例机会）：写入支持前先用 addUserPostedOpportunity 存一份本地示例，
+ *   学生端才打得开它的 Quest Details；存储层会强制标 user_posted + is_sample。撤回支持时这份副本保留
+ *   （撤回后学生端仍能打开它，看到障碍重新出现）。
  * - lib/store 的函数不抛异常（SSR、存储被禁用、写入失败时返回存储里实际的列表），这里据此判断是否成功。
  * 只能在浏览器里（effect / 事件处理函数中）调用；SSR 下读到的是空。
  */
-import { addGrants, grantsByIntervention, loadProfile, removeGrants } from "@/lib/store";
+import {
+  addGrants,
+  addUserPostedOpportunity,
+  grantsByIntervention,
+  loadProfile,
+  loadUserPostedOpportunities,
+  removeGrants,
+} from "@/lib/store";
 import { findBridgeGrants } from "@/lib/joint/bridge";
 import type { BridgeProfileRef } from "@/lib/joint/bridge";
-import type { ResourceGrant, Scenario } from "@/lib/types";
+import type { Opportunity, ResourceGrant, Scenario } from "@/lib/types";
 
 /** 本浏览器里载入的档案的 id 与 is_sample；没有档案时为 null。 */
 export function readLoadedProfileRef(): BridgeProfileRef | null {
@@ -74,4 +84,26 @@ export function undoBridgeGrants(scenario: Pick<Scenario, "id" | "interventions"
   const left = new Set(removeGrants(ids).map((g) => g.id));
   const removed = ids.filter((id) => !left.has(id)).length;
   return { ok: removed === ids.length, removed };
+}
+
+/** ids 里已经作为本地示例存在本浏览器里的机会 id（按 ids 的顺序）。 */
+export function readLocalOpportunityIds(ids: readonly string[]): string[] {
+  const stored = new Set(loadUserPostedOpportunities().map((o) => o.id));
+  return ids.filter((id) => stored.has(id));
+}
+
+/**
+ * 把学生端机会目录里没有的机会存成本地示例（同 id 替换，内容以场景里的为准）。
+ * ok 只有在每条都能从存储里读回、且标成了 user_posted + is_sample 时才为 true；空列表 → ok（无事可做）。
+ */
+export function storeLocalOpportunities(opportunities: readonly Opportunity[]): { ok: boolean } {
+  if (opportunities.length === 0) return { ok: true };
+  for (const o of opportunities) addUserPostedOpportunity(o);
+  const stored = new Map(loadUserPostedOpportunities().map((o) => [o.id, o]));
+  return {
+    ok: opportunities.every((o) => {
+      const s = stored.get(o.id);
+      return s !== undefined && s.is_sample === true && s.source_tier === "user_posted" && s.title === o.title;
+    }),
+  };
 }

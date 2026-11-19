@@ -23,6 +23,7 @@ import {
   decideBridge,
   findBridgeGrants,
   isBridgeGrantOf,
+  opportunitiesNeedingLocalCopy,
   rosterStudentId,
   summarizeApplied,
 } from './bridge';
@@ -518,6 +519,47 @@ describe('summarizeApplied', () => {
     const before = JSON.stringify({ applied, READY, QUEST });
     sum({ applied });
     expect(JSON.stringify({ applied, READY, QUEST })).toBe(before);
+  });
+});
+
+describe('opportunitiesNeedingLocalCopy：学生端目录里没有的机会要存本地示例副本', () => {
+  const a = { id: 'a', title: 'A' };
+  const b = { id: 'b', title: 'B' };
+  const c = { id: 'c', title: 'C' };
+
+  it('只挑这次要写入支持、且不在目录里的机会；返回场景里的原对象，按场景顺序', () => {
+    const out = opportunitiesNeedingLocalCopy({
+      scenarioOpportunities: [a, b, c],
+      grantOpportunityIds: ['c', 'a', 'b'],
+      catalogOpportunityIds: ['b'],
+    });
+    expect(out).toEqual([a, c]);
+    expect(out[0]).toBe(a);
+  });
+
+  it('目录里已有的机会永远不存副本；没有要写的机会、或 id 不在场景里 → 空', () => {
+    expect(opportunitiesNeedingLocalCopy({ scenarioOpportunities: [a], grantOpportunityIds: ['a'], catalogOpportunityIds: ['a'] })).toEqual([]);
+    expect(opportunitiesNeedingLocalCopy({ scenarioOpportunities: [a, b], grantOpportunityIds: [], catalogOpportunityIds: [] })).toEqual([]);
+    expect(opportunitiesNeedingLocalCopy({ scenarioOpportunities: [a], grantOpportunityIds: ['zzz'], catalogOpportunityIds: [] })).toEqual([]);
+  });
+
+  it('场景里重复的 id 只取第一条；不修改输入', () => {
+    const dup = { id: 'a', title: 'A again' };
+    const input = { scenarioOpportunities: [a, dup], grantOpportunityIds: ['a'], catalogOpportunityIds: [] as string[] };
+    const before = JSON.stringify(input);
+    expect(opportunitiesNeedingLocalCopy(input)).toEqual([a]);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+
+  it('device-loan 的真实方案：占位机会不在目录里，需要副本', () => {
+    const d = decide(DEFAULT_PLAN, 's01');
+    expect(
+      opportunitiesNeedingLocalCopy({
+        scenarioOpportunities: ANON.opportunities,
+        grantOpportunityIds: d.opportunity_ids,
+        catalogOpportunityIds: [],
+      }).map((o) => o.id),
+    ).toEqual([OPP]);
   });
 });
 

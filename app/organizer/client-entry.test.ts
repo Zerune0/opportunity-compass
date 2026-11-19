@@ -17,6 +17,7 @@ import {
   REAL_OPPORTUNITY_NOTE,
   SCENARIOS,
   sharedSupportLowIncomeFloor,
+  sharedSupportOpportunitySource,
   sharedSupportScenario,
   sharedSupportTemplate,
 } from '@/lib/joint/scenarios';
@@ -162,16 +163,15 @@ describe('端到端（fixture）：页面方案 → 桥写入 → 学生端可�
 // ───────────────────────────── 真实数据（两个 ref 都填好后自动运行）─────────────────────────────
 
 describe.skipIf(sharedSupportScenario === null)('真实数据：页面交给浏览器的共享支持场景', () => {
-  it('与 page.tsx 相同的做法：说明、roster（演示学生）、Quest Details 机会；没有场景专用学生的信息', () => {
+  it('与 page.tsx 相同的做法：说明只在目录机会时出现、roster（演示学生）；没有场景专用学生的信息', () => {
     const entry = SCENARIOS[2];
     const catalog = entry.scenario.opportunities.filter((o) => findCatalogOpportunity(o.id) !== null).map((o) => o.id);
     const c = toClient(entry, catalog);
     const demo = sampleProfiles().find((p) => p.id === sharedSupportTemplate.demo_student_ref)!;
-    expect(c.realOpportunityNote).toBe(REAL_OPPORTUNITY_NOTE);
+    expect(c.realOpportunityNote).toBe(sharedSupportOpportunitySource === 'catalog' ? REAL_OPPORTUNITY_NOTE : null);
     expect(c.floors).toEqual([sharedSupportLowIncomeFloor()]);
     expect(c.bridge.provider).toBe('Sample community partner (simulated)');
     expect(Object.keys(c.bridge.roster)).toEqual([demo.id]);
-    expect(c.bridge.quest_opportunity_ids).toEqual([sharedSupportTemplate.opportunity_ref]);
     expectNoStudentInfo(c, sharedSupportTemplate.students, demo);
   });
 });

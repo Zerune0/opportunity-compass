@@ -32,7 +32,7 @@ import type {
   Scenario,
   StudentProfile,
 } from '../types';
-import { anonymizeScenarioForClient, findStudentInfoInInterventions, isPlaceholderOpportunity } from './scenario-utils';
+import { anonymizeScenarioForClient, findStudentInfoInInterventions } from './scenario-utils';
 
 /** 场景模板（机会与演示学生只写引用，构建时解析）。 */
 export interface ScenarioTemplate {
@@ -143,8 +143,8 @@ export interface ScenarioTemplateInputs {
 
 /**
  * 拒绝构建的原因（英文；空数组 = 可以构建）。纯函数，不抛错。
- * - 机会必须是真实的目录机会：不是 is_sample，不是用户发布（source_tier = 'user_posted'），
- *   也不会被页面判为占位机会（isPlaceholderOpportunity，例如标题含 Placeholder）；
+ * - 机会不能是用户发布的（source_tier = 'user_posted'）。已核实目录里的机会与示例场景的示例 / 占位机会都可以
+ *   （后者在页面上照常标 Placeholder，./scenarios 只在机会来自目录时才显示「真实机会」说明）；
  * - 演示学生必须是示例档案（is_sample === true）——桥只对示例档案写入；
  * - 演示学生的 id 不能与场景专用学生重复；场景专用学生的 id 不能是可载入示例档案的 id
  *   （否则载入那份档案时，桥会把这名场景专用学生的分配写给它）；
@@ -157,13 +157,11 @@ export function templateInputProblems(template: ScenarioTemplate, inputs: Scenar
   if (!isObject(opportunity) || !isNonEmptyString(opportunity.id)) {
     problems.push('The opportunity is not an object with a string id.');
   } else {
-    if (opportunity.is_sample === true) {
-      problems.push(`Opportunity "${opportunity.id}" is marked is_sample; this template needs a real opportunity from the verified catalog.`);
-    } else if (isPlaceholderOpportunity(opportunity)) {
-      problems.push(`Opportunity "${opportunity.id}" has "Placeholder" in its title, so the organizer page would label the real listing a placeholder.`);
-    }
+    // 示例 / 占位机会可以用（页面会照常标 Placeholder）；用户发布的机会不行。
     if ((opportunity.source_tier ?? 'official') === 'user_posted') {
-      problems.push(`Opportunity "${opportunity.id}" is user-posted; this template needs a real opportunity from the verified catalog.`);
+      problems.push(
+        `Opportunity "${opportunity.id}" is user-posted; this template needs a verified catalog opportunity or a sample scenario's opportunity.`,
+      );
     }
     if (template.opportunity_ref !== null && opportunity.id !== template.opportunity_ref) {
       problems.push(`Opportunity "${opportunity.id}" does not match opportunity_ref "${template.opportunity_ref}".`);

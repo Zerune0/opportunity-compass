@@ -8,7 +8,9 @@
  * - `venueTradeoffScenario`：data/scenarios/venue-tradeoff.json —— 同一主办方的工作日场与周末场（占位机会），
  *   已在运行的「工作日接驳车」给 3 名学生发了 approved grant；新的「周末卫星会场」与它互斥（演示权衡分析模式）。
  * - `sharedSupportScenario`：data/scenarios/shared-support.json 是**场景模板**（./scenario-template）——
- *   机会用已核实目录里的真实机会（`opportunity_ref`，经 lib/data 的 findCatalogOpportunity 解析），
+ *   机会按 `opportunity_ref` 先查已核实目录（lib/data 的 findCatalogOpportunity），查不到再用设备借用场景自己的
+ *   示例 / 占位机会（同一个对象；目前就是 placeholder-inperson-event，sharedSupportOpportunitySource = 'sample'，
+ *   此时页面照常标 Placeholder、不显示「真实机会」说明），
  *   演示学生用可载入的示例档案（`demo_student_ref`，经 sampleProfiles 解析），原对象直接拼进场景，
  *   其余学生、措施（借用笔记本、交通补助、一项待审批措施）与预算都是示例；支持方是模拟的社区伙伴，
  *   不是真实机会的主办方。两个 ref 任一为 null 时为 null（不进 SCENARIOS）；ref 已填但解析不到时在 import 时抛错。
@@ -105,13 +107,16 @@ export const sharedSupportTemplate: ScenarioTemplate = assertScenarioTemplateSha
  * 解析模板的两个 ref。ref 已填但在目录 / 示例档案里找不到（拼错、或没通过 lib/data 的校验）时抛错，
  * 让构建与测试尽早失败；任一 ref 为 null 时返回 null。构建结果再过一遍 assertScenarioShape。
  */
-function resolveSharedSupport(template: ScenarioTemplate): Scenario | null {
+function resolveSharedSupport(template: ScenarioTemplate): { scenario: Scenario; source: 'catalog' | 'sample' } | null {
   const oppRef = template.opportunity_ref;
   const studentRef = template.demo_student_ref;
-  const opportunity = oppRef === null ? null : findCatalogOpportunity(oppRef);
+  // 先查已核实目录；查不到再用设备借用场景自己的示例 / 占位机会（同一个对象，不复制，不会与那个场景走样）。
+  const fromCatalog = oppRef === null ? null : findCatalogOpportunity(oppRef);
+  const fromSample = oppRef === null || fromCatalog !== null ? null : (deviceLoanScenario.opportunities.find((o) => o.id === oppRef) ?? null);
+  const opportunity = fromCatalog ?? fromSample;
   if (oppRef !== null && opportunity === null) {
     throw new Error(
-      `${template.id}: opportunity_ref "${oppRef}" is not in the verified catalog (data/opportunities.json), or it failed validation.`,
+      `${template.id}: opportunity_ref "${oppRef}" is neither in the verified catalog (data/opportunities.json, or it failed validation) nor an opportunity of the device-loan sample scenario.`,
     );
   }
   const demoStudent = studentRef === null ? null : (sampleProfiles().find((p) => p.id === studentRef) ?? null);
@@ -122,11 +127,22 @@ function resolveSharedSupport(template: ScenarioTemplate): Scenario | null {
   }
   if (opportunity === null || demoStudent === null) return null;
   const loadableProfileIds = sampleProfiles().map((p) => p.id);
-  return assertScenarioShape(buildScenarioFromTemplate(template, { opportunity, demoStudent, loadableProfileIds }), template.id);
+  return {
+    scenario: assertScenarioShape(buildScenarioFromTemplate(template, { opportunity, demoStudent, loadableProfileIds }), template.id),
+    source: fromCatalog !== null ? 'catalog' : 'sample',
+  };
 }
 
+const sharedSupportResolved = resolveSharedSupport(sharedSupportTemplate);
+
 /** 共享支持场景；两个 ref 任一还没填时为 null（此时不出现在 SCENARIOS 里）。 */
-export const sharedSupportScenario: Scenario | null = resolveSharedSupport(sharedSupportTemplate);
+export const sharedSupportScenario: Scenario | null = sharedSupportResolved?.scenario ?? null;
+
+/**
+ * 共享支持场景的机会来自哪里：'catalog' = 已核实目录里的真实机会（页面显示 REAL_OPPORTUNITY_NOTE）；
+ * 'sample' = 设备借用场景的示例 / 占位机会（与那个场景同一个对象，页面照常标 Placeholder，不说「真实」）；场景为 null 时为 null。
+ */
+export const sharedSupportOpportunitySource: 'catalog' | 'sample' | null = sharedSupportResolved?.source ?? null;
 
 /**
  * 共享支持场景的演示闭环在数据层面走不通的原因（scenarioReadinessProblems，英文），在 import 时算一次。
@@ -215,21 +231,27 @@ export const SCENARIOS: readonly ScenarioEntry[] = [
     suggestedFairnessFloors: [lowIncomeFloor()],
     sampleOrganizer: SAMPLE_ORGANIZER,
   },
-  ...(sharedSupportScenario === null
-    ? []
-    : [
-        {
-          id: sharedSupportScenario.id,
-          title: sharedSupportScenario.title,
-          description:
-            'Sample: a simulated community partner has a few loaner laptops and a small transport budget for sample students interested in a real in-person opportunity. Not enough for everyone.',
-          scenario: sharedSupportScenario,
-          suggestedFairnessFloors: [sharedSupportLowIncomeFloor()],
-          sampleOrganizer: SHARED_SUPPORT_ORGANIZER,
-          realOpportunityNote: REAL_OPPORTUNITY_NOTE,
-        },
-      ]),
+  ...(sharedSupportScenario === null ? [] : [sharedSupportEntry(sharedSupportScenario, sharedSupportOpportunitySource === 'catalog')]),
 ];
+
+/**
+ * 共享支持场景的清单项。只有机会来自已核实目录时才说「real」并带 REAL_OPPORTUNITY_NOTE；
+ * 用示例 / 占位机会时不带说明，页面照常标 Placeholder，假设说明也是「机会是占位的」那一句。
+ */
+function sharedSupportEntry(scenario: Scenario, realOpportunity: boolean): ScenarioEntry {
+  const entry: ScenarioEntry = {
+    id: scenario.id,
+    title: scenario.title,
+    description: realOpportunity
+      ? 'Sample: a simulated community partner has a few loaner laptops and a small transport budget for sample students interested in a real in-person opportunity. Not enough for everyone.'
+      : 'Sample: a simulated community partner has a few loaner laptops and a small transport budget for sample students interested in an in-person sample opportunity. Not enough for everyone.',
+    scenario,
+    suggestedFairnessFloors: [sharedSupportLowIncomeFloor()],
+    sampleOrganizer: SHARED_SUPPORT_ORGANIZER,
+  };
+  if (realOpportunity) entry.realOpportunityNote = REAL_OPPORTUNITY_NOTE;
+  return entry;
+}
 
 export {
   anonymizeScenarioForClient,

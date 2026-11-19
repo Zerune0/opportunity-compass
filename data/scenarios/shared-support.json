@@ -4,8 +4,8 @@
   "is_sample": true,
   "evaluation_date": "2026-11-20",
   "budget_usd": 150,
-  "opportunity_ref": null,
-  "demo_student_ref": null,
+  "opportunity_ref": "placeholder-inperson-event",
+  "demo_student_ref": "sample-maya",
   "demo_student_position": 0,
   "interventions": [
     {

@@ -13,6 +13,7 @@ import {
   addGrants,
   grantsFor,
   loadGrants,
+  loadUserPostedOpportunities,
   saveProfile,
   storageKey,
   STORE_KEYS,
@@ -21,7 +22,14 @@ import { bridgeGrantId, buildClientBridgeInfo, decideBridge, rosterStudentId } f
 import { DEVICE_LOAN_IDS as IDS, SCENARIOS, anonymizeScenarioForClient, deviceLoanScenario } from '@/lib/joint/scenarios';
 import { defaultWhatIfInput, runWhatIfWithPlan } from '@/lib/joint/whatif';
 import type { ResourceGrant, Scenario, StudentProfile } from '@/lib/types';
-import { applyBridgeGrants, readAppliedBridgeGrants, readLoadedProfileRef, undoBridgeGrants } from './bridge-store';
+import {
+  applyBridgeGrants,
+  readAppliedBridgeGrants,
+  readLoadedProfileRef,
+  readLocalOpportunityIds,
+  storeLocalOpportunities,
+  undoBridgeGrants,
+} from './bridge-store';
 
 const DL = SCENARIOS[0];
 const OPP = IDS.opportunity;
@@ -320,5 +328,50 @@ describe('写入失败：返回 ok: false，存储不变', () => {
     expect(applyBridgeGrants(decision.grants)).toEqual({ ok: false });
     expect(readAppliedBridgeGrants(anonymized)).toEqual([]);
     expect(undoBridgeGrants(anonymized)).toEqual({ ok: true, removed: 0 });
+  });
+});
+
+describe('学生端目录里没有的机会：存成本地示例副本', () => {
+  const opp = deviceLoanScenario.opportunities[0];
+
+  it('没有 window（SSR）：读为空、存不成功、不抛异常；空列表算成功（无事可做）', () => {
+    expect(readLocalOpportunityIds([OPP])).toEqual([]);
+    expect(storeLocalOpportunities([opp])).toEqual({ ok: false });
+    expect(storeLocalOpportunities([])).toEqual({ ok: true });
+  });
+
+  it('存入后读得回来，存储层标成 user_posted + is_sample；内容与场景里的一致；重复存不产生第二条', () => {
+    installFakeWindow();
+    expect(readLocalOpportunityIds([OPP, 'other'])).toEqual([]);
+    expect(storeLocalOpportunities([opp])).toEqual({ ok: true });
+    expect(storeLocalOpportunities([opp])).toEqual({ ok: true });
+    expect(readLocalOpportunityIds(['other', OPP])).toEqual([OPP]);
+    const stored = loadUserPostedOpportunities();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toEqual({ ...opp, source_tier: 'user_posted', is_sample: true });
+  });
+
+  it('撤回支持后副本保留（学生端仍打得开，看到障碍重新出现）；别的本地机会不动', () => {
+    const { anonymized, bridge, plan } = pageSetup();
+    installFakeWindow();
+    const decision = decideBridge({
+      scenarioId: anonymized.id,
+      plan,
+      profile: { id: LOADED_ID, is_sample: true },
+      scenarioStudentId: rosterStudentId(bridge.roster, LOADED_ID),
+      provider: bridge.provider,
+    });
+    expect(decision.state).toBe('ready');
+    const other = { ...opp, id: 'sample-post-something-else', title: 'Another local sample' };
+    expect(storeLocalOpportunities([other, anonymized.opportunities[0]])).toEqual({ ok: true });
+    expect(applyBridgeGrants(decision.grants)).toEqual({ ok: true });
+    expect(undoBridgeGrants(anonymized)).toEqual({ ok: true, removed: decision.grants.length });
+    expect(loadUserPostedOpportunities().map((o) => o.id)).toEqual(['sample-post-something-else', OPP]);
+  });
+
+  it('写不进去（setItem 抛错）：ok 为 false', () => {
+    installFakeWindow();
+    failWrites();
+    expect(storeLocalOpportunities([opp])).toEqual({ ok: false });
   });
 });

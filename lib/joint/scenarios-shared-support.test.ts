@@ -147,24 +147,46 @@ describe('sharedSupportScenario 的接线（模拟填好 ref）', () => {
 
   it('ref 拼错：import 时抛错，写明是哪个 ref（另一个还是 null 时也一样）', async () => {
     await expect(loadScenarios({ opportunity_ref: 'no-such-opportunity', demo_student_ref: DEMO.id })).rejects.toThrow(
-      'fixture-shared-support: opportunity_ref "no-such-opportunity" is not in the verified catalog (data/opportunities.json), or it failed validation.',
+      'fixture-shared-support: opportunity_ref "no-such-opportunity" is neither in the verified catalog (data/opportunities.json, or it failed validation) nor an opportunity of the device-loan sample scenario.',
     );
     await expect(loadScenarios({ opportunity_ref: null, demo_student_ref: 'sample-nobody' })).rejects.toThrow(
       'fixture-shared-support: demo_student_ref "sample-nobody" is not a loadable sample profile (data/profiles.json), or it failed validation.',
     );
   });
 
-  it('ref 能解析但不合要求（机会是示例数据）：构建器拒绝，import 时抛错', async () => {
+  it('ref 能解析但不合要求（机会是用户发布的）：构建器拒绝，import 时抛错', async () => {
     vi.resetModules();
     vi.doMock(TEMPLATE_PATH, () => ({ default: { ...fixtureTemplate() } }));
     vi.doMock('../data', async (importOriginal) => {
       const actual = await importOriginal<typeof DataModule>();
       return {
         ...actual,
-        findCatalogOpportunity: (id: string | null | undefined) => (id === OPP.id ? { ...OPP, is_sample: true } : null),
+        findCatalogOpportunity: (id: string | null | undefined) =>
+          id === OPP.id ? { ...OPP, is_sample: true, source_tier: 'user_posted' as const } : null,
         sampleProfiles: () => [DEMO],
       };
     });
-    await expect(import('./scenarios')).rejects.toThrow(/fixture-shared-support: cannot build the scenario: .*is marked is_sample/);
+    await expect(import('./scenarios')).rejects.toThrow(/fixture-shared-support: cannot build the scenario: .*is user-posted/);
+  });
+
+  it('机会不在目录里、是设备借用场景的占位机会：用同一个对象；不带「真实机会」说明，说明文字不说 real', async () => {
+    const placeholderId = 'placeholder-inperson-event';
+    const m = await loadScenarios({ opportunity_ref: placeholderId, demo_student_ref: DEMO.id });
+    const s = m.sharedSupportScenario!;
+    expect(s).not.toBeNull();
+    expect(m.sharedSupportOpportunitySource).toBe('sample');
+    expect(s.opportunities[0]).toBe(m.deviceLoanScenario.opportunities[0]);
+    expect(s.opportunities[0].id).toBe(placeholderId);
+    const third = m.SCENARIOS[2];
+    expect(third.realOpportunityNote).toBeUndefined();
+    expect(third.description).toBe(
+      'Sample: a simulated community partner has a few loaner laptops and a small transport budget for sample students interested in an in-person sample opportunity. Not enough for everyone.',
+    );
+    expect(m.sharedSupportReadinessProblems).toEqual([]);
+  });
+
+  it('目录里查得到时优先用目录机会（source = catalog）', async () => {
+    const m = await loadScenarios({ opportunity_ref: OPP.id, demo_student_ref: DEMO.id });
+    expect(m.sharedSupportOpportunitySource).toBe('catalog');
   });
 });
