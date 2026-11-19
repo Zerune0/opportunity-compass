@@ -22,7 +22,7 @@ What you can open and use on the live site. All student data stays in this brows
 - **Your data (`/data`):** see what is stored in this browser, download it as one JSON file, import such a file (it replaces what is stored; no merging), or delete it all. This is a manual backup file, not sync.
 - **Organizer what-if (`/organizer`):** a simulation page (see the next section) that runs the joint solver and the independent verifier on sample scenarios and shows aggregate counts only, never individual students.
 
-Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEligibility`, `analyzeReachability`, `planRoutes`, `diffRoutes`, `analyzeGaps`, `findAlternatives`, `explainMatch`, `planAcrossOpportunities`, `solveJoint`, `verifyPlan` and `compareBaselines`. `npm test` currently runs 2,043 tests in 37 files (33 under `lib/`, 4 under `app/`), including fairness control tests (`lib/fairness.test.ts`, `lib/fairness-p2.test.ts`) showing results do not change when only the school name or display name changes, and an end-to-end engine test of the demo path (`lib/demo-mainline.test.ts`).
+Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEligibility`, `analyzeReachability`, `planRoutes`, `diffRoutes`, `analyzeGaps`, `findAlternatives`, `explainMatch`, `planAcrossOpportunities`, `solveJoint`, `verifyPlan` and `compareBaselines`. `npm test` currently runs 2,077 tests in 39 files (35 under `lib/`, 4 under `app/`), including fairness control tests (`lib/fairness.test.ts`, `lib/fairness-p2.test.ts`) showing results do not change when only the school name or display name changes, and an end-to-end engine test of the demo path (`lib/demo-mainline.test.ts`).
 
 ### Simulated or sample
 - **Sample profiles:** `data/profiles.json` holds 4 sample profiles (`is_sample: true`, labelled "Sample"): three high-school students and one first-year undergraduate.
@@ -36,12 +36,16 @@ Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEl
 - Everything under "Future work" below.
 
 ### Known demo limits
-- Whether a student–opportunity pair can come out "reachable" depends on the opportunity record stating its fee, travel expectations and weekly hours. Of the 12 real records, 4 state a fee, 5 state whether travel must be self-paid and 2 state weekly hours; everything else is `null` (unknown, not guessed).
-- As a result, **none of the 4 sample profiles evaluates to "reachable" on any real opportunity** (checked for all 48 pairs with `analyzeReachability` and no organizer support, evaluated on 2026-11-18): 28 pairs show "Reachability: Unknown" (missing information) and 20 show "Open barriers" (a hard requirement is not met, or there is an unresolved time or transport barrier). The "barrier resolved by approved support → reachable" step is therefore demonstrated with clearly fictional fixtures in tests and on the organizer page, not on real opportunities.
+- Whether a student–opportunity pair can come out "reachable" depends on the opportunity record stating its fee, travel expectations and weekly hours. Of the 12 real records, 5 state a fee, 5 state whether travel must be self-paid and 2 state weekly hours; everything else is `null` (unknown, not guessed).
+- As a result, **none of the 4 sample profiles evaluates to "reachable" on any real opportunity** (checked for all 48 pairs with `analyzeReachability` and no organizer support, evaluated on 2026-11-19): 28 pairs show "Reachability: Unknown" (missing information) and 20 show "Open barriers" (a hard requirement is not met, or there is an unresolved time or transport barrier). The "barrier resolved by approved support → reachable" step is therefore demonstrated with clearly fictional fixtures in tests and on the organizer page, not on real opportunities.
 - All 12 real records list preparation steps, but few steps are marked as reusable materials, so material reuse in the cross-quest plan is mostly exercised by tests with fictional fixtures.
+- The last step of the demo, "approved organizer support makes a student reachable", works on the student side today with the sample scenario opportunity (`placeholder-inperson-event` in `data/scenarios/device-loan.json`) and the sample profile `sample-maya`: `lib/final-act.test.ts` stores that opportunity locally, adds an approved laptop loan through the storage functions and checks that the result changes from not reachable to reachable and back. What is missing is the button on `/organizer` that performs those writes.
 - Pages are covered by the `lib/` tests, a few `app/` view-model tests and manual walk-throughs, not by automated UI tests. The calendar file has not been tested by importing it into real calendar apps.
 
 All capabilities described below are product goals unless stated otherwise above.
+
+## How AI is used
+AI assistants were used while building this project (writing and reviewing code, tests and documents). **The running product does not call any AI model.** Every eligibility result, barrier, route, gap, match reason and organizer plan is produced by the deterministic, tested functions in `lib/`, so the same input always gives the same output, and missing information comes out as "unknown" instead of a guess. Opportunity records are checked by a person against the official page; AI-suggested opportunity details are not used as data.
 
 ## Getting started
 Requires Node.js >= 20.9 and npm.
@@ -135,8 +139,9 @@ Not built in the four-day competition scope and **not implemented**:
 - Real Quest Creator publishing, a real Talent Board and real consent-based two-way connection. Not even a local sample demo of these has pages yet.
 - Applying an organizer plan back to the student side from the `/organizer` page (the storage functions exist; the UI does not).
 - Integration with real organizer data (all organizer scenarios are sample / simulated).
-- Opportunity Blind Spots.
-- Impact Measurement.
+- AI assistance inside the product (for example organizing opportunity information or wording explanations). It would need a server to hold an API key, which conflicts with the no-backend design, and explanations are currently rule-generated and reproducible.
+- Opportunity Blind Spots. With 12 opportunities and no real regional demand data there is nothing honest to report.
+- Impact Measurement. It needs voluntary data from real users; only the student's own outcome notes in the Quest Journal exist.
 - Baseline D (a fully coordinated separate planner) in the baseline comparison.
 - Automated UI tests for the pages.
 - More complete opportunity records (fees, travel and weekly hours) so real opportunities can be evaluated as reachable.
