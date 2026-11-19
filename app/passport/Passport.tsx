@@ -56,11 +56,11 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
   }
 
   useEffect(() => {
-    const initialRead = window.requestAnimationFrame(refresh);
+    const initialRead = window.setTimeout(refresh);
     window.addEventListener("storage", refresh);
     window.addEventListener("pageshow", refresh);
     return () => {
-      window.cancelAnimationFrame(initialRead);
+      window.clearTimeout(initialRead);
       window.removeEventListener("storage", refresh);
       window.removeEventListener("pageshow", refresh);
     };
