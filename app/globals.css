@@ -9,7 +9,8 @@
 /* The organizer screen and older markup use Tailwind's stock palette names.
    They are remapped here onto the dark ground so those screens take the theme without edits. */
 @theme {
-  --color-white: oklch(18.5% 0.032 300);
+  --color-surface: oklch(18.5% 0.032 300);
+  --color-white: #fff;
   --color-gray-50: oklch(18.5% 0.032 300);
   --color-gray-100: oklch(23% 0.035 300);
   --color-gray-200: oklch(34% 0.04 300);
@@ -256,4 +257,60 @@ body::before {
     .rpg-classic-table td::before { content: attr(data-label) ": "; font-weight: bold; }
     .rpg-classic-table tr + tr { margin-top: 1rem; }
   }
+}
+
+/* The organizer scenario select still carries Tailwind's bg-white. Now that white is real white,
+   keep it on the dark surface. This rule is deliberately outside any @layer: Tailwind utilities
+   sit in the utilities layer, which beats the components layer, and unlayered rules beat both. */
+.shell-main select.bg-white { background-color: var(--color-surface); }
+
+/* Phase 3: shared layout and accessibility polish. The legacy organizer select
+   intentionally keeps its dark surface; white utilities now mean actual white. */
+@layer components {
+  .rpg-stack, .rpg-stack > *, .rpg-row > *, .home > * { min-width: 0; }
+  .shell-main { overflow-wrap: anywhere; }
+  .rpg-button { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+  .rpg-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .rpg-stack:is(dl) { grid-template-columns: minmax(0, 1fr); }
+  .rpg-evidence-form :is(input:not([type="checkbox"], [type="radio"]), select, textarea),
+  .rpg-field :is(input, select, textarea) { min-width: 0; max-width: 100%; width: 100%; }
+  .shell-main label:has(input[type="checkbox"], input[type="radio"]) {
+    min-height: var(--control); align-content: center; cursor: pointer;
+  }
+  .shell-main summary { min-height: var(--control); padding-block: var(--space-xs); }
+  .journal-jumps { padding: var(--space-sm); border: 1px solid var(--color-rule); background: var(--color-paper-2); }
+  .journal-jumps a { display: inline-flex; align-items: center; min-height: var(--control); padding-inline: var(--space-xs); }
+  [id^="journal-"] { scroll-margin-top: 10rem; }
+  @media (max-width: 40rem) {
+    .shell-bar__inner, .shell-main { padding-inline: var(--space-sm); }
+    .rpg-card, .rpg-head, .home, .rpg-toolbar { padding: var(--space-md); }
+    .rpg-button { white-space: normal; }
+    dl:not(.rpg-stack) { grid-template-columns: minmax(0, 1fr); }
+    dd + dt { margin-top: var(--space-xs); }
+    .shell-main :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) { min-width: 0; max-width: 100%; }
+    .rpg-evidence-form label { max-width: 100%; }
+    .rpg-row > label:has(input[type="checkbox"]) { flex-wrap: nowrap; align-items: flex-start; }
+    .rpg-row > label > input[type="checkbox"] { flex-shrink: 0; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crt::after, body::before { display: none; }
+  .rpg-head h1::after, .home h1::after { display: none; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media print {
+  :root { color-scheme: light; }
+  body, .shell-main, .rpg-card { background: #fff !important; color: #000 !important; box-shadow: none !important; }
+  body::before, .crt::after { display: none !important; }
+  .shell-main { max-width: none; padding: 0; }
+  .shell-main * { color: #000 !important; text-shadow: none !important; box-shadow: none !important; }
+  .rpg-card { border-color: #777; break-inside: auto; }
+  .rpg-tag { border-color: #555; }
+  h1, h2, h3, caption { break-after: avoid; }
+  .rpg-classic-table { display: table; table-layout: auto; font-size: 9pt; }
+  .rpg-classic-table thead { display: table-header-group; position: static; width: auto; height: auto; clip-path: none; overflow: visible; }
+  .rpg-classic-table tbody { display: table-row-group; }
+  .rpg-classic-table tr { display: table-row; break-inside: avoid; }
+  .rpg-classic-table :is(th, td) { display: table-cell; padding: 3pt; }
+  .rpg-classic-table td::before { content: none; }
 }

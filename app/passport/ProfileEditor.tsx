@@ -28,8 +28,8 @@ export function ProfileEditor({ profile, onSave }: {
   // Today's date is read after mount (no clock reads during render).
   const [today, setToday] = useState("");
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setToday(localToday()));
-    return () => window.cancelAnimationFrame(frame);
+    const frame = window.setTimeout(() => setToday(localToday()));
+    return () => window.clearTimeout(frame);
   }, []);
   const ageFromBirth = today && birthDate ? ageOn(birthDate, today) : null;
   const ageMismatch = ageFromBirth !== null && ageInput.trim() !== "" && Number(ageInput) !== ageFromBirth;

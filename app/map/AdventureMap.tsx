@@ -90,9 +90,11 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         {(opportunity.is_sample || profile?.is_sample) && <p><StatusTag tone="warning">Sample data</StatusTag></p>}
         <p className="rpg-muted">{opportunity.organizer}</p>
         {opportunity.deadline && <p>Apply by {opportunity.deadline}</p>}
-        <p>Quests help you prepare. You can apply directly at any time.</p>
+        <p>{plan?.status === "blocked"
+          ? "Your profile does not meet the listed eligibility requirements. Check the official source for the requirements and future rounds."
+          : "Quests help you prepare. You can apply directly at any time."}</p>
         <div className="rpg-row">
-          {!opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>Go directly to the official application</a>}
+          {!opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>{plan?.status === "blocked" ? "View official requirements and application" : "Go directly to the official application"}</a>}
           <a className="rpg-button rpg-button--secondary" href={passport}>Open Skill Passport</a>
           <Link className="rpg-button rpg-button--secondary" href={`/quests/${encodeURIComponent(opportunity.id)}`}>Details and Quest Journal</Link>
         </div>
