@@ -20,7 +20,7 @@
 | `EligibilityResult` | 资格结果 | `overall`（eligible / not_eligible / unknown）、`items[]`：`status`（**satisfied / not_satisfied / unknown**）、`source_text`、`explanation`、`confirm_with_official`（unknown 时的「请向官方确认」提示） |
 | `ResourceGrant` | 主办方已分配给某学生的资源（针对某机会，或对该学生所有机会有效） | `student_id`、**`opportunity_id`（`string \| null`：字符串 = 只对该机会有效；`null` = 对该学生的所有机会都有效，如借出的笔记本、交通卡；只有 `=== null` 才算，缺该字段的 grant 不生效；`null` 主要用于可重复使用的资源 device / time_support，按金额计的 transport_subsidy / fee_waiver 建议指定具体机会）**、`intervention_id?`（来自哪个措施，若有）、`type`（device / transport_subsidy / fee_waiver / time_support / alternative_access）、`status`（approved / pending）、`amount_usd`、`device`、`hours_per_week`、`is_sample` |
 | `ReachabilityResult` | 可达性 | `eligibility`、`readiness_gaps`、`barriers[]`（`type`: time/cost/transport/device，`resolved`、`resolved_by_grant_ids`）、**`reachable`（true / false / null=信息不足）**、`missing_info`、`summary` |
-| `Route` / `RouteStep` | 一条成长路线 | `type`（learning_first / practice_first / community）、`steps`（已按依赖排序；`depends_on`、`hours`、`cost_usd`、`skipped`、`skip_reason`）、`total_hours`、`total_cost_usd`、`feasible_by_deadline`（true/false/null）、`rationale`、`warnings` |
+| `Route` / `RouteStep` | 一条成长路线 | `type`（learning_first / practice_first / community；第四阶段契约追加 competition，引擎尚未生成）、`steps`（已按依赖排序；`depends_on`、`hours`、`cost_usd`、`skipped`、`skip_reason`；第四阶段契约新增可选 `relation` / `official` / `evidence_needed`，见「第四阶段契约新增」）、`total_hours`、`total_cost_usd`、`feasible_by_deadline`（true/false/null）、`rationale`、`warnings` |
 | `PlanResult` | `planRoutes` 的返回 | `status: 'routes'` → `routes`（2–3 条）；`status: 'blocked'` → `routes: []` + `blocking_requirements`、`reasons`、`alternatives`（下一届 / 同领域替代） |
 | `RouteDiff` | 两次规划的变化 | `status_change`、`route_changes[]`（新增 / 移除 / 新跳过 / 取消跳过的步骤，小时与费用变化）、**`reasons`（为什么变）** |
 | `SupportType` | 支持 / 资源类型（grant 与措施共用） | `device`、`transport_subsidy`、`fee_waiver`、`time_support`、**`alternative_access`**（替代参与方式，如线上参与入口、卫星会场，让学生不必前往主会场；与 `transport_subsidy` 同等化解 transport 障碍） |
@@ -37,7 +37,7 @@
 | `JointAlternative` | INFEASIBLE 时只放松软要求后的替代方案 | `JointOutcome` 字段 + `relaxed`（`SoftRequirementKey[]`：放松了 `min_gain` / `fairness_floors` / `required_intervention_ids` 中的哪些）、`note` |
 | `JointConditional` | 条件性结果（「如果这些 pending 措施获批，则……」，未生效） | `JointOutcome` 字段 + `status`、`assumed_approved_intervention_ids`、`note` |
 | `JointResult` | 联合求解结果（`extends JointOutcome`，原有字段不变） | `status`（OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT）、`selected_intervention_ids`、`allocations`、`R0`、`R1`、`G`、`L`、`N`、`cost`（`marginal_usd` = 各 Allocation 的 `cost_usd` 之和）、`notes`；新增可选 `alternative?`、`conditional?`、`verification?` |
-| `EvalOptions` | `checkEligibility` / `analyzeReachability` / `planRoutes` 的可选末位参数 | `today?: ISODate`（评估基准日；不传时不读系统时间，依赖日期的判断按信息不足处理） |
+| `EvalOptions` | `checkEligibility` / `analyzeReachability` / `planRoutes` 的可选末位参数 | `today?: ISODate`（评估基准日；不传时不读系统时间，依赖日期的判断按信息不足处理）；`catalog?: Opportunity[]`（第四阶段契约新增：供 `planRoutes` 生成 competition 路线用；不传时行为与现在完全相同，本次引擎尚未读取） |
 | `VerifyOptions` | `verifyPlan` 的可选第三参数（已确认保留） | `mode`、`loss_cap`（均可选，类型同 `SolveOptions`）；复核损失时用，不传按 protect 处理（损失必须为 0）；`mode: 'tradeoff'` 但没给 `loss_cap` 时判为不通过。新增可选 `assume_approved_intervention_ids?`（复核条件性方案时把这些 pending 措施当作已批准）、`required_intervention_ids?`、`min_gain?`、`fairness_floors?`（与 `SolveOptions` 同义，传了才检查） |
 | `VerifyResult` | 独立复核 | `passed`、`checks[]`（`name`、`passed`、`detail`）；`capacity` / `cost_accounting` 按 `Allocation` 的口径复核（按不同 (`intervention_id`, `student_id`) 计）；检查项名称见「联合求解模型」（新增 `revocation`、`fairness`） |
 | `BaselineId` / `BaselineRow` / `BaselineMetrics` / `BaselineComparison` | 基线对比（`compareBaselines` 的返回） | 行 `A_eligibility_only` / `B_student_side` / `C_organizer_side` / `joint`：`label`、`description`、`claimed_reachable`（自称）、`plan`、`verification`（同一验证器复核）、`verified`（可执行时的独立重算指标，否则 null）、`soft_requirements_met`、`repaired`（先到先得截断后的指标）；`notes` |
@@ -58,7 +58,7 @@
 | `GapBasis` | 一条差距的依据（判别联合，判别字段 `kind`） | `{ kind: 'requirement', requirement_id, source_text }` / `{ kind: 'prep_item', prep_item_id, source_text: string \| null }` / `{ kind: 'barrier', barrier_type }` / `{ kind: 'missing_field', field }`（`field` 的写法与 `missing_info` 一致，如 `profile.devices`） |
 | `GapItem` | 一条差距 | `id`（结果内唯一且稳定，形如 `materials:prep-resume`；设备障碍为 `time_and_cost:device:<设备>`；重复时加 `#2`、`#3`）、`category`、`title`、`detail`、`basis`、`improvable`、**`action`（`string \| null`；`improvable` 为 false 时为 null；`unchangeable_eligibility` 一律为 null）**、`estimated_hours?`、`estimated_cost_usd?`（不适用或不知道为 null） |
 | `GapAnalysis` | `analyzeGaps` 的返回 | `profile_id`、`opportunity_id`、`items`（先按 `GAP_CATEGORIES` 分组，组内按机会里的原顺序）、`counts`（`Record<GapCategory, number>`，五个键都有）、`eligibility_overall`、`reachable`（语义同 `ReachabilityResult.reachable`）、`summary` |
-| `AlternativeSuggestion` | `findAlternatives` 返回数组中的一条（学生在原机会上没有受阻时，数组为 `[]`） | `kind`（`next_cycle` = 等下一届，给出条件见「第二阶段新函数」中 `findAlternatives` / `same_field` = 同领域的其他机会）、`opportunity_id`（`string \| null`；same_field 为目录中那个机会，next_cycle 指原机会）、`title`、`reason`、`eligibility_overall`（`OverallEligibility \| null`；same_field 不会是 `not_eligible`；next_cycle 为 null）、`shared_fields`（与原机会共有的领域标签，按 `normalizeTag` 比较，用建议机会原本的写法；next_cycle 为原机会的全部 `fields`，按 `normalizeTag` 去重）。给了 `options.today` 时 same_field 不含截止日期已过的机会 |
+| `AlternativeSuggestion` | `findAlternatives` 返回数组中的一条（学生在原机会上没有受阻时，数组为 `[]`） | `kind`（`next_cycle` = 等下一届，给出条件见「第二阶段新函数」中 `findAlternatives` / `same_field` = 同领域的其他机会）、`opportunity_id`（`string \| null`；same_field 为目录中那个机会，next_cycle 指原机会）、`title`、`reason`、`eligibility_overall`（`OverallEligibility \| null`；same_field 不会是 `not_eligible`；next_cycle 为 null）、`shared_fields`（与原机会共有的领域标签，按 `normalizeTag` 比较，用建议机会原本的写法；next_cycle 为原机会的全部 `fields`，按 `normalizeTag` 去重）。给了 `options.today` 时 same_field 不含截止日期已过的机会。第四阶段契约追加 `stepping_stone` / `remote_option`（含义见「第四阶段契约新增」，引擎尚未生成） |
 | `MatchReasonKind` / `MatchReason` | 一条匹配理由 | `kind`：`interest` / `eligibility` / `reachability` / `format` / `time` / `cost` / `device` / `transport`（常量 `MATCH_REASON_KINDS`；`device`、`transport` 为第二阶段第 2 层新增，只追加在末尾。**页面对 `kind` 做映射（图标、标题等）时要有兜底分支**，以后再加种类也不会出错）；`positive`（true = 有利 / false = 不利 / null = 信息不足，不猜）、`text` |
 | `MatchExplanation` | `explainMatch` 的返回 | `profile_id`、`opportunity_id`、`reasons`（按 `MATCH_REASON_KINDS` 顺序，**每个种类最多一条，没有可说的种类不出现（如线上机会没有 `transport`），所以条数不固定；页面不要按下标取理由**，用 `kind` 查找）、`eligibility_overall`、`reachable`、`shared_interests`（`profile.interests ∩ opp.fields`，按 `normalizeTag` 比较，用机会原本的写法、按 `opp.fields` 顺序；兴趣没填时为 `[]`）、`summary`。**没有任何分数、百分比或名次字段** |
 | `MatchOptions` | `explainMatch` 的可选第三参数、`findAlternatives` 的可选第四参数（`extends EvalOptions`） | `today?`；`grants?: ResourceGrant[]`（主办方已分配给该学生、对这个机会生效的资源，与 `analyzeGaps` 的 `grants` 同义；缺省 = `[]`）。同一页面上 `analyzeGaps`、`explainMatch`、`findAlternatives` 传同一组 grants，结论才一致 |
@@ -81,6 +81,17 @@
 | `Invitation`（`InvitationStatus`） | 示例发布者发给学生的邀请（本地示例，不发生真实联系） | `id`、`publisher_id`、`share_handle`（被邀请学生的 `SharedProfileView.share_handle`；发布者只知道句柄，不知道档案 id，学生自己的浏览器里用 `profileIdForShareHandle` 对回档案）、`opportunity_id`（`string \| null`）、`reasons`（可解释的理由，不含分数或名次）、`status`（`pending` / `declined` / `accepted` / `blocked`）、`is_sample: true`、`sent_on`、`responded_on?` |
 
 第二阶段新增常量：`SOURCE_TIERS`、`MATERIAL_KINDS`、`MATERIAL_STATUSES`、`GAP_CATEGORIES`、`MATCH_REASON_KINDS`、`JOURNAL_EVENTS`、`PLAN_TRIGGERS`（都从 `@/lib/types` 导入；`lib/validation.ts` 里有同名的 `SOURCE_TIERS` / `MATERIAL_KINDS` 校验用常量，页面不要从那里导入）。
+
+### 第四阶段契约新增（2026-11-18；全部向后兼容，本次只是契约，引擎尚未生成 / 填写）
+
+| 类型 / 字段 | 用途 | 说明 |
+|---|---|---|
+| `RouteType` 追加 `'competition'`（`ROUTE_TYPES` 末尾追加，现为四项） | 新手竞赛路线 | 用户已批准扩大这个已发布的联合类型。`planRoutes` 尚未生成 competition 路线。**对 `RouteType` 做穷尽式映射（如 `Record<RouteType, …>`）的代码需要补 `competition`，并保留不认识类型的通用默认文字**（`app/journal/labels.ts`、`app/map/RecommendationReplay.tsx`、`lib/path/shared.ts` 已补，标题 "Beginner competition"） |
+| `AlternativeSuggestion.kind` 追加 `'stepping_stone'`、`'remote_option'` | 两类新的替代建议 | 用户已批准扩大。`stepping_stone` = 目录里一条该学生现在能参加、能为目标积累证据的已核实机会，**不是官方前置条件**（界面标 "Evidence-building step — not a prerequisite"）；`remote_option` = 交通受阻时的线上参加途径（界面标 "Online option"），目标自身为 hybrid 时 `opportunity_id` 可指向目标自己，此时文字必须是「向官方确认」。`findAlternatives` 尚未生成这两类。`AlternativeHint`（`planRoutes` blocked 时的提示）不变 |
+| `RouteStep.relation?` / `official?` / `evidence_needed?` | 路线步骤的说明 | 全部可选：`relation?: string \| null`（这一步与目标哪条要求 / 准备项有关，规则生成的一句话）；`official?: RouteStepOfficial \| null`（`official_requirement` / `team_suggestion` / `application_step`，常量 `ROUTE_STEP_OFFICIAL_KINDS`）；`evidence_needed?: string \| null`。**缺失 = 未记录**（老快照没有）。`diffRoutes` 不比较这三个字段。`planRoutes` 尚未填写 |
+| `TeamRequirement`；`Opportunity.team_requirement?` | 机会的组队要求 | `team_requirement?: TeamRequirement \| null`；`TeamRequirement` = `{ required: boolean \| null; min_size?: number \| null; max_size?: number \| null; source_text: string \| null }`。缺字段、null 或 `required: null` = 未知（不猜）。`validateOpportunity` 校验：`required` 为 boolean 或 null，`min_size` / `max_size` 为非负整数或 null 且 min ≤ max，`source_text` 为 string 或 null。`analyzeGaps` 尚未读取 |
+| `EvalOptions.catalog?` | 机会目录 | 见「① 类型一览」`EvalOptions` 一行。`MatchOptions` / `CrossPlanOptions` 继承 `EvalOptions`，因此也带这个可选字段，但 `findAlternatives` 仍以第三参数 `catalog` 为准，`planAcrossOpportunities` 不读取它 |
+| `ViewPreference`（`VIEW_PREFERENCES`） | 地图页视图偏好 | `'adventure'`（冒险地图，默认）/ `'classic'`（经典表格）。存取见「浏览器存储」一节的 `loadViewPreference` / `saveViewPreference` |
 
 **领域标签的比较**：`Opportunity.fields` 与档案的 `interests` 比较时一律用 `lib/tags.ts` 的 `normalizeTag`（去首尾空格、转小写，连续的空白 / 下划线 / 连字符合并成一个下划线，所以 `Data-Science`、`data science`、`data_science` 视为同一标签）；页面做领域筛选、兴趣匹配时也必须用它（或 `normalizedTagSet` / `sharedTags`），不要自己写 `===`。归一化只用于比较，给学生看的标签保留数据原本的写法。数据里推荐统一写成小写加下划线。
 
@@ -579,8 +590,13 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
 - `blockedPublisherIds(shareHandle: string): string[]` —— 该句柄（学生）屏蔽了的发布者 id（来自状态为 `blocked` 的邀请，去重）。
 - `clearInvitations(): void`。
 
+**地图视图偏好**（第四阶段新增键：`view_preference`）
+- `loadViewPreference(): ViewPreference` —— 没存过、值非法、JSON 损坏、SSR 或 localStorage 不可用时返回 `'adventure'`（常量 `DEFAULT_VIEW_PREFERENCE`，与地图页现有默认一致：不带 `?view=classic` 时显示冒险地图）。
+- `saveViewPreference(v: ViewPreference): void` —— 值非法时不写；SSR / 写入失败静默忽略，不抛错。
+- 本次只提供存储函数，地图页尚未接入（仍用 URL 参数 `?view=classic`）。
+
 **全部清除**
-- `clearAll(): void` —— 清除本应用（当前版本）写入的所有键，含第二阶段新增的六个键。
+- `clearAll(): void` —— 清除本应用（当前版本）写入的所有键，含第二阶段新增的六个键与第四阶段的 `view_preference`。
 
 ### 数据备份（`lib/backup.ts`）
 
@@ -594,7 +610,7 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
 - 存储胶水（只在浏览器 effect / 事件处理里调用）：
   - `collectBackupData(): BackupData` —— 用 store 现有的 load 函数读全部（所有档案）。
   - `applyBackup(backup: BackupFile): { ok: true; warnings: string[] } | { ok: false; error: string }` —— **整体替换**：先用 `parseBackup` 再校验一遍，再 `clearAll()`，再逐类写入；不合并。任何一项写入失败（如配额满）时恢复导入前的原始内容并返回失败；没有 localStorage 时返回失败。
-- 文件格式：`{ app: 'opportunity-compass', format_version: 1, exported_on: ISODate | null, data: BackupData }`；`BackupData` 的键与 `STORE_KEYS` 的值一一对应：`profile`、`saved_opportunity_ids`、`grants`、`journal`、`materials`、`plan_snapshots`、`user_posted_opportunities`、`share_settings`、`invitations`（新增存储键时必须同时加进备份，测试会检查）。
+- 文件格式：`{ app: 'opportunity-compass', format_version: 1, exported_on: ISODate | null, data: BackupData }`；`BackupData` 的键与 `STORE_KEYS` 的值一一对应：`profile`、`saved_opportunity_ids`、`grants`、`journal`、`materials`、`plan_snapshots`、`user_posted_opportunities`、`share_settings`、`invitations`、`view_preference`（第四阶段新增；`ViewPreference | null`，null = 文件里没有或值非法，导入时不写、读取回到默认；**旧备份文件没有这个键照常导入**；值非法时丢弃并 warning；`collectBackupData` 只导出真正存过的偏好，没存过为 null；`summarizeBackup` 不统计它）（新增存储键时必须同时加进备份，测试会检查）。
 - 版本规则：`format_version` 必须是正整数；比当前（`BACKUP_FORMAT_VERSION = 1`）新的拒绝并提示是更新版本导出的；格式变化时升级版本号，旧版本的文件继续可读。
 - 校验规则：
   - 拒绝（英文错误）：超过 2 MB（`MAX_BACKUP_BYTES`，按 UTF-8 字节）、不是 JSON 或无法解析（含超深嵌套，统一提示 "This file could not be read as a backup."）、`app` 不对、版本非法或过新、没有 `data` 对象。
@@ -631,6 +647,8 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
 | 队友 B | `app/map/`、`app/passport/`、`app/journal/`（新增）、`components/rpg/`、`app/globals.css`、`app/tokens.css`、`app/base.css` |
 
 需要改别人目录里的东西：找对方，或在群里说明后由对方改。
+
+- **`lib/metrics/`**（第四阶段新增）：本轮归 Charles（入口文件由他确定）。
 
 - **首页 `app/page.tsx`**：归主导；本阶段的首页改版交给队友 B 做，改之前在群里说一声即可。
 
@@ -773,3 +791,10 @@ npm run lint       # ESLint（开 PR 前必须通过）
 - 2026-11-18：**数据加载层 `lib/data.ts`**（新增，向后兼容）：`loadCatalog` / `loadSampleProfiles` / `catalogOpportunities` / `findCatalogOpportunity` / `sampleProfiles`，加载时用 `lib/validation.ts` 校验，坏记录不进页面（规则见「数据加载」一节）。页面（Quests、Quest Journal、Skill Passport、Adventure Map）改为通过它取数；当前数据全部通过，页面行为不变。`lib/data.test.ts` 把仓库数据钉住（全部通过、id 唯一、底线字段齐全、无 `user_posted`、示例档案全部 `is_sample: true`）。
 - 2026-11-18：**日历导出 `lib/calendar.ts`**（新增，向后兼容）：`buildDeadlineCalendar` 把 Quest Journal 中机会的截止日期（可选加参与期）生成 iCalendar 文本，全天事件、不含提醒、截止时间只写在说明里，返回被跳过的机会；规则见「日历导出」一节。Quest Journal 的 "Plan across my quests" 新增 "Add deadlines to my calendar (.ics)" 与 "Print this plan"（只作用于本页的 `print:` 样式，不改全局 CSS）。
 - 2026-11-18：**数据备份 `lib/backup.ts`**（新增，向后兼容）：`buildBackup` / `parseBackup` / `summarizeBackup` / `backupFileName` / `collectBackupData` / `applyBackup`，规则见「数据备份」一节；`lib/store.ts` 只读导出 `STORE_VALIDATORS`（已有的单条校验函数，行为不变）。新页面 `/data`（"Your data"，导航最后一项）：查看各类条数、导出 JSON、导入前先预览并对照、确认后整体替换、全部清除。
+- 2026-11-18：**第四阶段契约**（全部向后兼容；本次只是契约，不实现新的引擎逻辑）。规则见「① 类型一览」中「第四阶段契约新增」：
+  - ⚠️ **用户批准扩大两个已发布的联合类型**：`RouteType` 追加 `'competition'`（`ROUTE_TYPES` 现为四项）；`AlternativeSuggestion.kind` 追加 `'stepping_stone'`、`'remote_option'`。对它们做穷尽式映射的代码需要补新成员并保留通用默认文字（本次已补：`app/journal/labels.ts`、`app/journal/PlanTables.tsx`、`app/map/RecommendationReplay.tsx`、`app/map/AdventureMap.tsx`、`app/quests/[id]/quest-assessment.tsx`、`app/quests/[id]/alternatives.tsx`、`lib/path/shared.ts`、`lib/path/plan.ts`）。
+  - 新增可选字段：`RouteStep.relation` / `official`（`RouteStepOfficial` / `ROUTE_STEP_OFFICIAL_KINDS`）/ `evidence_needed`（缺失 = 未记录；`diffRoutes` 不比较这三个字段）；`Opportunity.team_requirement`（`TeamRequirement`）；`EvalOptions.catalog`。
+  - 新类型 `ViewPreference` / `VIEW_PREFERENCES`；`lib/store.ts` 新增 `loadViewPreference` / `saveViewPreference`（新键 `view_preference`，默认 `'adventure'`），加进 `STORE_VALIDATORS`（`isViewPreference`）与备份（旧备份照常导入）。
+  - `validateOpportunity` 接受并校验 `team_requirement`；现有机会数据不变、全部通过。
+  - **引擎尚未**生成 competition 路线、`stepping_stone` / `remote_option` 建议，也尚未填写 RouteStep 的三个字段；`planRoutes` / `findAlternatives` / `analyzeGaps` / `diffRoutes` 的输出与改动前相同（`lib/contract-p4.test.ts` 中标 "contract only" 的测试守住这一点，下一层实现时有意修改）。
+  - **`lib/metrics/` 本轮归 Charles**；`package.json` 的 `metrics` 脚本等他确定入口文件后再加。

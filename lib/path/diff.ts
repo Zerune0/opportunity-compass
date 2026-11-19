@@ -3,9 +3,10 @@
  *
  * 规则：
  * - status_change：两边 status 不同才非空；blocked ↔ routes 时 reasons 引用 blocked 一侧的原因。
- * - route_changes：按 RouteType 对齐，顺序固定 learning_first、practice_first、community，
+ * - route_changes：按 RouteType 对齐，顺序固定 learning_first、practice_first、community（、competition，按 ROUTE_TYPES），
  *   只列至少一侧存在的类型；步骤按 id 对齐，算新增 / 移除 / 新跳过 / 不再跳过，以及小时、费用、是否来得及。
  *   任一侧不存在时 delta 为 null。路线对象有任何差异即为 changed（结构化深比较，不受对象键顺序影响）。
+ *   RouteStep 的 relation / official / evidence_needed（第四阶段契约新增的说明字段）不参与比较。
  * - 报名费「官网未写清 ↔ 有数字」按 FEE_UNKNOWN_WARNING 区分，不说成「从 $0 变为 …」。
  * - blocked → blocked：比较阻断集合、阻断说明和替代提示（kind + text）。
  * - reasons：面向学生、每条一句、说得出为什么变；同一步骤在多条路线上的同一变化合并成一句；
@@ -21,6 +22,20 @@ const ALT_LABELS: Record<AlternativeHint['kind'], string> = {
   next_cycle: 'Watch for the next round',
   same_field: 'Same-field alternatives',
 };
+
+/** 去掉 RouteStep 的说明字段（relation / official / evidence_needed）：diffRoutes 不比较它们。 */
+function withoutStepNotes(r: Route): Route {
+  return {
+    ...r,
+    steps: r.steps.map((s) => {
+      const { relation: _relation, official: _official, evidence_needed: _evidence, ...rest } = s;
+      void _relation;
+      void _official;
+      void _evidence;
+      return rest;
+    }),
+  };
+}
 
 type StepEventKind = 'skipped' | 'unskipped' | 'added' | 'removed' | 'estimate';
 
@@ -231,7 +246,7 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
     base.removed_steps = cmp.removed_steps;
     base.newly_skipped_steps = cmp.newly_skipped_steps;
     base.unskipped_steps = cmp.unskipped_steps;
-    const differs = !deepEqual(b, a);
+    const differs = !deepEqual(withoutStepNotes(b), withoutStepNotes(a));
     base.change = differs ? 'changed' : 'unchanged';
     route_changes.push(base);
     if (!differs) continue;

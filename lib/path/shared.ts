@@ -10,6 +10,8 @@ export const ROUTE_TITLES: Record<RouteType, string> = {
   learning_first: 'Learning first',
   practice_first: 'Practice first',
   community: 'Community',
+  // 第四阶段契约：planRoutes 尚未生成 competition 路线，这里先给标题（diff 里读作 "the Beginner competition route"）。
+  competition: 'Beginner competition',
 };
 
 /** 实践类准备项：evidence_kind 属于这些种类。其余（含未填）为学习 / 材料类。 */

@@ -351,7 +351,12 @@ const RATIONALE: Record<RouteType, string> = {
   learning_first: 'Learn the basics and prepare application materials first, then build your project. Good if you are just starting and want a solid base.',
   practice_first: 'Start building a project / portfolio early and learn what you need along the way; the work itself can become part of your application. Good if you already know a little and want results soon.',
   community: 'Find a peer or mentor first, then work together, doing the required items first. Good if working alone is hard and you want company or guidance.',
+  // 第四阶段契约：competition 路线尚未生成（下一层实现），先给默认文字。
+  competition: 'Take part in a beginner-friendly verified competition first to build evidence for this opportunity. It is not an official prerequisite.',
 };
+
+/** 本层 planRoutes 实际生成的路线类型（competition 尚未生成）。 */
+type BaseRouteType = Exclude<RouteType, 'competition'>;
 
 interface RouteContext {
   opp: Opportunity;
@@ -497,13 +502,13 @@ export function planRoutes(profile: StudentProfile, opp: Opportunity, options?: 
   const practiceIds = items.filter((b) => b.practice && !b.step.skipped).map((b) => b.step.id);
   const practiceAncestors = withAncestors(items, practiceIds);
 
-  const ranks: Record<RouteType, (b: BaseStep) => number> = {
+  const ranks: Record<BaseRouteType, (b: BaseStep) => number> = {
     learning_first: (b) => (b.practice ? 1 : 0),
     practice_first: (b) => (b.practice ? 0 : practiceAncestors.has(b.step.id) ? 1 : 2),
     community: (b) => (b.required ? 0 : 1),
   };
 
-  const types: RouteType[] = ['learning_first'];
+  const types: BaseRouteType[] = ['learning_first'];
   if (practiceIds.length > 0) types.push('practice_first');
   types.push('community');
 

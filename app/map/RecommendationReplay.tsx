@@ -8,11 +8,12 @@ const ROUTE_TYPE_LABELS: Record<RouteType, string> = {
   learning_first: "Learning first",
   practice_first: "Practice first",
   community: "Community",
+  competition: "Beginner competition",
 };
 
 function routeTypeLabel(type: unknown): string {
   if (typeof type !== "string") return "Route";
-  return (ROUTE_TYPE_LABELS as Record<string, string>)[type] ?? type;
+  return (ROUTE_TYPE_LABELS as Record<string, string>)[type] ?? "Route";
 }
 
 function yesNo(value: unknown): string {

@@ -474,6 +474,28 @@ function validateOpportunityInto(r: Reporter, value: unknown): void {
   }
   r.optStr(o, 'posted_by');
 
+  // team_requirement（第四阶段契约，可选）：缺失 / null 合法；给出时校验结构。
+  const team = o.team_requirement;
+  if (team != null) {
+    if (!isObj(team)) r.add('team_requirement', 'an object (with required, source_text) or null (optional)', team);
+    else {
+      if (team.required !== null && typeof team.required !== 'boolean') {
+        r.add('team_requirement.required', 'true / false, or null when not clear', team.required);
+      }
+      const isNonNegInt = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+      for (const k of ['min_size', 'max_size']) {
+        const v = team[k];
+        if (v != null && !isNonNegInt(v)) r.add(`team_requirement.${k}`, 'a non-negative integer or null (optional)', v);
+      }
+      if (isNonNegInt(team.min_size) && isNonNegInt(team.max_size) && (team.min_size as number) > (team.max_size as number)) {
+        r.add('team_requirement.min_size', `at most max_size (${team.max_size as number})`, team.min_size);
+      }
+      if (team.source_text !== null && typeof team.source_text !== 'string') {
+        r.add('team_requirement.source_text', 'a string, or null when there is no official wording', team.source_text);
+      }
+    }
+  }
+
   // location
   const loc = o.location;
   if (!isObj(loc)) r.add('location', 'an object (with at least format)', loc);

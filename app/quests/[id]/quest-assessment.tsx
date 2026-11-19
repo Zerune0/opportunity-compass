@@ -15,6 +15,8 @@ const itemLabels = { satisfied: "Satisfied", not_satisfied: "Not satisfied", unk
 const tones = { satisfied: "rpg-tag rpg-tag--success", not_satisfied: "rpg-tag rpg-tag--danger", unknown: "rpg-tag rpg-tag--warning" };
 const eligibilityTones = { eligible: "rpg-tag rpg-tag--success", not_eligible: "rpg-tag rpg-tag--danger", unknown: "rpg-tag rpg-tag--warning" };
 const barrierLabels: Record<string, string> = { time: "Time", cost: "Cost", transport: "Transportation", device: "Equipment" };
+/** Labels for alternative kinds beyond same_field / next_cycle; unknown kinds get a generic label. */
+const alternativeKindLabel = (kind: string) => kind === "stepping_stone" ? "Evidence-building step — not a prerequisite" : kind === "remote_option" ? "Online option" : "Other option";
 
 /** Grants that apply to this student on one opportunity (same rule as grantsFor in lib/store). */
 function grantsForOpportunity(grants: ResourceGrant[], studentId: string, oppId: string) {
@@ -86,6 +88,7 @@ export function QuestAssessment({ opportunity, context }: {
      const userPosted = candidate?.source_tier === "user_posted";
      const candidateReachTag = a.kind === "same_field" && profile ? candidateReach(profile, candidate, studentGrants, context.today) : null;
      return <li key={`${a.kind}-${a.opportunity_id}-${index}`}>{a.opportunity_id ? <Link href={`/quests/${encodeURIComponent(a.opportunity_id)}`}>{a.kind === "next_cycle" ? `Future cycle information: ${a.title}` : a.title}</Link> : <strong>{a.title}</strong>}
+ {a.kind !== "same_field" && a.kind !== "next_cycle" && <p className="rpg-row"><span className="rpg-tag">{alternativeKindLabel(a.kind)}</span></p>}
  {a.kind === "same_field" && <p className="rpg-row"><span className={eligibilityTones[a.eligibility_overall ?? "unknown"]}>{eligibilityLabels[a.eligibility_overall ?? "unknown"]}</span>{candidateReachTag && <span className={candidateReachTag.tone}>{candidateReachTag.label}</span>}{userPosted && <span className="rpg-tag rpg-tag--warning">User-posted · not verified against an official site · Sample</span>}</p>}
  <p>{a.reason}</p>{a.kind === "next_cycle" && <p>The next cycle dates and eligibility are not confirmed.</p>}
  {a.kind === "same_field" && a.eligibility_overall !== "eligible" && <p className="rpg-muted">Some requirements are unconfirmed. Confirm with the organizer.</p>}

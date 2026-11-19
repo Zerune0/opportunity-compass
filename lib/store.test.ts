@@ -53,6 +53,7 @@ import {
   updateProfile,
   upsertJournalEntry,
   upsertMaterial,
+  saveViewPreference,
 } from './store';
 import type {
   EvidenceItem,
@@ -960,6 +961,7 @@ describe('store 第二阶段：clearAll', () => {
     addUserPostedOpportunity(opportunity('u1'));
     saveShareSettings(defaultShareSettings('p', '2026-11-18'));
     addInvitation(invitation('i1'));
+    saveViewPreference('classic');
     for (const key of Object.values(STORE_KEYS)) {
       if (key === STORE_KEYS.savedOpportunityIds || key === STORE_KEYS.grants) continue;
       expect(data.has(storageKey(key))).toBe(true);

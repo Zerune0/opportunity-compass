@@ -11,6 +11,13 @@ import { nextSnapshot } from "./plan-snapshots";
 import { RecommendationReplay } from "./RecommendationReplay";
 import type { Opportunity, PlanSnapshot, ResourceGrant, StudentProfile } from "@/lib/types";
 
+/** Labels for alternative kinds beyond same_field / next_cycle; unknown kinds get a generic label. */
+function alternativeKindLabel(kind: string): string {
+  if (kind === "stepping_stone") return "Evidence-building step — not a prerequisite";
+  if (kind === "remote_option") return "Online option";
+  return "Other option";
+}
+
 const catalog = catalogOpportunities();
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -224,7 +231,11 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         <ul className="rpg-list">{alternatives.map((alternative, index) => <li key={index}>
           {alternative.kind === "same_field" && alternative.opportunity_id
             ? <Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link>
-            : <strong>{alternative.title} · Future round</strong>}
+            : alternative.kind === "next_cycle" || alternative.kind === "same_field"
+              ? <strong>{alternative.title} · Future round</strong>
+              : alternative.opportunity_id
+                ? <><Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link> · {alternativeKindLabel(alternative.kind)}</>
+                : <strong>{alternative.title} · {alternativeKindLabel(alternative.kind)}</strong>}
           <p>{alternative.reason}</p>
         </li>)}</ul>
       </QuestCard>}
