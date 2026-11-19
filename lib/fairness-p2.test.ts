@@ -3,7 +3,8 @@
  * 的结果不受学校名（school_name）与显示名（display_name）影响。
  *
  * 做法：对每份档案（data/profiles.json 全部示例 + 手写档案），只替换 school_name 或 display_name（id 等其余字段不变），
- * 断言四个函数结果严格相等（toStrictEqual）。带 today 与不带 today 各跑一遍。
+ * 断言四个函数结果严格相等（toStrictEqual）。带 today 与不带 today 各跑一遍；
+ * 带 grants（explainMatch / findAlternatives / analyzeGaps）与带 materials（planAcrossOpportunities）的调用也在对照之内。
  * 另有反向对照：改 grade 这种确实应影响结果的字段，结果必须不同，证明对照有效。
  * 静态守卫（源码不出现这两个名字）在 lib/fairness.test.ts 的 ENGINE_DIRS 中，已包含 lib/gap、lib/match、lib/planner。
  *
@@ -15,7 +16,7 @@ import profilesJson from '@/data/profiles.json';
 import { analyzeGaps } from './gap';
 import { explainMatch, findAlternatives } from './match';
 import { planAcrossOpportunities } from './planner';
-import type { CrossPlanOptions, Opportunity, PrepItem, ResourceGrant, StudentProfile } from './types';
+import type { CrossPlanOptions, Material, Opportunity, PrepItem, ResourceGrant, StudentProfile } from './types';
 
 function prep(p: Partial<PrepItem> & Pick<PrepItem, 'id' | 'title'>): PrepItem {
   return { skill: null, evidence_kind: null, estimated_hours: 3, estimated_cost_usd: 0, depends_on: [], required_for_application: true, ...p };
@@ -81,8 +82,19 @@ function grantsFor(p: StudentProfile): ResourceGrant[] {
   ];
 }
 
+/** 学生已存的材料：一份就绪的通用简历（会抵消可复用的简历准备项）+ 一份未完成的针对性陈述（不抵消）。 */
+function materialsFor(p: StudentProfile): Material[] {
+  return [
+    { id: `m-resume-${p.id}`, profile_id: p.id, kind: 'resume', title: 'Resume (sample)', reusable: true, opportunity_id: null, estimated_hours: 3, status: 'ready' },
+    { id: `m-statement-${p.id}`, profile_id: p.id, kind: 'personal_statement', title: 'Statement draft (sample)', reusable: false, opportunity_id: 'fictional-fair-camp', estimated_hours: 4, status: 'in_progress' },
+  ];
+}
+
 function runAll(p: StudentProfile, options: CrossPlanOptions | undefined) {
   return {
+    matchWithGrants: OPPS.map((o) => explainMatch(p, o, { ...options, grants: grantsFor(p) })),
+    alternativesWithGrants: OPPS.map((o) => findAlternatives(p, o, OPPS, { ...options, grants: grantsFor(p) })),
+    planWithMaterials: planAcrossOpportunities(p, OPPS, { ...options, materials: materialsFor(p) }),
     gaps: OPPS.map((o) => analyzeGaps(p, o, grantsFor(p), options)),
     gapsNoGrants: OPPS.map((o) => analyzeGaps(p, o, [], options)),
     match: OPPS.map((o) => explainMatch(p, o, options)),
@@ -132,5 +144,15 @@ describe('反向对照：改 grade，结果应当不同（证明对照有效）'
     expect(b.gaps).not.toStrictEqual(a.gaps);
     expect(b.plan).not.toStrictEqual(a.plan);
     expect(b.match).not.toStrictEqual(a.match);
+  });
+
+  it('对照里用的 grants 与 materials 确实起作用（否则带它们的对照等于没测）', () => {
+    const maya = PROFILES.find((p) => p.id === 'sample-maya')!;
+    const opts = { today: '2026-11-18' };
+    const a = runAll(maya, opts);
+    expect(a.planWithMaterials).not.toStrictEqual(a.plan);
+    const camp = OPPS.find((o) => o.id === 'fictional-fair-camp')!;
+    const noLaptop = { ...maya, devices: [] };
+    expect(explainMatch(noLaptop, camp, { ...opts, grants: grantsFor(noLaptop) })).not.toStrictEqual(explainMatch(noLaptop, camp, opts));
   });
 });

@@ -416,7 +416,7 @@ describe('findAlternatives：示例档案 × 真实机会', () => {
     const r = fa(P('sample-maya'), O('rutgers-newark-summer-research-2027'), opps, TODAY);
     expect(kinds(r)).toEqual(['next_cycle']);
     expect(r[0].opportunity_id).toBe('rutgers-newark-summer-research-2027');
-    expect(r[0].shared_fields).toEqual(['biomedical-research', 'life-sciences']);
+    expect(r[0].shared_fields).toEqual(['biomedical_research', 'life_sciences']);
     expect(r[0].reason).toContain('not confirmed — check with the organizer');
   });
 
@@ -477,7 +477,7 @@ describe('标签写法归一化（连字符 / 下划线 / 空格 / 大小写）'
     expect(r[0].shared_fields).toEqual(['data-science']);
   });
 
-  it('示例档案（下划线）× 真实机会（连字符）：至少有一个组合的 shared_interests 非空', () => {
+  it('示例档案 × 真实机会（现在两边都是下划线）：至少有一个组合的 shared_interests 非空', () => {
     const opps = opportunitiesJson as unknown as Opportunity[];
     const hits: string[] = [];
     for (const p of profilesJson as unknown as StudentProfile[]) {
@@ -488,10 +488,10 @@ describe('标签写法归一化（连字符 / 下划线 / 空格 / 大小写）'
       }
     }
     expect(hits.length).toBeGreaterThan(0);
-    // 具体组合：sample-noor 的 biomedical_research（下划线）对上 Rutgers 的 biomedical-research（连字符）
+    // 具体组合：sample-noor 的 biomedical_research 对上 Rutgers 的 biomedical_research（shared_interests 用机会原写法）
     const noor = (profilesJson as unknown as StudentProfile[]).find((p) => p.id === 'sample-noor');
     const rutgers = opps.find((o) => o.id === 'rutgers-newark-summer-research-2027');
-    if (noor && rutgers) expect(explainMatch(noor, rutgers, TODAY).shared_interests).toEqual(['biomedical-research']);
+    if (noor && rutgers) expect(explainMatch(noor, rutgers, TODAY).shared_interests).toEqual(['biomedical_research']);
   });
 
   it('示例档案的 interests 统一用下划线写法', () => {

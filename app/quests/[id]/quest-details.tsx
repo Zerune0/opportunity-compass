@@ -17,5 +17,5 @@ export function QuestDetails({ id }: {
  {opportunity.deadline_note && <p>{opportunity.deadline_note}</p>}
  {!posted && !opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>Apply on the official site</a>}
  {posted && <p>This is a local demonstration. There is no real publisher or contact taking place.</p>}
- </header><QuestAssessment opportunity={opportunity} context={context}/><Link className="rpg-button rpg-button--secondary" href={`/journal?opp=${encodeURIComponent(id)}`}>Add to Quest Journal</Link></div>;
+ </header><QuestAssessment opportunity={opportunity} context={context}/></div>;
 }
