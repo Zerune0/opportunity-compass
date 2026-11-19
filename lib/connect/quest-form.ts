@@ -260,7 +260,7 @@ function isSkillLevel(v: string): v is SkillLevel {
 export const USER_POSTED_ID_PREFIX = 'sample-post-';
 
 /**
- * 由标题与调用方给的数字（页面在事件处理里传 Date.now()）生成 kebab-case id：`sample-post-<标题片段>-<数字的 36 进制>`。
+ * 由标题与调用方给的数字（页面在事件处理里传一个由 crypto.randomUUID() 得到的随机整数）生成 kebab-case id：`sample-post-<标题片段>-<数字的 36 进制>`。
  * 同样的输入永远得到同样的 id。
  */
 export function userPostedId(title: string, stamp: number): string {
@@ -412,6 +412,11 @@ export function buildUserPostedOpportunity(
 // ───────────────────────────── 校验 ─────────────────────────────
 
 const CHOOSE_PUBLISHER = 'Choose a sample publisher.';
+/** 每周小时的上限（一周 168 小时）。 */
+export const MAX_HOURS_PER_WEEK = 168;
+/** 总周数的上限（约十年）。 */
+export const MAX_TOTAL_WEEKS = 520;
+
 const STATE_CODE_RE = /^[A-Z0-9]{1,3}$/;
 const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 const USE_STATE_CODES = 'Use codes such as CA, not full names.';
@@ -441,6 +446,22 @@ function checkQuestForm(form: QuestForm, publishers: readonly SamplePublisher[],
   if (raw(form.skill).includes(',')) add('skill', 'Enter one skill.');
   const venueState = str(form.state).toUpperCase();
   if (str(form.format) !== 'online' && venueState !== '' && !STATE_CODE_RE.test(venueState)) add('state', USE_STATE_CODES);
+
+  // 时间投入的范围（只检查普通数字；不是数字、负数由 validateOpportunity 报）：都必须大于 0，
+  // 每周小时不超过一周的 168 小时，周数是整数且不超过 520（约十年）。
+  const hours = str(form.hours_per_week);
+  if (isPlainNumberText(hours)) {
+    const n = Number(hours);
+    if (n <= 0) add('hours_per_week', 'Hours per week must be more than 0. Leave it blank if it varies.');
+    else if (n > MAX_HOURS_PER_WEEK) add('hours_per_week', `Hours per week cannot be more than ${MAX_HOURS_PER_WEEK} (the hours in a week).`);
+  }
+  const weeks = str(form.total_weeks);
+  if (isPlainNumberText(weeks)) {
+    const n = Number(weeks);
+    if (!Number.isInteger(n)) add('total_weeks', 'Total weeks must be a whole number of weeks.');
+    else if (n <= 0) add('total_weeks', 'Total weeks must be more than 0. Leave it blank if it is not decided.');
+    else if (n > MAX_TOTAL_WEEKS) add('total_weeks', `Total weeks cannot be more than ${MAX_TOTAL_WEEKS} (about ten years).`);
+  }
 
   const pay = str(form.pay_usd);
   if (pay !== '' && !isPlainNumberText(pay)) add('pay_usd', 'Enter the pay in US dollars (0 for unpaid), or leave it blank.');
@@ -487,10 +508,10 @@ function mapPath(path: string): { field: QuestFormField | null; message: string 
   }
   if (path === 'cost.note') return { field: 'pay_usd', message: 'Enter the pay in US dollars (0 for unpaid), or leave it blank.' };
   if (path === 'time_commitment.hours_per_week') {
-    return { field: 'hours_per_week', message: 'Enter hours per week as a number (0 or more), or leave it blank if it varies.' };
+    return { field: 'hours_per_week', message: 'Enter hours per week as a number above 0, or leave it blank if it varies.' };
   }
   if (path === 'time_commitment.total_weeks') {
-    return { field: 'total_weeks', message: 'Enter the number of weeks (0 or more), or leave it blank.' };
+    return { field: 'total_weeks', message: 'Enter the number of weeks as a whole number above 0, or leave it blank.' };
   }
   if (path === 'time_commitment.start_date') return { field: 'start_date', message: 'Enter a real start date, or leave it blank.' };
   if (path === 'time_commitment.end_date') return { field: 'end_date', message: 'Enter a real end date, or leave it blank.' };

@@ -45,6 +45,17 @@ import { addUserPostedOpportunity, loadUserPostedOpportunities, removeUserPosted
 import type { DeviceType, Opportunity, OpportunityCategory, SamplePublisher } from "@/lib/types";
 import { localToday } from "../today";
 
+/**
+ * 帖子 id 末尾的随机数：优先 crypto.randomUUID()（取前 12 个十六进制位 = 48 位，仍是安全整数），
+ * 不可用时回退 Math.random()。不读系统时钟；与已有 id 的冲突由 uniqueUserPostedId 顺延处理。
+ */
+function randomIdStamp(): number {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return Number.parseInt(crypto.randomUUID().replace(/-/g, "").slice(0, 12), 16);
+  }
+  return Math.floor(Math.random() * 2 ** 48);
+}
+
 const BUTTON_CLASS =
   "min-h-11 rounded border border-gray-400 px-3 py-1.5 text-left hover:border-gray-700 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-600";
 const PRIMARY_BUTTON_CLASS = "min-h-11 rounded border-2 border-amber-600 px-4 py-1.5 font-semibold hover:bg-amber-50";
@@ -183,10 +194,10 @@ export function QuestCreator({ publishers }: { publishers: SamplePublisher[] }) 
       return el instanceof HTMLInputElement && el.validity.badInput;
     });
     const day = localToday();
-    // id 在这里生成：由标题与当前时间决定，并避开这个浏览器里已有的 id。
+    // id 在这里生成：由标题与一个随机数决定（不读系统时钟），并避开这个浏览器里已有的 id。
     const id = uniqueUserPostedId(
       form.title,
-      Date.now(),
+      randomIdStamp(),
       loadUserPostedOpportunities().map((o) => o.id),
     );
     const result = prepareQuestPost(form, publishers, { today: day, id, incompleteDates });

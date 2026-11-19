@@ -199,7 +199,7 @@ describe('userPostedId / uniqueUserPostedId', () => {
     expect(catalogIds.length).toBeGreaterThan(0);
     expect(catalogIds.filter((id) => id.startsWith(USER_POSTED_ID_PREFIX))).toEqual([]);
     for (const title of ['', 'NASA SEES 2027', catalogIds[0], 'x'.repeat(200)]) {
-      for (const stamp of [0, 1, 1_763_500_000_000, -1, Number.NaN]) {
+      for (const stamp of [0, 1, 1_763_500_000_000, 2 ** 48 - 1, -1, Number.NaN]) {
         const id = uniqueUserPostedId(title, stamp, catalogIds);
         expect(id.startsWith(USER_POSTED_ID_PREFIX)).toBe(true);
         expect(catalogIds).not.toContain(id);
@@ -294,6 +294,31 @@ describe('prepareQuestPost', () => {
     expect(r.ok).toBe(false);
     // 表单层已经说明的字段，不再重复 validateOpportunity 的另一种说法
     expect(problemsFor(r.problems, field)).toEqual([message]);
+  });
+
+  it.each([
+    ['每周小时为 0', { hours_per_week: '0' }, 'hours_per_week', 'Hours per week must be more than 0. Leave it blank if it varies.'],
+    ['每周小时为 0.0', { hours_per_week: '0.0' }, 'hours_per_week', 'Hours per week must be more than 0. Leave it blank if it varies.'],
+    ['每周小时超过 168', { hours_per_week: '168.5' }, 'hours_per_week', 'Hours per week cannot be more than 168 (the hours in a week).'],
+    ['每周小时为负', { hours_per_week: '-3' }, 'hours_per_week', 'Enter hours per week as a number above 0, or leave it blank if it varies.'],
+    ['周数为 0', { total_weeks: '0' }, 'total_weeks', 'Total weeks must be more than 0. Leave it blank if it is not decided.'],
+    ['周数不是整数', { total_weeks: '2.5' }, 'total_weeks', 'Total weeks must be a whole number of weeks.'],
+    ['周数超过 520', { total_weeks: '521' }, 'total_weeks', 'Total weeks cannot be more than 520 (about ten years).'],
+    ['周数为负', { total_weeks: '-1' }, 'total_weeks', 'Enter the number of weeks as a whole number above 0, or leave it blank.'],
+  ] as const)('时间投入范围：%s → 只报一条，指明字段', (_label, over, field, message) => {
+    const r = prepareQuestPost(filled(over as Partial<QuestForm>), PUBLISHERS, { today: TODAY, id: ID });
+    expect(r.ok).toBe(false);
+    expect(problemsFor(r.problems, field)).toEqual([message]);
+  });
+
+  it.each([
+    ['每周小时正好 168', { hours_per_week: '168' }],
+    ['每周小时为小数', { hours_per_week: '0.5' }],
+    ['周数正好 520', { total_weeks: '520' }],
+    ['周数为 1', { total_weeks: '1' }],
+    ['两者都留空', { hours_per_week: '', total_weeks: '' }],
+  ] as const)('时间投入范围：%s → 可以', (_label, over) => {
+    expect(prepareQuestPost(filled(over as Partial<QuestForm>), PUBLISHERS, { today: TODAY, id: ID }).ok).toBe(true);
   });
 
   it.each([
