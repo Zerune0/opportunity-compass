@@ -27,6 +27,9 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 - **Student pages using them:** Quest Details (`/quests/[id]`) shows the match reasons, the five gap groups, alternatives when the student is blocked, and an "Add to my Quest Journal" button. The new Quest Journal (`/journal`) keeps the four separate status lines, tasks taken from the opportunity's listed preparation steps, the student's materials, and the cross-opportunity plan. The Adventure Map (`/map`) now stores plan snapshots in the browser and replays Before → What changed → After → Why after a refresh. These pages are covered by the `lib/` tests and a manual walk-through, not by automated UI tests.
 - **Connect (Quest Creator / Talent Board / invitations)** will be a **local sample demo** only: sample publishers, data kept in the browser, no accounts, no backend and no real connection between people. It is not built yet.
 - **Exact age checks (optional date of birth):** a student can add an optional date of birth in Skill Passport. When it is filled in, age requirements are checked with the exact age on the official reference date (birthdays on February 29 count from March 1 in non-leap years), so checks near a birthday no longer come out `unknown`; if it disagrees with the age field, the date of birth is used and the result says so. When it is left blank, age checks work exactly as before (a range inferred from the current age). The date of birth stays in the browser and is never part of a shared profile view. Covered by Vitest tests (`lib/birth-date.test.ts`).
+- **Validated data loading:** pages read `data/opportunities.json` and `data/profiles.json` through `lib/data.ts`, which checks every record against the shared types when it loads. A record with a structural error (a missing required field, a wrong type, an invalid date, a duplicate id, or no official link / verification date / verifier) is left out of the pages instead of breaking them, and in development the problem is printed to the browser console; fields the official site does not state stay `null` (unknown) and are not rejected. All 12 current opportunities and 4 sample profiles pass, and a Vitest test (`lib/data.test.ts`) fails if a future data edit breaks one.
+- **Calendar export and print (Quest Journal):** "Add deadlines to my calendar (.ics)" builds a calendar file in the browser (`lib/calendar.ts`, Vitest tests) with one all-day event per catalog deadline (optionally the program dates too); the deadline time is written in the event notes, the file sets no reminders, and quests without a usable deadline are listed as left out. Nothing is uploaded. "Print this plan" prints the cross-quest plan. Not yet tested by importing into real calendar apps.
+- **Your data (local backup):** the new `/data` page lists what is stored in this browser, downloads it all as one JSON file, and imports such a file after showing what it contains next to what is stored now; importing replaces everything stored in this browser (no merging), and "Delete all my data in this browser" clears it. The file is read and written only in the browser; nothing is uploaded. It is a manual backup file, not sync, and there are still no accounts. The file is checked before anything is written (`lib/backup.ts`, Vitest tests): files over 2 MB, files from another app or a newer format are refused, and invalid entries are skipped with a note instead of breaking the import.
 
 All capabilities described below are product goals unless stated otherwise above.
 
@@ -84,7 +87,7 @@ The files in `docs/` are the original product plan, written before any code. The
 Stack: Next.js (App Router) + TypeScript + Tailwind + Vitest, deployed on Vercel. No backend or database: opportunities and sample profiles live in `data/*.json`; student input stays in browser localStorage.
 
 ```text
-app/                    Next.js routes: /, /quests, /map, /passport, /journal, /organizer (what-if page, simulated)
+app/                    Next.js routes: /, /quests, /map, /passport, /journal, /data (your data: export / import / clear), /organizer (what-if page, simulated)
 lib/                    Pure decision functions, shared types and the localStorage wrapper (tested with Vitest)
 components/rpg/         Shared UI components (navigation, quest cards, buttons, status tags)
 data/profiles.json      Sample student profiles (is_sample: true)
@@ -102,7 +105,6 @@ Not built in the four-day competition scope and **not implemented**:
 - Opportunity Blind Spots
 - Impact Measurement
 - Baseline D (a fully coordinated separate planner) in the baseline comparison
-- Data loading with runtime validation (a `lib/data.ts` layer that checks `data/*.json` against the shared types at load time).
 - Automated UI tests for the pages (only the `lib/` functions have tests).
 - Details pages for user-posted opportunities (they are stored in the browser only and have no `/quests/[id]` page).
 - Integration with real organizer data (all organizer scenarios are currently sample / simulated).

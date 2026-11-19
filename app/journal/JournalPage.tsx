@@ -3,20 +3,20 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { StatusTag } from "@/components/rpg";
-import opportunities from "@/data/opportunities.json";
 import {
   loadJournal,
   loadMaterials,
   loadProfile,
   loadUserPostedOpportunities,
 } from "@/lib/store";
+import { catalogOpportunities } from "@/lib/data";
 import type { JournalEntry, Material, Opportunity, StudentProfile } from "@/lib/types";
 import { CrossPlanSection } from "./CrossPlanSection";
 import { JournalEntryCard } from "./JournalEntryCard";
 import { MaterialsSection } from "./MaterialsSection";
 import { localToday } from "./labels";
 
-const catalog = opportunities as Opportunity[];
+const catalog = catalogOpportunities();
 
 type JournalContext = {
   profile: StudentProfile | null;
@@ -61,8 +61,8 @@ export function JournalPage() {
   const profile = context?.profile;
 
   return (
-    <div className="rpg-stack rpg-stack--loose">
-      <header className="rpg-head crt">
+    <div className="rpg-stack rpg-stack--loose print:bg-[#fff] print:shadow-[0_0_0_100vmax_white]">
+      <header className="rpg-head crt print:bg-[#fff] print:text-black print:[&_*]:text-black print:[&_*]:[text-shadow:none] print:after:hidden">
         <h1>Quest Journal</h1>
         <p>Everything here is recorded by you and stays in this browser. Nothing is sent to any organizer.</p>
         {profile?.is_sample && (
@@ -87,7 +87,7 @@ export function JournalPage() {
 
       {context && profile && (
         <>
-          <section className="rpg-stack" aria-labelledby="journal-quests">
+          <section className="rpg-stack print:hidden" aria-labelledby="journal-quests">
             <h2 id="journal-quests">My quests</h2>
             {context.entries.length === 0 ? (
               <div className="rpg-card">
@@ -112,13 +112,16 @@ export function JournalPage() {
             )}
           </section>
 
-          <MaterialsSection
-            profileId={profile.id}
-            materials={context.materials}
-            entries={context.entries}
-            findOpportunity={findOpportunity}
-            onChange={refresh}
-          />
+          {/* Printing is for the cross-quest plan only; the editable sections stay on screen. */}
+          <div className="print:hidden">
+            <MaterialsSection
+              profileId={profile.id}
+              materials={context.materials}
+              entries={context.entries}
+              findOpportunity={findOpportunity}
+              onChange={refresh}
+            />
+          </div>
 
           {context.entries.length > 0 && (
             <CrossPlanSection

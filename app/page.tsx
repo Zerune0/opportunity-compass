@@ -35,10 +35,12 @@ const demoSteps = [
   { href: "/journal", title: "Add it to your Quest Journal", note: "Then plan it together with a second opportunity." },
 ];
 
+const localOnlyNote = "No accounts or server. What you enter stays in this browser.";
+
 const notThis = [
   "Not an admission predictor. “Within reach” is about time, cost, transportation and equipment, not acceptance.",
   "No scores or rankings of students.",
-  "No accounts or server. What you enter stays in this browser.",
+  localOnlyNote,
   "Organizer results are simulations on sample data, not real-world impact.",
   "You can always go straight to the official application. Nothing here is locked behind progress.",
 ];
@@ -117,7 +119,15 @@ export default function Home() {
         <h2 id="not-title">What this is not</h2>
         <ul className="rpg-list">
           {notThis.map((item) => (
-            <li key={item}>{item}</li>
+            <li key={item}>
+              {item}
+              {item === localOnlyNote && (
+                <>
+                  {" "}
+                  <Link href="/data">Export a backup file in Your data</Link> to keep a copy or move to another browser.
+                </>
+              )}
+            </li>
           ))}
         </ul>
       </section>

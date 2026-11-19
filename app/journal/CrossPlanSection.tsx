@@ -4,6 +4,7 @@ import { useState } from "react";
 import { fmt } from "@/lib/format";
 import { planAcrossOpportunities } from "@/lib/planner";
 import type { JournalEntry, Material, Opportunity, StudentProfile } from "@/lib/types";
+import { CalendarExport } from "./CalendarExport";
 import { PlanItemsTable, WeeklyLoadTable } from "./PlanTables";
 
 type Props = {
@@ -38,6 +39,21 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
   const missing = active.filter((entry) => !findOpportunity(entry.opportunity_id));
   const withdrawnCount = entries.length - active.length;
   const ids = opps.map((opp) => opp.id);
+  const calendarItems = active.flatMap((entry) => {
+    const opp = findOpportunity(entry.opportunity_id);
+    return opp
+      ? [{
+          opportunity_id: opp.id,
+          title: opp.title,
+          deadline: opp.deadline,
+          deadline_note: opp.deadline_note ?? null,
+          official_url: opp.official_url,
+          application: entry.application,
+          program_start: opp.time_commitment?.start_date ?? null,
+          program_end: opp.time_commitment?.end_date ?? null,
+        }]
+      : [];
+  });
 
   // Keep the priority list in step with the current quests (drop removed ones, append new ones).
   const order = priorities === null
@@ -66,7 +82,10 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
     (findOpportunity(item.opportunity_id)?.preparation.length ?? 0) === 0) ?? false;
 
   return (
-    <section className="rpg-stack" aria-labelledby="journal-plan">
+    <section
+      className="rpg-stack print:text-black print:[&_*]:text-black print:[&_*]:[text-shadow:none] print:[&_.rpg-card]:bg-[#fff] print:[&_.rpg-card]:border-black"
+      aria-labelledby="journal-plan"
+    >
       <h2 id="journal-plan">Plan across my quests</h2>
       <p className="rpg-small">
         Calculated in this browser for {today}. Withdrawn quests are left out
@@ -77,6 +96,8 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
           Not included because they are no longer in the catalog: {missing.map((entry) => entry.opportunity_id).join(", ")}.
         </p>
       )}
+
+      <CalendarExport items={calendarItems} today={today} />
 
       {!plan ? (
         <p className="rpg-muted">No active quests with catalog data to plan.</p>
@@ -126,11 +147,11 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
                 {order.map((id, index) => (
                   <li key={id} className="rpg-row">
                     <span>{index + 1}. {titleOf(id)}</span>
-                    <button type="button" className="rpg-button rpg-button--secondary" disabled={index === 0}
+                    <button type="button" className="rpg-button rpg-button--secondary print:hidden" disabled={index === 0}
                       onClick={() => move(index, -1)} aria-label={`Move ${titleOf(id)} up`}>
                       Up
                     </button>
-                    <button type="button" className="rpg-button rpg-button--secondary" disabled={index === order.length - 1}
+                    <button type="button" className="rpg-button rpg-button--secondary print:hidden" disabled={index === order.length - 1}
                       onClick={() => move(index, 1)} aria-label={`Move ${titleOf(id)} down`}>
                       Down
                     </button>
@@ -145,7 +166,7 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
                     : "No week is over your available hours, so your priority order changes nothing right now."}
               </p>
               {priorities !== null && (
-                <button type="button" className="rpg-button rpg-button--secondary" onClick={() => setPriorities(null)}>
+                <button type="button" className="rpg-button rpg-button--secondary print:hidden" onClick={() => setPriorities(null)}>
                   Clear my priority order
                 </button>
               )}

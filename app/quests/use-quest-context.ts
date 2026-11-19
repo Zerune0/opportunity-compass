@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import data from "../../data/opportunities.json";
+import { catalogOpportunities } from "../../lib/data";
 import { loadGrants, loadProfile, loadSavedOpportunityIds, loadUserPostedOpportunities } from "../../lib/store";
 import type { Opportunity, ResourceGrant, StudentProfile } from "../../lib/types";
-export const officialCatalog = data as Opportunity[];
+export const officialCatalog = catalogOpportunities();
 export const sourceLabels = { official: "Official organizer", trusted_aggregator: "Trusted aggregator", user_posted: "User posted" };
 export type QuestContext = {
     catalog: Opportunity[];

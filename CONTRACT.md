@@ -468,7 +468,7 @@
 - **地区规则**：州 / 省请统一用代码（如 `CA`），国家与州 / 省代码都大小写不敏感。
 - **证据关联准备项**：证据的 `prep_item_ids` 建议写成 `<opportunity_id>:<prep_id>`，避免跨机会误匹配（裸 `prep_id` 也能匹配，但不同机会的同名准备项会被一起覆盖）。
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
-  `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。带校验的加载函数待定。
+  `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。**页面不要这样直接读**：改用带校验的 `lib/data.ts`（见下方「数据加载」一节）；直接导入只留给 `lib/` 里的测试。
 - **主办方 What-if（`solveJoint` / `verifyPlan`）**：
   - 页面用 `runWhatIf(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（`/organizer` 页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / 联合求解的基线对比表）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，并把结果整理成只含人数和汇总数字的 `WhatIfView`。
   - 直接用 `solveJoint` 时，展示前**自己再调一次 `verifyPlan`**（相同的 `mode` / `loss_cap` / 软要求；复核 `conditional` 时传 `assume_approved_intervention_ids`），不要只信结果里自带的 `verification`。
@@ -491,6 +491,27 @@
 - **评估基准日 `options.today`**：`today`（`YYYY-MM-DD`）用于算年龄、距截止还有多久、是否来得及。**不传时函数不得读系统时间**（不用 `Date.now()` / `new Date()`），凡是依赖日期的判断一律按「信息不足」处理（unknown / null）；由界面层负责传入今天。
 - **公平性**：任何判断函数都不得读取 `school_name`。
 - **联合求解**：SEARCH_LIMIT_REACHED 不等于无解，也不得声称全局最优；INFEASIBLE 不得悄悄放松约束；`verifyPlan` 独立复核，不依赖求解器自己的可行性标记。所有结果都是模拟。
+
+### 数据加载（`lib/data.ts`）
+
+页面读取仓库数据（`data/opportunities.json`、`data/profiles.json`）一律通过 `lib/data.ts`，不要在 `app/` 里直接 `import … from '@/data/*.json'` 再 `as unknown as …`。
+
+```ts
+loadCatalog(): { opportunities: Opportunity[]; rejected: RejectedRecord[]; warnings: { id: string; warnings: string[] }[] }
+loadSampleProfiles(): { profiles: StudentProfile[]; rejected: RejectedRecord[] }
+catalogOpportunities(): Opportunity[]
+findCatalogOpportunity(id: string | null | undefined): Opportunity | null
+sampleProfiles(): StudentProfile[]
+// 纯函数，可注入任意数据：
+partitionOpportunities(raw: unknown): ReturnType<typeof loadCatalog>
+partitionProfiles(raw: unknown): ReturnType<typeof loadSampleProfiles>
+type RejectedRecord = { id: string | null; index: number; errors: string[] }  // index：原数组位置（0 起）；整个文件不是数组时为 -1
+```
+
+- **会被拒绝（不进页面，进 `rejected`，不抛异常）**：`validateOpportunity` / `validateProfile` 报出的结构性错误——缺必需字段、类型错、枚举取值错、日期格式非法、违反底线（没有 http(s) `official_url`、没有 `verified_on` / `verified_by`、`user_posted` 却不是 `is_sample: true`）；整个文件不是数组；id 重复（保留第一条通过校验的，后面同 id 的拒绝）；示例档案不是 `is_sample: true`。
+- **不会被拒绝**：官网没写的信息写 `null`（= unknown，合法）；截止日期已过（不读时钟，不是数据错误）；多余字段（原样保留）。`opportunityWarnings` 的提醒只放进 `warnings`，不影响通过。
+- 纯同步、无 IO（JSON 由打包器内联）、不读时钟；结果在模块内缓存，对外每次返回数组的浅拷贝（记录对象共享，不要修改）。开发环境有被拒绝的记录时 `console.warn` 一次，生产环境不输出。
+- 用户在浏览器里发布的机会（`loadUserPostedOpportunities`）不经过这里，仍由 `lib/store.ts` 读取时校验。
 
 ### 浏览器存储 `lib/store.ts`
 
@@ -561,13 +582,50 @@
 **全部清除**
 - `clearAll(): void` —— 清除本应用（当前版本）写入的所有键，含第二阶段新增的六个键。
 
+### 数据备份（`lib/backup.ts`）
+
+没有账号和后端，这个文件是学生唯一的备份方式（本地文件，不是同步）。页面 `/data`（"Your data"）在浏览器内导出 / 导入 / 全部清除，不上传任何内容（不用 fetch）。
+
+- 纯函数（不读写存储、不读系统时钟、不抛异常）：
+  - `buildBackup(data: Partial<BackupData>, exportedOn: ISODate): BackupFile` —— 只取白名单键组装。
+  - `parseBackup(input: unknown): { ok: true; backup: BackupFile; warnings: string[] } | { ok: false; error: string }` —— 接受文件文本或已解析的对象。
+  - `summarizeBackup(backup: Pick<BackupFile, 'data'>): BackupSummary` —— 档案有无 / 是否示例 / 显示名，以及证据、收藏、grants、Journal、材料、快照、用户发布的机会、分享设置、邀请的条数。
+  - `backupFileName(on: ISODate): string` —— `opportunity-compass-backup-YYYY-MM-DD.json`。
+- 存储胶水（只在浏览器 effect / 事件处理里调用）：
+  - `collectBackupData(): BackupData` —— 用 store 现有的 load 函数读全部（所有档案）。
+  - `applyBackup(backup: BackupFile): { ok: true; warnings: string[] } | { ok: false; error: string }` —— **整体替换**：先用 `parseBackup` 再校验一遍，再 `clearAll()`，再逐类写入；不合并。任何一项写入失败（如配额满）时恢复导入前的原始内容并返回失败；没有 localStorage 时返回失败。
+- 文件格式：`{ app: 'opportunity-compass', format_version: 1, exported_on: ISODate | null, data: BackupData }`；`BackupData` 的键与 `STORE_KEYS` 的值一一对应：`profile`、`saved_opportunity_ids`、`grants`、`journal`、`materials`、`plan_snapshots`、`user_posted_opportunities`、`share_settings`、`invitations`（新增存储键时必须同时加进备份，测试会检查）。
+- 版本规则：`format_version` 必须是正整数；比当前（`BACKUP_FORMAT_VERSION = 1`）新的拒绝并提示是更新版本导出的；格式变化时升级版本号，旧版本的文件继续可读。
+- 校验规则：
+  - 拒绝（英文错误）：超过 2 MB（`MAX_BACKUP_BYTES`，按 UTF-8 字节）、不是 JSON 或无法解析（含超深嵌套，统一提示 "This file could not be read as a backup."）、`app` 不对、版本非法或过新、没有 `data` 对象。
+  - 每一类用 store 读取时的同一套单条规则过滤（`STORE_VALIDATORS`，由 `lib/store.ts` 只读导出，行为不变）：坏条目、重复条目丢弃，并在 `warnings` 里写明哪一类丢了几条；某一段不是数组时整段跳过并 warning；未知段落忽略并 warning；档案里非法的 `birth_date` 改为 null 并 warning。一条坏数据不会毁掉整个导入。
+  - 防原型污染：解析时丢弃所有名为 `__proto__` / `constructor` / `prototype` 的键；不做深合并，输出只含白名单键。
+  - 去重规则与 store 一致：Journal 按 (profile_id, opportunity_id)、分享设置按 profile_id 且同一 share_handle 不能属于两个档案、其余按 id（收藏按值）。
+  - **导入的 grants 一律强制 `is_sample: true`**（本应用没有真实的主办方发放渠道，所有 grants 都是示例 / 模拟；做法同 `saveInvitations` 对邀请的处理）：原文件里 `is_sample` 不是 true 的条数写进 `warnings`。`parseBackup` 与 `applyBackup` 两处都强制；`lib/store.ts` 的 `saveGrants` / `isGrant` 行为不变。
+  - Journal 条目的 `official_url` 不是 http(s) 链接时置为空字符串（条目保留，界面不显示链接），并 warning。
+
+### 日历导出（`lib/calendar.ts`）
+
+纯函数，不读系统时钟、不读 localStorage、不抛异常；页面在浏览器里用 Blob 下载生成的文本，不发送到任何地方。
+
+- `buildDeadlineCalendar(items: unknown, options: unknown): CalendarResult`
+  - `items`：`CalendarItem[]` = `{ opportunity_id, title, deadline: ISODate | null, deadline_note?, official_url?, application?, program_start?, program_end? }`（`program_*` 取自 `Opportunity.time_commitment.start_date / end_date`）。
+  - `options`：`{ generatedOn: ISODate, includeProgramDates?: boolean }`；`generatedOn` 用作 `DTSTAMP`（非法时用固定的 `19700101T000000Z`）。
+  - 返回 `{ ics, included, program_included, skipped }`：`ics` 为 iCalendar 文本；`included` / `program_included` 为生成了截止 / 参与期事件的机会 id；`skipped` 为 `{ opportunity_id, title, reason: 'no_deadline' | 'invalid_deadline' | 'withdrawn' }[]`，页面据此如实告诉学生哪些没进日历。
+- 规则：
+  - 每个合法截止日期一个**全天事件**（`DTSTART;VALUE=DATE`，`DTEND` 为次日），`SUMMARY` = `Deadline: <title>`；截止时间（`deadline_note`）**只写在 `DESCRIPTION` 里**，并附 "Check the official page for the exact time."、官网链接与固定说明句。`URL` 只接受 http / https。
+  - `includeProgramDates` 为 true 且起止日期都合法、结束不早于开始时，另加全天多日事件 `Program: <title>`（`DTEND` = 结束日次日）。截止日期缺失不影响参与期事件。
+  - **不含提醒**（没有 `VALARM`）；页面说明学生在自己的日历里加提醒，不得声称「提醒已设置」。
+  - 跳过：没有截止日期、日期非法（严格 `YYYY-MM-DD`，如 `2027-02-30` 非法）、`application === 'withdrawn'`；非对象条目、没有字符串 id 的条目、重复 id（保留第一个）静默忽略。
+  - 格式：`VERSION:2.0`、`PRODID`、`CALSCALE:GREGORIAN`、`METHOD:PUBLISH`；CRLF 换行；TEXT 转义 `\\`、`;`、`,`、换行，去掉其他控制字符；超过 75 个 UTF-8 字节的行折行（不切断多字节字符）；`UID` = `<清洗后的 id>-deadline@opportunity-compass` / `-program@…`，清洗过的 id 附原 id 的哈希以保持唯一，同输入输出完全相同。
+
 ---
 
 ## ③ 目录归属（只改自己的）
 
 | 负责人 | 目录 / 文件 |
 |---|---|
-| 主导 | `lib/types.ts`、`lib/store.ts`、`CONTRACT.md`、`lib/eligibility/`、`lib/reachability/`、`lib/path/`、`lib/gap/`（第二阶段新增）、`lib/planner/`（新增）、`lib/match/`（新增）、`lib/validation.ts`、`lib/tags.ts`（新增）、`lib/journal.ts`（新增）、`lib/format.ts`、`lib/` 根目录的共享测试（`lib/*.test.ts`，如 `lib/fairness.test.ts`、`lib/fairness-p2.test.ts`、`lib/store.test.ts`、`lib/demo-mainline.test.ts`）、`data/profiles.json`、`package.json`、`package-lock.json`、配置文件（`tsconfig.json`、`next.config.ts`、`eslint.config.mjs`、`vitest.config.mts`）、`app/layout.tsx`、`app/page.tsx` |
+| 主导 | `lib/types.ts`、`lib/store.ts`、`CONTRACT.md`、`lib/eligibility/`、`lib/reachability/`、`lib/path/`、`lib/gap/`（第二阶段新增）、`lib/planner/`（新增）、`lib/match/`（新增）、`lib/validation.ts`、`lib/tags.ts`（新增）、`lib/journal.ts`（新增）、`lib/format.ts`、`lib/backup.ts`（新增）、`lib/calendar.ts`（新增）、`lib/data.ts`（新增）、`lib/` 根目录的共享测试（`lib/*.test.ts`，如 `lib/fairness.test.ts`、`lib/fairness-p2.test.ts`、`lib/store.test.ts`、`lib/demo-mainline.test.ts`）、`data/profiles.json`、`package.json`、`package-lock.json`、配置文件（`tsconfig.json`、`next.config.ts`、`eslint.config.mjs`、`vitest.config.mts`）、`app/layout.tsx`、`app/page.tsx`、`app/data/`（新增，"Your data" 页面） |
 | 主办方端与 Connect 负责人（目前由主导代管，之后可能交接） | `lib/joint/`、`app/organizer/`、`data/scenarios/`（不变）；`lib/connect/`（新增）、`app/connect/`（新增）、`data/connect/`（新增） |
 | 队友 A | `data/opportunities.json`、`app/quests/` |
 | 队友 B | `app/map/`、`app/passport/`、`app/journal/`（新增）、`components/rpg/`、`app/globals.css`、`app/tokens.css`、`app/base.css` |
@@ -712,3 +770,6 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - 与 `age` 矛盾时以 `birth_date` 为准，在资格条目的 `explanation` 里写明。
   - `validateProfile` 新增可选第二参数 `{ today? }`（检查出生日期不在未来）；`lib/store.ts` 丢弃非法的 `birth_date`；分享视图不含 `birth_date` / `age`。
   - 页面：Skill Passport 的档案表单新增可选的 "Date of birth"（`max` = 当天），保留 Age 字段，两者不一致时提示以出生日期为准。测试：`lib/birth-date.test.ts`。
+- 2026-11-18：**数据加载层 `lib/data.ts`**（新增，向后兼容）：`loadCatalog` / `loadSampleProfiles` / `catalogOpportunities` / `findCatalogOpportunity` / `sampleProfiles`，加载时用 `lib/validation.ts` 校验，坏记录不进页面（规则见「数据加载」一节）。页面（Quests、Quest Journal、Skill Passport、Adventure Map）改为通过它取数；当前数据全部通过，页面行为不变。`lib/data.test.ts` 把仓库数据钉住（全部通过、id 唯一、底线字段齐全、无 `user_posted`、示例档案全部 `is_sample: true`）。
+- 2026-11-18：**日历导出 `lib/calendar.ts`**（新增，向后兼容）：`buildDeadlineCalendar` 把 Quest Journal 中机会的截止日期（可选加参与期）生成 iCalendar 文本，全天事件、不含提醒、截止时间只写在说明里，返回被跳过的机会；规则见「日历导出」一节。Quest Journal 的 "Plan across my quests" 新增 "Add deadlines to my calendar (.ics)" 与 "Print this plan"（只作用于本页的 `print:` 样式，不改全局 CSS）。
+- 2026-11-18：**数据备份 `lib/backup.ts`**（新增，向后兼容）：`buildBackup` / `parseBackup` / `summarizeBackup` / `backupFileName` / `collectBackupData` / `applyBackup`，规则见「数据备份」一节；`lib/store.ts` 只读导出 `STORE_VALIDATORS`（已有的单条校验函数，行为不变）。新页面 `/data`（"Your data"，导航最后一项）：查看各类条数、导出 JSON、导入前先预览并对照、确认后整体替换、全部清除。

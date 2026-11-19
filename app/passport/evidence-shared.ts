@@ -1,7 +1,7 @@
-import opportunities from "@/data/opportunities.json";
+import { catalogOpportunities } from "@/lib/data";
 import type { EvidenceItem, EvidenceKind, EvidenceStatus, Opportunity, PrepItem } from "@/lib/types";
 
-export const catalog = opportunities as Opportunity[];
+export const catalog = catalogOpportunities();
 
 export const kinds = ["project", "portfolio", "certificate", "competition_result", "work_experience", "volunteer_experience", "course", "recommendation_letter", "other"] as const satisfies readonly EvidenceKind[];
 

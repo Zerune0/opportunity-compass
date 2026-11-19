@@ -1046,6 +1046,25 @@ export function clearInvitations(): void {
   removeKey(STORE_KEYS.invitations);
 }
 
+// ───────────── 校验工具（只读导出，供 lib/backup.ts 复用同一套规则）─────────────
+
+/**
+ * 读取时使用的同一套单条校验 / 清洗规则（不读写存储，纯函数）。
+ * 只是把上面已有的内部函数导出，行为不变；导入备份时用它们逐条过滤。
+ */
+export const STORE_VALIDATORS = {
+  isProfile,
+  sanitizeProfile,
+  isGrant,
+  isJournalEntryShape,
+  sanitizeJournalEntry,
+  isMaterial,
+  isPlanSnapshot,
+  isUserPostedOpportunity,
+  isShareSettings,
+  isInvitation,
+} as const;
+
 // ───────────── 全部清除 ─────────────
 
 /** 清除本应用（当前版本）写入的所有键（含第二阶段新增的键）。 */
