@@ -12,7 +12,8 @@ export function isJournalEvent(v: unknown): v is JournalEvent {
 
 /**
  * 把一个事件应用到条目上（返回新对象，不修改输入）：按 JournalEvent 的注释更新对应字段，并追加
- * `{ event, on }` 到 history——同一事件同一天已经记过时不重复追加（字段照常按事件设置，结果幂等）。
+ * `{ event, on }` 到 history——与 history 最后一条完全相同（同一事件、同一天）时不重复追加（字段照常按事件设置，连续重复调用结果幂等）；
+ * 中间隔了别的事件（例如记录 → 清除 → 再记录）则照常追加。
  *
  * 不阻止「不合常理」的顺序（如没提交就记 admitted、退出后记 participated）：学生记录的是现实，
  * 系统不替他判断。页面应当引导而不是拦截：
@@ -71,7 +72,10 @@ export function applyJournalEvent(entry: JournalEntry, event: JournalEvent, on: 
       break;
   }
   const history = Array.isArray(entry.history) ? entry.history : [];
-  const already = history.some((h) => h.event === event && h.on === on);
+  // 只和最后一条比：连续重复（同一事件、同一天）不追加；中间隔了别的事件（如清除后再记）照常追加，
+  // 这样 history 的最后一条始终对应最近一次记录。
+  const last = history[history.length - 1];
+  const already = !!last && last.event === event && last.on === on;
   next.history = already ? [...history] : [...history, { event, on }];
   return next;
 }

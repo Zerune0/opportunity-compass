@@ -1750,7 +1750,7 @@ export interface JournalEntry {
   decision: JournalDecision;
   /** 是否实际参与；null = 还没发生 / 没记录。 */
   participated: boolean | null;
-  /** 事件记录，按记录先后（日期可补记，不一定按日期递增；页面按记录先后显示，当前状态由记录先后推出）；通常第一项是 added。同一事件同一天只记一次。 */
+  /** 事件记录，按记录先后（日期可补记，不一定按日期递增；页面按记录先后显示，当前状态由记录先后推出）；通常第一项是 added。连续重复（与最后一条同一事件、同一天）不追加；中间隔了别的事件则照常追加。 */
   history: JournalHistoryItem[];
   /** 学生选的路线类型；没选为 null / 缺省。 */
   route_type?: RouteType | null;

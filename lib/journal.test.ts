@@ -50,6 +50,17 @@ describe('applyJournalEvent', () => {
     expect(changed('participation_cleared')).toEqual([]);
   });
 
+  it('同一天 记录 → 清除 → 再记录：第二次记录照常追加，history 末条与当前状态一致', () => {
+    let e = applyJournalEvent(entry(), 'admitted', '2026-11-18');
+    e = applyJournalEvent(e, 'decision_cleared', '2026-11-18');
+    e = applyJournalEvent(e, 'admitted', '2026-11-18');
+    expect(e.decision).toBe('admitted');
+    expect(e.history.slice(-3).map((h) => h.event)).toEqual(['admitted', 'decision_cleared', 'admitted']);
+    // 连续重复仍不追加
+    const again = applyJournalEvent(e, 'admitted', '2026-11-18');
+    expect(again.history).toHaveLength(e.history.length);
+  });
+
   it('同一事件同一天不重复追加 history', () => {
     const once = applyJournalEvent(entry(), 'submitted', '2026-11-10');
     const twice = applyJournalEvent(once, 'submitted', '2026-11-10');

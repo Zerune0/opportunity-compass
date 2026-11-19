@@ -564,7 +564,7 @@ export function removeJournalEntry(profileId: string, opportunityId: string): Jo
 
 /**
  * 记录一个 Journal 事件（日期由调用方传入）：用 lib/journal.ts 的 applyJournalEvent 一致地更新对应字段
- * （见 JournalEvent 注释）并追加 history；同一事件同一天不重复追加。条目不存在或事件非法返回 null。
+ * （见 JournalEvent 注释）并追加 history；与 history 最后一条相同（同一事件、同一天）时不重复追加。条目不存在或事件非法返回 null。
  *
  * 不阻止不合常理的顺序（如没提交就记 admitted）——学生记录的是现实。页面应当引导：
  * 未提交时把录取结果 / 资格确认放在次要位置并提示「通常在提交后才会有」；记录这些事件时若仍是 preparing，
