@@ -3,9 +3,10 @@
 import { useState, type FormEvent } from "react";
 import { RpgButton } from "@/components/rpg";
 import { planRoutes } from "@/lib/path";
-import { linkEvidenceToPrep, loadProfile, prepLinkKey } from "@/lib/store";
+import { latestPlanSnapshot, linkEvidenceToPrep, loadProfile, prepLinkKey, pushPlanSnapshot } from "@/lib/store";
 import type { EvidenceItem, Opportunity, StudentProfile } from "@/lib/types";
-import { findOpportunity, kindLabel, linkableGroups, mismatchNotes, type LinkContext } from "./evidence-shared";
+import { evidenceLinkSnapshots } from "@/app/map/evidence-link-snapshots";
+import { findOpportunity, isCatalogOpportunity, kindLabel, linkableGroups, mismatchNotes, type LinkContext } from "./evidence-shared";
 
 type Props = {
   id: string;
@@ -44,11 +45,16 @@ export function LinkStepForm({ id, item, ctx, onLinked }: Props) {
       setError("Choose an opportunity and one of its preparation steps.");
       return;
     }
+    const before = loadProfile();
     if (!linkEvidenceToPrep(item.id, opp.id, prep.id)) {
       setError("Could not save the link in this browser.");
       return;
     }
     const profile = loadProfile();
+    if (before && profile && isCatalogOpportunity(opp.id)) {
+      const snapshots = evidenceLinkSnapshots(latestPlanSnapshot(opp.id, profile.id), before, profile, opp, item.id, prep.id, ctx.today);
+      snapshots.forEach((snapshot) => pushPlanSnapshot(snapshot));
+    }
     setError("");
     setPrepId("");
     onLinked(profile ? plannerVerdict(profile, opp, prep.id, ctx.today) : "Linked.", opp.id);
