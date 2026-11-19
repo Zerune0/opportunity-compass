@@ -4,7 +4,8 @@ import { beforeAll,afterAll,describe,it,expect,vi } from 'vitest';
 import profiles from '../../data/profiles.json';
 import { QuestAssessment } from './[id]/quest-assessment';
 import type { QuestContext } from './use-quest-context';
-import type { Opportunity,ResourceGrant,StudentProfile } from '../../lib/types';
+import * as matchEngines from '../../lib/match';
+import type { AlternativeSuggestion,Opportunity,ResourceGrant,StudentProfile } from '../../lib/types';
 /**
  * Snapshots of real opportunities as of 2026-11-19, kept in the test so data edits do not change it.
  * (Copied verbatim from data/opportunities.json; data validity itself is checked in lib/data.test.ts and lib/validation.test.ts.)
@@ -318,4 +319,28 @@ describe('Quest Details support and recovery',()=>{
  it('lists individual missing official facts and does not infer zero cost',()=>{const page=html([],rutgers);expect(page).toContain('the official fee');expect(page).toContain('how many hours per week the program needs');expect(page).toContain('Unknown information');expect(page).not.toContain('opportunity.cost.fee_usd');expect(page).not.toContain('opportunity.time_commitment.hours_per_week');});
  it('links missing profile fields to Passport',()=>{const page=html([],{...fixture,cost:{fee_usd:10,requires_travel_expense:false}},{...noor,budget_usd:null});expect(page).toContain('how much you can pay yourself');expect(page).not.toContain('profile.budget_usd');expect(page).toContain('Update this field in Skill Passport');expect(page).toContain('href="/passport"');});
  it('shows concrete alternative links when a hard requirement is not met',()=>{const target=SNAPSHOT['nasa-texas-aerospace-scholars-senior-2026'];const page=html([],target);expect(page).toContain('Other opportunities and future cycles');expect(page).toContain('href="/quests/doe-cci-summer-2027"');expect(page).not.toContain('View growth routes');});
+});
+
+
+describe('Quest Details alternative destinations', () => {
+ const userPosted: Opportunity = { ...fixture, id: 'sample-unpublished', source_tier: 'user_posted', is_sample: true, posted_by: 'sample-publisher' };
+ it.each([
+  { name: 'self remote hint', kind: 'remote_option' as const, id: rutgers.id, href: null },
+  { name: 'self future cycle', kind: 'next_cycle' as const, id: rutgers.id, href: null },
+  { name: 'missing catalog record', kind: 'stepping_stone' as const, id: 'not-in-catalog', href: null },
+  { name: 'no target id', kind: 'remote_option' as const, id: null, href: null },
+  { name: 'user-posted record without a catalog detail', kind: 'remote_option' as const, id: userPosted.id, href: null },
+  { name: 'another verified catalog record', kind: 'stepping_stone' as const, id: 'doe-cci-summer-2027', href: '/quests/doe-cci-summer-2027' },
+ ])('renders $name with a valid destination or plain text', ({ kind, id, href }) => {
+  const suggestion: AlternativeSuggestion = { kind, opportunity_id: id, title: 'Alternative destination fixture', reason: 'Check official participation terms.', eligibility_overall: 'unknown', shared_fields: [] };
+  const spy = vi.spyOn(matchEngines, 'findAlternatives').mockReturnValueOnce([suggestion]);
+  try {
+   const context: QuestContext = { catalog: [...catalog, userPosted], profile: noor, grants: [], saved: [], today: '2026-11-19', loaded: true };
+   const page = renderToStaticMarkup(React.createElement(QuestAssessment, { opportunity: rutgers, context }));
+   expect(page).toContain(suggestion.title);
+   expect(page.split(suggestion.reason)).toHaveLength(2);
+   if (href) expect(page).toContain('href="' + href + '"');
+   else expect(page).not.toMatch(/href="\/quests\//);
+  } finally { spy.mockRestore(); }
+ });
 });
