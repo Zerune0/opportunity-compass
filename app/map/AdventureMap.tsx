@@ -11,7 +11,7 @@ import { planRoutes } from "@/lib/path";
 import { clearPlanSnapshots, latestPlanSnapshot, loadGrants, loadPlanSnapshots, loadProfile, pushPlanSnapshot } from "@/lib/store";
 import { nextSnapshot } from "./plan-snapshots";
 import { RecommendationReplay } from "./RecommendationReplay";
-import type { Opportunity, PlanSnapshot, ResourceGrant, StudentProfile } from "@/lib/types";
+import type { Opportunity, PlanSnapshot, ResourceGrant, RouteStep, StudentProfile } from "@/lib/types";
 
 /** Labels for alternative kinds beyond same_field / next_cycle; unknown kinds get a generic label. */
 function alternativeKindLabel(kind: string): string {
@@ -21,6 +21,13 @@ function alternativeKindLabel(kind: string): string {
 }
 
 const catalog = catalogOpportunities();
+
+/** A competition step links to that competition's own page, when it is in the verified catalog. */
+function competitionLink(step: RouteStep) {
+  const id = step.related_opportunity_id;
+  if (!id || !catalog.some((item) => item.id === id)) return null;
+  return <p><Link href={`/quests/${encodeURIComponent(id)}`}>View this competition</Link>{step.description ? <> — {step.description}</> : null}</p>;
+}
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -189,12 +196,13 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                     <caption>Preparation checklist</caption>
                     <thead><tr><th scope="col">Step</th>{["Why this step", "Time and cost", "Evidence you can record", "Official requirement?", "Dependency"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
                     <tbody>{steps.map((item) => <tr key={item.step.id}>
-                      <th scope="row">{item.step.title}{item.step.skipped && <p>Skipped, excluded from totals. {item.step.skip_reason}</p>}</th>
+                      <th scope="row">{item.step.title}{competitionLink(item.step)}{item.step.skipped && <p>Skipped, excluded from totals. {item.step.skip_reason}</p>}</th>
                       {fields(item).map(([label, value]) => <td data-label={label} key={label}>{value}</td>)}
                     </tr>)}</tbody>
                   </table> : <ol className="rpg-stack rpg-steps rpg-trail">{steps.map((item) => <li key={item.step.id}>
                     <QuestCard className={item.step.skipped ? "rpg-card--skipped" : ""}>
                       <h3>{item.step.title}</h3>
+                      {competitionLink(item.step)}
                       {item.step.skipped && <p><StatusTag tone="success">Skipped, excluded from totals</StatusTag> {item.step.skip_reason}</p>}
                       <details><summary>Step details: {item.step.title}</summary><dl>{fields(item).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details>
                     </QuestCard>
@@ -223,8 +231,6 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                 ? <><Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link> · {alternativeKindLabel(alternative.kind)}</>
                 : <strong>{alternative.title} · {alternativeKindLabel(alternative.kind)}</strong>}
           <p>{alternative.reason}</p>
-          {alternative.kind === "stepping_stone" && <p>This builds evidence. It is not a prerequisite.</p>}
-          {alternative.kind === "remote_option" && <p>Confirm with the organizer whether you can take part online.</p>}
         </li>)}</ul>
       </QuestCard>}
       {plan && profile && snapshots.length > 0 && (

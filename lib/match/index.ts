@@ -17,7 +17,8 @@
  *   偏好（非硬性）要求不列。
  * - reachability：r.reachable 与 r.summary（引擎原文，含「可达 ≠ 录取」）。
  * - format：online → true；in_person / hybrid（附地点）按档案交通等级：reliable → true；limited / none → false，
- *   若交通障碍已被 approved grant 化解 → true 并写明；交通没填 → null；format 缺失或无法识别 → null。
+ *   若交通障碍已被 approved grant 化解 → true 并写明；交通没填 → null；format 为 'unknown'、缺失或无法识别 → null
+ *   （参与形式未知，不当成线上）；线下 / 混合但没有州和城市（地点不明确）且没有未化解的交通障碍 → null。
  *   reliable 但引擎仍有未化解的交通障碍（如需自费差旅）时仍为 true，文字加半句「差旅 / 交通问题见 transport 那条」。
  * - time：已过截止日期 → false（引擎描述）；未化解的 time 障碍 → false（引擎描述，最多两条，pending 只提一句「尚未生效」）；
  *   全部已被 time_support 化解 → true 并写明；否则缺 profile.hours_per_week_available / opportunity.time_commitment.hours_per_week /
@@ -30,7 +31,8 @@
  * - device：没有必需设备 → true；档案没填设备 → null；缺的设备逐个说明（被 approved device grant 化解的写
  *   「主办方已批准的 X 借用覆盖了 X 要求」，未化解的用引擎描述 + pending 提示）；有未化解的 → false，否则 true。
  * - transport：线上机会不输出；未化解的交通障碍 → false（引擎描述 + pending 提示）；已化解 → true（写明是交通补助 /
- *   替代参与方式）；缺 profile.transport 或「是否自费差旅」→ null；否则 true。
+ *   替代参与方式）；缺 profile.transport 或「是否自费差旅」→ null；参与形式未知、或线下 / 混合但地点不明确 → null；否则 true。
+ *   （形式未知与地点不明确的规则以 analyzeReachability 和 CONTRACT.md 为准，这里只是摘要。）
  * summary：一句话，按「资格 → 现实条件 → 兴趣」：not_eligible 时不加任何鼓励申请的话、不提兴趣——不满足的硬性要求
  * 全部是 fixable（portfolio / prerequisite_skill）时说「现在还不满足 "X"，这是可以自己补上的」（不说本届不能申请，
  * 也不承诺补上后会被录取）；含 permanent 或 improvable 的要求时说本届不能申请及原因；

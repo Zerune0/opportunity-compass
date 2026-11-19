@@ -11,6 +11,8 @@ export function evidenceLinkSnapshots(
   evidenceId: string,
   prepId: string,
   today: string,
+  /** The verified catalog, so these snapshots plan the same routes as the map page (which passes it too). */
+  catalog?: Opportunity[],
 ): PlanSnapshot[] {
   if (before.id !== after.id) return [];
   const evidence = after.evidence.find((item) => item.id === evidenceId);
@@ -18,9 +20,9 @@ export function evidenceLinkSnapshots(
   const prep = opportunity.preparation.find((item) => item.id === prepId);
   const key = `${opportunity.id}:${prepId}`;
   if (!evidence || !previous || !prep || previous.prep_item_ids?.includes(key) || !evidence.prep_item_ids?.includes(key)) return [];
-  const baseline = nextSnapshot(latest, planRoutes(before, opportunity, { today }), before, opportunity, today);
+  const baseline = nextSnapshot(latest, planRoutes(before, opportunity, { today, catalog }), before, opportunity, today);
   // Even if the step was already covered, preserve the actual link action and let Why say routes did not change.
-  const updated = nextSnapshot(null, planRoutes(after, opportunity, { today }), after, opportunity, today)!;
+  const updated = nextSnapshot(null, planRoutes(after, opportunity, { today, catalog }), after, opportunity, today)!;
   return [
     ...(baseline ? [baseline] : []),
     { ...updated, trigger: "evidence_edited", trigger_detail:
