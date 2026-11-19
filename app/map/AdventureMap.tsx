@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useViewPreference } from "@/components/rpg/view-preference";
+import { alternativeQuestHref } from "./alternative-links";
 import { stepFields } from "./step-details";
 import { useCallback, useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
@@ -222,16 +223,13 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         <p className="rpg-muted">{plan?.status === "blocked"
           ? "These are alternatives; they do not change this opportunity's requirements."
           : "These are alternatives, not prerequisites."}</p>
-        <ul className="rpg-list">{alternatives.map((alternative, index) => <li key={index}>
-          {alternative.kind === "same_field" && alternative.opportunity_id && catalog.some((item) => item.id === alternative.opportunity_id)
-            ? <Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link>
-            : alternative.kind === "next_cycle" || alternative.kind === "same_field"
-              ? <strong>{alternative.title} · Future round</strong>
-              : alternative.opportunity_id && catalog.some((item) => item.id === alternative.opportunity_id)
-                ? <><Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link> · {alternativeKindLabel(alternative.kind)}</>
-                : <strong>{alternative.title} · {alternativeKindLabel(alternative.kind)}</strong>}
+        <ul className="rpg-list">{alternatives.map((alternative, index) => {
+          const href = alternativeQuestHref(alternative.kind, alternative.opportunity_id, opportunity.id, catalog);
+          return <li key={index}>
+          {href ? <Link href={href}>{alternative.title}</Link> : <strong>{alternative.title}</strong>}
+          {alternative.kind === "next_cycle" ? " · Future round" : alternative.kind !== "same_field" && ` · ${alternativeKindLabel(alternative.kind)}`}
           <p>{alternative.reason}</p>
-        </li>)}</ul>
+        </li>; })}</ul>
       </QuestCard>}
       {plan && profile && snapshots.length > 0 && (
         <RecommendationReplay snapshots={snapshots} isSample={profile.is_sample} onClear={clearReplay} />
