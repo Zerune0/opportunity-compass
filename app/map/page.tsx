@@ -1,5 +1,4 @@
-import opportunities from "@/data/opportunities.json";
-import type { Opportunity } from "@/lib/types";
+import { findCatalogOpportunity } from "@/lib/data";
 import { AdventureMap } from "./AdventureMap";
 
 export default async function MapPage({
@@ -8,6 +7,5 @@ export default async function MapPage({
   searchParams: Promise<{ opp?: string | string[] }>;
 }) {
   const { opp } = await searchParams;
-  const catalog = opportunities as Opportunity[];
-  return <AdventureMap opportunity={catalog.find((item) => item.id === opp)} />;
+  return <AdventureMap opportunity={findCatalogOpportunity(typeof opp === "string" ? opp : null) ?? undefined} />;
 }

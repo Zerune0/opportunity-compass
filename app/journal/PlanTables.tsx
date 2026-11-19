@@ -15,7 +15,7 @@ function doableCell(item: CrossPlanItem): string {
 
 export function PlanItemsTable({ items }: { items: CrossPlanItem[] }) {
   return (
-    <div className="overflow-x-auto max-w-full">
+    <div className="overflow-x-auto max-w-full print:overflow-visible">
       <table className="rpg-classic-table">
         <caption>Each quest, in deadline order</caption>
         <thead>
@@ -61,7 +61,7 @@ export function WeeklyLoadTable({ weeks, titleOf }: { weeks: WeeklyLoad[]; title
       {weeks.length === 0 ? (
         <p className="rpg-muted">No weekly load to show: no planned quest has hours to spread over the weeks.</p>
       ) : (
-        <div className="overflow-x-auto max-w-full">
+        <div className="overflow-x-auto max-w-full print:overflow-visible">
           <table className="rpg-classic-table">
             <caption>Hours needed and available per week (spread evenly by day)</caption>
             <thead>
