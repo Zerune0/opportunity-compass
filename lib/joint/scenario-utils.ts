@@ -9,11 +9,21 @@
  * - `missingPrerequisites(scenario, enabledIds, id)`：某措施缺少的前置依赖（含依赖的依赖，传递闭包）。
  * - `anonymizeScenarioForClient(scenario)`：把场景交给浏览器前去掉学生身份与自由文本。
  * - `findStudentInfoInInterventions(scenario)`：措施 id / 标题里是否写进了学生的 id、显示名、学校名。
+ * - `isPlaceholderOpportunity(o)`：占位机会的唯一判定（What-if 视图的 is_placeholder、假设说明、页面的 Placeholder 标签、
+ *   场景模板拒绝占位机会，都用它，保证几处说法一致）。
  *
  * 带数据的导出（deviceLoanScenario 等）在 ./scenarios，那个文件会把 JSON 打包进来，客户端不要 import 它。
  * 纯函数：不修改输入，返回新对象；无 IO。
  */
-import type { EvidenceItem, Intervention, ResourceGrant, Scenario, StudentProfile } from '../types';
+import type { EvidenceItem, Intervention, Opportunity, ResourceGrant, Scenario, StudentProfile } from '../types';
+
+/**
+ * 占位机会：示例数据（is_sample）或标题含 `Placeholder`。已核实目录里的真实机会两者都不是
+ * （场景模板也拒绝这样的机会），所以用真实机会的场景永远不会被标成占位。
+ */
+export function isPlaceholderOpportunity(o: Pick<Opportunity, 'is_sample' | 'title'>): boolean {
+  return o.is_sample === true || (typeof o.title === 'string' && o.title.includes('Placeholder'));
+}
 
 /** 因前置依赖没有全部启用而被移除的措施。 */
 export interface RemovedIntervention {

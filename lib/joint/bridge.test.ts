@@ -342,9 +342,10 @@ describe('buildClientBridgeInfo / rosterStudentId', () => {
   const loadable = sampleProfiles().map((p) => p.id);
   const catalogIdsOf = (sc: Scenario) => sc.opportunities.filter((o) => findCatalogOpportunity(o.id) !== null).map((o) => o.id);
 
-  it('今天的两个演示场景：roster 为空、没有 Quest Details 页面；provider 是示例主办方', () => {
+  it('两个占位场景（SCENARIOS 前两项）：roster 为空、没有 Quest Details 页面；provider 是示例主办方', () => {
     expect(loadable).toEqual(['sample-maya', 'sample-leo', 'sample-ana', 'sample-noor']);
-    for (const e of SCENARIOS) {
+    // 第三项（共享支持场景，用真实机会与演示学生）另见 ./scenario-template.test.ts。
+    for (const e of SCENARIOS.slice(0, 2)) {
       const info = buildClientBridgeInfo({
         original: e.scenario,
         anonymized: anonymizeScenarioForClient(e.scenario),

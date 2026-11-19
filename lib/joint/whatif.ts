@@ -41,6 +41,7 @@ import { fairnessCoverageBounds, solveJoint } from './solve';
 import type { FloorCoverageBound } from './solve';
 import { verifyPlan } from './verify';
 import {
+  isPlaceholderOpportunity,
   MIN_NAME_TOKEN_LENGTH,
   missingPrerequisites,
   resolveEnabledInterventions,
@@ -49,7 +50,8 @@ import {
   withEnabledInterventions,
 } from './scenario-utils';
 
-export { missingPrerequisites };
+// 页面（客户端组件）从这里拿同一个占位判定，保证 Placeholder 标签与假设说明一致。
+export { isPlaceholderOpportunity, missingPrerequisites };
 import type {
   Allocation,
   BarrierType,
@@ -1176,11 +1178,29 @@ export function runWhatIfWithPlan(
 
   const eff = withBudget(withEnabledInterventions(scenario, enabled), input.budget);
   const enabledPending = eff.interventions.filter((iv) => !isApproved(iv)).map((iv) => `"${iv.title}"`);
+  // 机会是占位还是真实目录机会（判定与页面的 Placeholder 标签共用 isPlaceholderOpportunity）：两种说法不能混用——
+  // 用真实机会时不得说「全部数据 / 机会都是示例或占位」，也不得暗示真实主办方提供这些支持。全是占位时两句与原来逐字相同。
+  const realCount = scenario.opportunities.filter((o) => !isPlaceholderOpportunity(o)).length;
+  const placeholderCount = scenario.opportunities.length - realCount;
+  const dataAssumption =
+    realCount === 0
+      ? 'All students and scenario data are sample / simulated, not real students. Results do not represent real-world impact.'
+      : 'All students, support measures, costs and budgets are sample / simulated, not real students or real programs. Results do not represent real-world impact.';
+  const realListings =
+    realCount === 1
+      ? 'is a real listing, used here with sample students and a simulated support provider. Its real organizer is not involved and offers none of these support measures.'
+      : 'are real listings, used here with sample students and a simulated support provider. Their real organizers are not involved and offer none of these support measures.';
+  const opportunityAssumption =
+    realCount === 0
+      ? 'Opportunities are placeholders for now, to be replaced with real opportunities verified by a person (official link + verification date).'
+      : placeholderCount === 0
+        ? `${realCount === 1 ? 'The opportunity' : realCount === 2 ? 'Both opportunities' : `All ${realCount} opportunities`} ${realListings}`
+        : `${placeholderCount === 1 ? 'One opportunity is a placeholder' : `${placeholderCount} opportunities are placeholders`}; ${realCount === 1 ? 'the other' : `the other ${realCount}`} ${realListings}`;
 
   // 假设与不确定性（与是否求解无关的部分）
   const assumptions: string[] = [
-    'All students and scenario data are sample / simulated, not real students. Results do not represent real-world impact.',
-    'Opportunities are placeholders for now, to be replaced with real opportunities verified by a person (official link + verification date).',
+    dataAssumption,
+    opportunityAssumption,
     '"Reachable" only means no eligibility conflict and workable real-world conditions (time / cost / transport / device). Reachable does not mean admitted, and it is not an admission probability.',
     'The model assumes students accept the resources they are given; whether they actually accept or can attend is not modeled.',
     'All costs, capacities and budgets are sample numbers.',
@@ -1214,7 +1234,7 @@ export function runWhatIfWithPlan(
     student_count: scenario.students.length,
     opportunities: scenario.opportunities.map((o) => ({
       title: o.title,
-      is_placeholder: o.is_sample === true || o.title.includes('Placeholder'),
+      is_placeholder: isPlaceholderOpportunity(o),
     })),
     effective: {
       enabled_ids: enabled,

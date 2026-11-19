@@ -5,7 +5,8 @@
  * 所有计算都在 lib/joint/whatif.ts 的纯函数 runWhatIfWithPlan（即 runWhatIf 加上方案明细）里完成，这里只负责输入控件和渲染。
  * 只显示汇总数字，不显示任何单个学生的姓名、学校或材料。所有结果都是模拟。
  *
- * 场景（可切换的两个演示场景）由 server component（./page.tsx）匿名化后连同预设公平底线作为 prop 传入；
+ * 场景（可切换的演示场景）由 server component（./page.tsx，经 ./client-entry）匿名化后连同预设公平底线作为 prop 传入；
+ * 用真实目录机会的场景另带一句说明（realOpportunityNote），显示在机会列表旁。
  * 本文件不要 import lib/joint/scenarios（那个文件顶层导入了场景 JSON，会把示例学生的姓名、学校打包进浏览器），也不要 import lib/data。
  * 结果区下方的「回到学生端的桥」（./student-bridge）是明确标注的本地演示操作：拿同一次计算的方案明细
  * （runWhatIfWithPlan 的 plan，不再求解一次），只渲染关于载入档案的一句话，不渲染方案明细里的任何学生信息。
@@ -13,6 +14,7 @@
 import { useId, useMemo, useState } from "react";
 import {
   defaultWhatIfInput,
+  isPlaceholderOpportunity,
   MODE_EXPLANATIONS,
   MODE_LABELS,
   missingPrerequisites,
@@ -34,6 +36,11 @@ export interface ClientScenarioEntry {
   floors: FairnessFloor[];
   /** 「回到学生端的桥」：可载入示例档案的匿名编号对应、示例主办方名、有 Quest Details 页面的机会。 */
   bridge: ClientBridgeInfo;
+  /**
+   * 场景用的是已核实目录里的真实机会时，在机会列表旁原样显示的说明（真实机会 + 示例学生 + 模拟支持方，
+   * 真实主办方没有参与）；占位机会的场景为 null。
+   */
+  realOpportunityNote: string | null;
 }
 
 type Mode = "protect" | "tradeoff";
@@ -162,7 +169,13 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
         </div>
       </header>
       {/* key：切换场景时重新挂载，所有控件回到该场景的默认值。 */}
-      <ScenarioWhatIf key={entry.id} scenario={entry.scenario} floors={entry.floors} bridge={entry.bridge} />
+      <ScenarioWhatIf
+        key={entry.id}
+        scenario={entry.scenario}
+        floors={entry.floors}
+        bridge={entry.bridge}
+        realOpportunityNote={entry.realOpportunityNote}
+      />
     </div>
   );
 }
@@ -171,10 +184,12 @@ function ScenarioWhatIf({
   scenario,
   floors,
   bridge,
+  realOpportunityNote,
 }: {
   scenario: Scenario;
   floors: FairnessFloor[];
   bridge: ClientBridgeInfo;
+  realOpportunityNote: string | null;
 }) {
   const defaults = useMemo(() => defaultWhatIfInput(scenario), [scenario]);
   const [enabled, setEnabled] = useState<string[]>(defaults.enabledIds);
@@ -278,13 +293,20 @@ function ScenarioWhatIf({
           {scenario.opportunities.map((o) => (
             <span key={o.id} className="block">
               {o.title}
-              {(o.is_sample === true || o.title.includes("Placeholder")) && (
+              {/* 与视图的 is_placeholder、假设说明用同一个判定；场景模板拒绝被它判为占位的目录机会。 */}
+              {isPlaceholderOpportunity(o) && (
                 <span className="ml-2 inline-block rounded border border-gray-500 px-1.5 text-xs text-gray-800">
                   {WHATIF_LABELS.placeholder_opportunity}
                 </span>
               )}
             </span>
           ))}
+          {/* 真实机会 + 示例学生 + 模拟支持方：说明原样显示，不暗示真实主办方提供任何支持。 */}
+          {realOpportunityNote && (
+            <p role="note" className="mt-1 rounded border border-blue-700 bg-blue-50 p-2 text-blue-950">
+              {realOpportunityNote}
+            </p>
+          )}
         </dd>
       </dl>
 
