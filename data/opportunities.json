@@ -846,5 +846,86 @@
     "recurring_annually": null,
     "is_sample": false,
     "posted_by": null
+  },
+  {
+    "id": "hackrare-2027",
+    "title": "HackRare 2027",
+    "organizer": "Harvard Undergraduate Rare Diseases (HURD), in collaboration with NORD",
+    "category": "hackathon",
+    "fields": [
+      "biomedical_research",
+      "life_sciences"
+    ],
+    "summary": "An in-person rare-disease hackathon for undergraduate and graduate students. Projects are developed in teams of 2–5; participants must register with an institutional email. Registration is free, while participants arrange transportation and accommodation themselves.",
+    "official_url": "https://www.hackrare.org/the-hackathon",
+    "verified_on": "2026-11-19",
+    "verified_by": "Jiale Li",
+    "deadline": "2027-02-14",
+    "deadline_note": "Registration closes February 14, 2027 at 11:59 PM EST. Travel-funding applications have a separate deadline; funding is not assumed approved.",
+    "recurring_annually": null,
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "state": "MA",
+      "city": "Cambridge",
+      "note": "Harvard Student Organization Center at Hilles, 59 Shepard St, Cambridge, MA 02138. In-person participation only; no remote option. Human verification: Jiale Li, 2026-11-19. Sources: https://www.hackrare.org/the-hackathon ; https://www.hackrare.org/faq"
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": true,
+      "note": "Participation is free. Participants arrange their own transportation and accommodation. NORD Scholars travel funding may be requested, but is not guaranteed and is not deducted from costs. Human verification: Jiale Li, 2026-11-19. Source: https://www.hackrare.org/faq"
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null,
+      "start_date": "2027-02-27",
+      "end_date": "2027-02-28",
+      "note": "The February 27–28, 2027 event dates were human-verified by Jiale Li on 2026-11-19. No numeric weekly time commitment was confirmed; the event date span is not converted into weekly hours."
+    },
+    "required_devices": [],
+    "requirements": [
+      {
+        "id": "university-enrollment",
+        "type": "status",
+        "any_of": [
+          "undergraduate",
+          "graduate_student"
+        ],
+        "hard": true,
+        "label": "Currently an undergraduate or graduate student",
+        "source_text": "undergraduate or graduate students"
+      },
+      {
+        "id": "institutional-email",
+        "type": "manual",
+        "hard": true,
+        "label": "Register using a valid institutional email address",
+        "source_text": "with valid @_.edu addresses"
+      }
+    ],
+    "preparation": [
+      {
+        "id": "explore-rare-disease-project",
+        "title": "Explore a rare-disease problem and possible project ideas",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for this optional preparation task only.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
+    "team_requirement": {
+      "required": true,
+      "min_size": 2,
+      "max_size": 5,
+      "source_text": "Teams of 2-5"
+    },
+    "source_tier": "official",
+    "is_sample": false,
+    "posted_by": null
   }
 ]
