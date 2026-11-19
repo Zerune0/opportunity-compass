@@ -1,10 +1,11 @@
 /**
  * 场景模板（./scenario-template）与共享支持场景（./scenarios 的 sharedSupportScenario）测试。全部示例 / 模拟。
  *
- * 真实机会与演示学生的 id 还没定（data/scenarios/shared-support.json 的两个 ref 为 null），所以：
+ * data/scenarios/shared-support.json 的两个 ref 已经填好（机会 = 设备借用场景里的示例机会 placeholder-inperson-event，
+ * 演示学生 = 一份示例档案），所以：
  * - 结构与手算数字用 ./testing/shared-support-fixtures 的虚构 fixture 检查（数字见那个文件的文件头）；
- * - 「数据模板 + fixture」的预演只在两个 ref 都还是 null 时运行（`skipIf(sharedSupportScenario !== null)`）；
- * - 「真实数据」一组在两个 ref 都填好后自动运行（`skipIf(sharedSupportScenario === null)`），不需要再改测试。
+ * - 「真实数据」一组用填好的 ref 运行（`skipIf(sharedSupportScenario === null)`：ref 被清空时才跳过）。
+ *   原来「ref 还没填」时的预演（数据模板 + fixture）已删除：它在 ref 填好后永远被跳过，其断言由「真实数据」一组覆盖。
  * 评审要求：对演示学生，主办方这边的结论（方案让它可达）与学生端的结论（analyzeReachability 带桥写入的 grants）必须一致；
  * 「不够分」按「能被已批准措施帮到的学生」（helpable）计，不把资格不符的学生算进去。
  */
@@ -720,36 +721,6 @@ describe('data/scenarios/shared-support.json（与真实机会无关的结构检
     expect(noTransport).toBeGreaterThan(0);
     const allLaptops = (laptop.fixed_cost_usd ?? 0) + laptop.capacity! * laptop.unit_cost_usd;
     expect(t.budget_usd).toBeLessThan(allLaptops + noTransport * stipend.unit_cost_usd);
-  });
-});
-
-// ───────────────────────────── 预演：ref 还没填时，用数据模板 + fixture ─────────────────────────────
-
-describe.skipIf(sharedSupportScenario !== null)('预演（两个 ref 还没填）：数据模板 + fixture 机会与演示学生', () => {
-  const S = () =>
-    buildScenarioFromTemplate({ ...sharedSupportTemplate, opportunity_ref: null, demo_student_ref: null }, { opportunity: OPP, demoStudent: DEMO });
-
-  it('数据就绪；默认输入 OPTIMAL、复核通过、资源不够所有人；演示学生（位置 0）分到支持，学生端随之可达', () => {
-    const s = S();
-    expect(scenarioReadinessProblems(s, DEMO.id)).toEqual([]);
-    const l = demoLoop(s, DEMO.id, { loadable: [DEMO.id], catalog: [OPP.id], provider: PROVIDER });
-    expect(l.view.status).toBe('OPTIMAL');
-    expect(l.view.verification.passed).toBe(true);
-    expect(l.view.L).toBe(0);
-    expect(l.view.N).toBe(l.view.G! - l.view.L!);
-    expectScarceSupport(l, SHARED_SUPPORT_IDS);
-    expect(l.decision.state).toBe('ready');
-    for (const today of demoWindowDates(s.evaluation_date)) expect(reachable(DEMO, OPP, l.decision.grants, today)).toBe(true);
-    expect(reachable(DEMO, OPP, [], s.evaluation_date)).not.toBe(true);
-  });
-
-  it('开启低收入底线后仍 OPTIMAL、复核通过，演示学生仍分到', () => {
-    const l = demoLoop(S(), DEMO.id, { loadable: [DEMO.id], catalog: [OPP.id], provider: PROVIDER, floorIds: [LOW_INCOME] });
-    expect([l.view.status, l.view.verification.passed, l.decision.state]).toEqual(['OPTIMAL', true, 'ready']);
-  });
-
-  it('ref 没填时 sharedSupportReadinessProblems 为空数组', () => {
-    expect(sharedSupportReadinessProblems).toEqual([]);
   });
 });
 

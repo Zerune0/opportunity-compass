@@ -20,8 +20,10 @@ export const metadata: Metadata = {
  * 进入浏览器的原始 id 只有「可载入的示例档案」（data/profiles.json，本来就在 Skill Passport 公开）的 id，
  * 而且只有当它们是该场景的学生时才出现（桥的 roster：原始 id → 匿名编号）。
  * device-loan 与 venue-tradeoff 用占位机会、只有场景专用学生，roster 为空；
- * 共享支持场景（lib/joint/scenarios 的 sharedSupportScenario，填好真实机会与演示学生的 ref 后才出现）
- * 用已核实目录里的真实机会，演示学生在 roster 里，页面同时显示「真实机会 + 示例学生 + 模拟支持方」的说明。
+ * 共享支持场景（lib/joint/scenarios 的 sharedSupportScenario，两个 ref 都填好后才出现）目前引用的是
+ * device-loan 场景里的示例机会 placeholder-inperson-event（页面照常标 Placeholder，不显示「真实机会」说明），
+ * 演示学生在 roster 里；模板支持以后把 ref 换成已核实目录里的真实机会，那时页面才显示
+ * 「真实机会 + 示例学生 + 模拟支持方」的说明。
  * lib/data 与 lib/joint/scenarios 只在这里（服务器端）import，客户端组件不要 import 它们。
  */
 export default function OrganizerPage() {

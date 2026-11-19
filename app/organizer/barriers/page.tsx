@@ -344,6 +344,10 @@ export default function BarrierSummaryPage() {
         <div role="note" className="space-y-1 rounded border-2 border-amber-600 bg-amber-50 p-3 text-amber-950">
           <p className="font-semibold">Sample data. Not a measure of real need.</p>
           <p className="text-sm">This page shows only aggregate counts of (student, opportunity) pairs, never any individual student.</p>
+          <p className="text-sm">
+            Counts here are small. With real data, small counts could identify individual students, so a real version would
+            need a minimum group size before showing a number.
+          </p>
         </div>
       </header>
       {sections.length === 0 ? (
