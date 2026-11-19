@@ -525,12 +525,15 @@ describe('analyzeGaps — 示例档案 × 真实机会', () => {
     }
   });
 
-  it('Noor × Rutgers：资格满足；交通受限一条；官方费用与每周小时未知各一条', () => {
+  it('Noor × Rutgers：资格满足；python 项目证据覆盖数据清洗准备项，其余三条团队建议准备项（实验室安全 → 知识，研究兴趣摘要 / 项目说明 → 材料）；交通受限一条；官方费用与每周小时未知各一条', () => {
     const g = analyzeGaps(P('sample-noor'), O('rutgers-newark-summer-research-2027'), [], TODAY);
     expect(g.eligibility_overall).toBe('eligible');
     expect(g.reachable).toBe(false);
-    expect(counts(g)).toEqual([0, 0, 1, 0, 2]);
+    expect(counts(g)).toEqual([1, 2, 1, 0, 2]);
     expect(g.items.map((i) => i.id)).toEqual([
+      'knowledge_or_experience:review-lab-safety-basics',
+      'materials:review-research-interests',
+      'materials:write-research-project-note',
       'time_and_cost:transport',
       'unknown_info:opportunity.cost.fee_usd',
       'unknown_info:opportunity.time_commitment.hours_per_week',
@@ -538,18 +541,18 @@ describe('analyzeGaps — 示例档案 × 真实机会', () => {
     expect(byId(g, 'time_and_cost:transport').action).toContain('online option');
   });
 
-  it('Maya × Rutgers：年级低于下限 → 当前不可改变、无行动，说明以后可能满足', () => {
+  it('Maya × Rutgers：年级低于下限 → 当前不可改变、无行动，说明以后可能满足；四条团队建议准备项都未覆盖（python 只有课程证据，不算项目）', () => {
     const g = analyzeGaps(P('sample-maya'), O('rutgers-newark-summer-research-2027'), [], TODAY);
     expect(g.eligibility_overall).toBe('not_eligible');
-    expect(counts(g)).toEqual([0, 0, 0, 1, 3]);
+    expect(counts(g)).toEqual([2, 2, 0, 1, 3]);
     const u = byId(g, 'unchangeable_eligibility:undergraduate');
     expect(u.action).toBeNull();
     expect(u.detail).toContain('as you move up a grade');
   });
 
-  it('Leo × DOE SULI：每周缺 30 小时、交通障碍、公民身份未知；10 年级不满足「13 年级及以上」', () => {
+  it('Leo × DOE SULI：简历草稿一条材料差距；每周缺 30 小时、交通障碍、公民身份未知；10 年级不满足「13 年级及以上」', () => {
     const g = analyzeGaps(P('sample-leo'), O('doe-suli-summer-2027'), [], TODAY);
-    expect(counts(g)).toEqual([0, 0, 2, 1, 6]);
+    expect(counts(g)).toEqual([0, 1, 2, 1, 6]);
     expect(byId(g, 'unchangeable_eligibility:postsecondary-level').action).toBeNull();
     expect(byId(g, 'time_and_cost:time').estimated_hours).toBe(30);
     expect(byId(g, 'time_and_cost:transport')).toBeDefined();

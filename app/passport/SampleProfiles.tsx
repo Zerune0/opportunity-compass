@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
-import profilesJson from "@/data/profiles.json";
+import { sampleProfiles as loadSampleProfiles } from "@/lib/data";
 import { clearProfile, saveProfile } from "@/lib/store";
 import type { StudentProfile } from "@/lib/types";
 import { validateProfile } from "@/lib/validation";
 
-// JSON literals widen to `string`; assert per CONTRACT.md, then validate each profile below.
-const sampleProfiles = (profilesJson as unknown as StudentProfile[]).map((profile) => ({
+// lib/data drops sample profiles that fail validation; problems stay here as a second check.
+const sampleProfiles = loadSampleProfiles().map((profile) => ({
   profile,
   problems: validateProfile(profile),
 }));

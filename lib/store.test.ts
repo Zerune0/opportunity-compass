@@ -605,6 +605,33 @@ describe('store 第二阶段：Quest Journal', () => {
     expect(recordJournalEvent('p-full', 'a', 'hacked' as never, '2026-11-11')).toBeNull();
   });
 
+  it('recordJournalEvent：接受更正事件与过去的日期；更正只改自己那一项，history 只追加', () => {
+    installFakeWindow();
+    upsertJournalEntry(journalEntry('a'));
+    recordJournalEvent('p-full', 'a', 'submitted', '2026-10-28'); // 补记：早于 added_on
+    recordJournalEvent('p-full', 'a', 'admitted', '2026-11-10');
+    recordJournalEvent('p-full', 'a', 'eligibility_confirmed', '2026-11-09');
+    recordJournalEvent('p-full', 'a', 'participated', '2026-11-11');
+    let e = recordJournalEvent('p-full', 'a', 'decision_cleared', '2026-11-12');
+    expect(e).toMatchObject({ application: 'submitted', submitted_on: '2026-10-28', eligibility_confirmation: 'confirmed', decision: 'pending', participated: true });
+    e = recordJournalEvent('p-full', 'a', 'eligibility_cleared', '2026-11-12');
+    expect(e).toMatchObject({ eligibility_confirmation: 'unconfirmed', decision: 'pending', participated: true });
+    e = recordJournalEvent('p-full', 'a', 'participation_cleared', '2026-11-12');
+    expect(e).toMatchObject({ application: 'submitted', participated: null });
+    expect(getJournalEntry('p-full', 'a')?.history).toEqual([
+      { event: 'added', on: '2026-11-01' },
+      { event: 'submitted', on: '2026-10-28' },
+      { event: 'admitted', on: '2026-11-10' },
+      { event: 'eligibility_confirmed', on: '2026-11-09' },
+      { event: 'participated', on: '2026-11-11' },
+      { event: 'decision_cleared', on: '2026-11-12' },
+      { event: 'eligibility_cleared', on: '2026-11-12' },
+      { event: 'participation_cleared', on: '2026-11-12' },
+    ]);
+    // 存储往返后新事件不会被 sanitize 丢掉
+    expect(loadJournal('p-full')[0].history).toHaveLength(8);
+  });
+
   it('recordJournalEvent：不合常理的顺序（没提交就记 admitted）不拦截，只记录', () => {
     installFakeWindow();
     upsertJournalEntry(journalEntry('a'));

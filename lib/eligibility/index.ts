@@ -6,7 +6,12 @@
  *
  * 规则：
  * - grade：profile.grade 没填 → unknown；否则按 min/max（缺一侧即该侧不限）比较。
- * - age：profile.age（今天的年龄）没填 → unknown。参考日 R = rule.as_of ?? opp.deadline。
+ * - age：年龄统一从 lib/eligibility/age.ts 取。
+ *   有可用的 profile.birth_date（合法、且不晚于 options.today）时：参考日 R = rule.as_of ?? opp.deadline
+ *   （都没有时用 options.today）当天的确切年龄 → satisfied / not_satisfied，不再给范围、不需要 today
+ *   （R 缺省且没有 today 时不算确切年龄，按下面的旧规则）；与 profile.age 矛盾（按 today 算）时以出生日期为准，
+ *   并在 explanation 里写明不一致。没有可用的出生日期时规则如下（与第一阶段完全相同）：
+ *   profile.age（今天的年龄）没填 → unknown。参考日 R = rule.as_of ?? opp.deadline。
  *   R 为空 → 直接用当前年龄比较；R 非空但没传 options.today → unknown；
  *   R = today → 候选年龄 [age]；
  *   R 早于 today → R 当天的年龄可能是 age−n−1 或 age−n（n = R 到 today 的完整年数；恰好整年时只有 age−n）；
@@ -40,7 +45,8 @@ import type {
   SkillLevel,
   StudentProfile,
 } from '../types';
-import { compareYMD, parseISODate, wholeYearsBetween } from './dates';
+import { ageRangeOn, birthDateAgeMismatch, exactAgeOnReference, usableBirthDate } from './age';
+import { compareYMD, parseISODate } from './dates';
 
 const SKILL_RANK: Record<SkillLevel, number> = { beginner: 1, intermediate: 2, advanced: 3 };
 const SKILL_LEVEL_ZH: Record<SkillLevel, string> = { beginner: 'beginner', intermediate: 'intermediate', advanced: 'advanced' };
@@ -120,6 +126,61 @@ function judgeAge(
   options: EvalOptions | undefined,
 ): Judgement {
   const range = rangeText(req.min, req.max, 'years');
+
+  // ── 有可用的出生日期：参考日当天的确切年龄（统一入口 lib/eligibility/age.ts），不再给范围 ──
+  const exact = exactAgeOnReference(profile.birth_date, req, opp, options);
+  if (exact != null) {
+    const ok = inRange(exact.age, req.min, req.max);
+    const mismatch = birthDateAgeMismatch(profile, options);
+    const mismatchNote =
+      mismatch == null
+        ? ''
+        : ` Note: your profile says you are ${mismatch.stated_age}, but your date of birth makes you ${mismatch.from_birth_date} today; we used your date of birth. Please fix whichever one is wrong in Skill Passport.`;
+    const where =
+      exact.on_which === 'today'
+        ? `The organizer does not say which date age is counted on, so we use today (${exact.on}): from your date of birth you are ${exact.age} years old`
+        : `Age is counted on ${exact.on_which === 'as_of' ? 'the official reference date' : 'the deadline'} (${exact.on}): from your date of birth you are ${exact.age} years old on that day`;
+    return {
+      status: ok ? 'satisfied' : 'not_satisfied',
+      explanation: `${where}; required: ${range}. ${ok ? 'Meets it.' : 'Does not meet it.'}${mismatchNote}`,
+      used_profile_fields: ['birth_date'],
+    };
+  }
+
+  // ── 出生日期填了但这次用不上：如实说明；其余按第一阶段的规则（没有出生日期时与之前完全相同） ──
+  const birthRaw = profile.birth_date;
+  const birthUsable = birthRaw != null && usableBirthDate(birthRaw, options) != null;
+  const birthNote =
+    birthRaw != null && !birthUsable
+      ? ` Your date of birth ("${String(birthRaw)}") is not a valid past date, so it was not used.`
+      : '';
+  if (profile.age == null && birthUsable) {
+    const refRawB = req.as_of ?? opp.deadline ?? null;
+    const why =
+      refRawB == null
+        ? "the organizer does not say which date age is counted on and today's date was not provided"
+        : parseISODate(refRawB) == null
+          ? `the date age is counted on (${refRawB}) can't be read`
+          : `the date age is counted on (${refRawB}) is before your date of birth`;
+    return {
+      status: 'unknown',
+      explanation: `This requires age ${range}. Your profile has a date of birth, but ${why}, so we can't tell.`,
+      used_profile_fields: ['birth_date'],
+      confirm: `Confirm with the organizer which date age is counted on and whether you qualify, using the official text: "${req.source_text}".`,
+    };
+  }
+  const j = judgeAgeFromStatedAge(req, profile, opp, options, range);
+  return birthNote === '' ? j : { ...j, explanation: `${j.explanation}${birthNote}` };
+}
+
+/** 第一阶段规则：只用今天的年龄 profile.age（没有可用的出生日期时）。 */
+function judgeAgeFromStatedAge(
+  req: Extract<Requirement, { type: 'age' }>,
+  profile: StudentProfile,
+  opp: Opportunity,
+  options: EvalOptions | undefined,
+  range: string,
+): Judgement {
   const fields = ['age'];
   const age = profile.age;
   if (age == null) {
@@ -167,16 +228,8 @@ function judgeAge(
     return judgeCurrent(`Age is counted on ${refWhich} (${refRaw}), which is today: `);
   }
 
-  let candidates: number[];
-  if (cmp < 0) {
-    // 参考日已过：那天的年龄 = 今天的年龄 − 期间经过的生日数（n 或 n+1）。
-    const { years, exact } = wholeYearsBetween(ref, today);
-    candidates = exact ? [age - years] : [age - years - 1, age - years];
-  } else {
-    // 参考日在未来：那天的年龄 = 今天的年龄 + 期间经过的生日数（n 或 n+1）。
-    const { years, exact } = wholeYearsBetween(today, ref);
-    candidates = exact ? [age + years] : [age + years, age + years + 1];
-  }
+  // 参考日已过 / 在未来：那天的年龄 = 今天的年龄 ∓ 期间经过的生日数（与 ageCandidates 同一算法）。
+  const candidates = ageRangeOn(age, ref, today);
   const verbWill = cmp < 0 ? 'were' : 'will be';
   const oks = candidates.map((a) => inRange(a, req.min, req.max));
   const candText = candidates.map((a) => `${a}`).join(' or ');
@@ -414,3 +467,6 @@ export function checkEligibility(
     items,
   };
 }
+
+export { ageOn } from './dates';
+export { exactAgeOnReference } from './age';

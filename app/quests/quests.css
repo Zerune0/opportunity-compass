@@ -1,0 +1,7 @@
+.quest-pages { min-width: 0; overflow-wrap: anywhere; }
+.quest-pages .rpg-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); align-items: end; }
+.quest-pages .rpg-field { min-width: 0; max-width: 100%; }
+.quest-pages select, .quest-pages input[type="number"] { min-width: 0; max-width: 100%; width: 100%; }
+.quest-pages .rpg-tag { white-space: normal; overflow-wrap: anywhere; }
+.quest-pages dd { margin-inline-start: 0; }
+.quest-pages blockquote { margin-inline: 0; padding-inline-start: 1rem; border-inline-start: 2px solid currentColor; }

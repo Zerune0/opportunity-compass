@@ -6,7 +6,7 @@
  *
  * - `validateOpportunity(value)`：单条机会。
  * - `validateOpportunities(value)`：机会数组（逐条检查 + 跨条目检查：id 全局唯一）。
- * - `validateProfile(value)`：单个学生档案。
+ * - `validateProfile(value, options?)`：单个学生档案（`options.today` 可选，用于检查出生日期不在未来）。
  * - `opportunityWarnings(opp)`：不算错误的提醒（不影响合格与否），例如字段为 null 会让可达性返回「无法判断」。
  *
  * 约定：
@@ -610,8 +610,11 @@ export function opportunityWarnings(opp: unknown): string[] {
 
 // ───────────────────────────── 学生档案 ─────────────────────────────
 
-/** 校验单个学生档案。返回中文问题列表，空数组 = 合格。不抛异常。 */
-export function validateProfile(value: unknown): string[] {
+/**
+ * 校验单个学生档案。返回中文问题列表，空数组 = 合格。不抛异常。
+ * 第二参数可选：传 `today`（`YYYY-MM-DD`）时，`birth_date` 晚于 today 报错（不读系统时钟，不传就不查未来日期）。
+ */
+export function validateProfile(value: unknown, options?: { today?: string | null }): string[] {
   const id = isObj(value) && isNonEmptyStr(value.id) ? value.id : null;
   const r = new Reporter(id ? `Profile "${id}"` : 'Profile (missing id)');
   if (!isObj(value)) {
@@ -627,6 +630,16 @@ export function validateProfile(value: unknown): string[] {
     r.add('grade', `a whole number from ${GRADE_MIN}–${GRADE_MAX} or null (optional)`, p.grade);
   }
   r.optNonNeg(p, 'age');
+  // birth_date：可缺省 / null；给出时必须是合法日期，且（传了 today 时）不能晚于 today。
+  if (p.birth_date != null) {
+    if (!isStrictISODate(p.birth_date)) r.add('birth_date', 'a valid date YYYY-MM-DD or null (optional)', p.birth_date);
+    else {
+      const today = isStrictISODate(options?.today) ? parseISODate(options.today) : null;
+      if (today != null && compareYMD(parseISODate(p.birth_date)!, today) > 0) {
+        r.add('birth_date', `a date no later than today (${options!.today})`, p.birth_date);
+      }
+    }
+  }
 
   const region = p.region;
   if (region != null) {

@@ -1,14 +1,21 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { QuestCard, RpgButton } from "@/components/rpg";
 import { loadProfile, saveProfile } from "@/lib/store";
 import { validateProfile, TRANSPORT_LEVELS, DEVICE_TYPES, STUDENT_STATUSES, SKILL_LEVELS } from "@/lib/validation";
+import { ageOn } from "@/lib/eligibility/dates";
 import type { StudentProfile, StudentSkill } from "@/lib/types";
 
 const devices = DEVICE_TYPES;
 const statuses = STUDENT_STATUSES;
 const levels = SKILL_LEVELS;
+
+/** Local calendar date as YYYY-MM-DD. Call only after mount (effects and event handlers). */
+function localToday(): string {
+  const date = new Date();
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+}
 
 export function ProfileEditor({ profile, onSave }: {
   profile: StudentProfile | null;
@@ -16,6 +23,16 @@ export function ProfileEditor({ profile, onSave }: {
 }) {
   const [message, setMessage] = useState("");
   const [skills, setSkills] = useState(profile?.skills ?? []);
+  const [ageInput, setAgeInput] = useState(profile?.age != null ? String(profile.age) : "");
+  const [birthDate, setBirthDate] = useState(profile?.birth_date ?? "");
+  // Today's date is read after mount (no clock reads during render).
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setToday(localToday()));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  const ageFromBirth = today && birthDate ? ageOn(birthDate, today) : null;
+  const ageMismatch = ageFromBirth !== null && ageInput.trim() !== "" && Number(ageInput) !== ageFromBirth;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,6 +66,7 @@ export function ProfileEditor({ profile, onSave }: {
       display_name: current?.display_name ?? "My profile",
       evidence: current?.evidence ?? [],
       grade: number("grade"), age: number("age"),
+      birth_date: value("birth_date") === "" ? null : value("birth_date"),
       region: country ? { ...current?.region, country, state: state || null, locality: locality ?? null } : null,
       hours_per_week_available: number("hours"), budget_usd: number("budget"),
       transport: transport ? { ...current?.transport, level: transport, max_one_way_minutes: number("commute") } : null,
@@ -60,8 +78,11 @@ export function ProfileEditor({ profile, onSave }: {
     };
     if (!next.citizenships?.length) next.citizenships = null;
     if (!next.interests?.length) next.interests = null;
-    if (validateProfile(next).length) {
-      setMessage("Check the grade, country codes, and skill entries, then try saving again.");
+    const problems = validateProfile(next, { today: today || localToday() });
+    if (problems.length) {
+      setMessage(problems.some((problem) => problem.includes("birth_date"))
+        ? "Check the date of birth: use a real date that is not in the future, or leave it blank."
+        : "Check the grade, country codes, and skill entries, then try saving again.");
       return;
     }
     if (!saveProfile(next)) {
@@ -79,7 +100,12 @@ export function ProfileEditor({ profile, onSave }: {
       <label>Grade (1–12 school, 13–16 undergraduate, 17 graduate)
         <input name="grade" type="number" min={1} max={17} defaultValue={profile?.grade ?? ""} />
       </label>
-      <label>Age <input name="age" type="number" min={0} defaultValue={profile?.age ?? ""} /></label>
+      <label>Age <input name="age" type="number" min={0} value={ageInput} onChange={(event) => setAgeInput(event.target.value)} /></label>
+      <label>Date of birth (optional)
+        <input name="birth_date" type="date" max={today || undefined} value={birthDate} onChange={(event) => setBirthDate(event.target.value)} aria-describedby="birth-date-help" />
+      </label>
+      <p id="birth-date-help">Only used to check age requirements exactly. Stays in this browser.</p>
+      {ageMismatch && <p role="note">Your date of birth makes you {ageFromBirth} today, but Age says {ageInput}. Age requirements use your date of birth.</p>}
       <label>Country code <input name="country" pattern="[A-Za-z]{2}" placeholder="US" defaultValue={profile?.region?.country ?? ""} /></label>
       <label>State or province code <input name="state" defaultValue={profile?.region?.state ?? ""} /></label>
       <label>Area type <select name="locality" defaultValue={profile?.region?.locality ?? ""}>

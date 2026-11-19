@@ -1,8 +1,12 @@
-import { Journal } from "./Journal";
+import type { Metadata } from "next";
+import { JournalPage } from "./JournalPage";
 
-export default async function JournalPage({ searchParams }: {
-  searchParams: Promise<{ opp?: string | string[] }>;
-}) {
-  const { opp } = await searchParams;
-  return <Journal opportunityId={typeof opp === "string" ? opp : undefined} />;
+export const metadata: Metadata = {
+  title: "Quest Journal · Opportunity Compass",
+  description:
+    "Your own record of the opportunities you are working on: application, organizer eligibility confirmation, admission decision and participation kept apart, your materials, and a joint plan across your quests. Stored only in this browser.",
+};
+
+export default function Page() {
+  return <JournalPage />;
 }

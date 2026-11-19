@@ -18,7 +18,9 @@ const navItems = [
   { href: "/quests", label: "Quests" },
   { href: "/map", label: "Map" },
   { href: "/passport", label: "Passport" },
+  { href: "/journal", label: "Journal" },
   { href: "/organizer", label: "Organizer" },
+  { href: "/data", label: "Your data" },
 ];
 
 export default function RootLayout({
@@ -27,7 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${bungee.variable} ${chivo.variable} ${silkscreen.variable}`}>
       <body className="min-h-screen antialiased">
-        <header className="shell-bar crt">
+        <header className="shell-bar crt print:hidden">
           <nav className="shell-bar__inner" aria-label="Main navigation">
             <Link href="/" className="shell-mark">
               Opportunity Compass

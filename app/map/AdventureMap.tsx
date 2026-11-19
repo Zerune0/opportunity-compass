@@ -1,28 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
-import { planRoutes } from "@/lib/path";
-import { loadProfile, loadGrants } from "@/lib/store";
-import { ReplayHistory } from "./ReplayHistory";
-import catalogJson from "@/data/opportunities.json";
+import { catalogOpportunities } from "@/lib/data";
 import { findAlternatives } from "@/lib/match";
-import type { Opportunity, ResourceGrant, StudentProfile } from "@/lib/types";
+import { planRoutes } from "@/lib/path";
+import { clearPlanSnapshots, latestPlanSnapshot, loadPlanSnapshots, loadProfile, pushPlanSnapshot } from "@/lib/store";
+import { nextSnapshot } from "./plan-snapshots";
+import { RecommendationReplay } from "./RecommendationReplay";
+import type { Opportunity, PlanSnapshot, StudentProfile } from "@/lib/types";
+
+const catalog = catalogOpportunities();
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
-  const [context, setContext] = useState<{ profile: StudentProfile | null; today: string; grants: ResourceGrant[] }>();
+  const [context, setContext] = useState<{ profile: StudentProfile | null; today: string }>();
   const [selected, setSelected] = useState<string>();
   const [classic, setClassic] = useState(false);
+  const [snapshots, setSnapshots] = useState<PlanSnapshot[]>([]);
 
   useEffect(() => {
     function refresh() {
       const date = new Date();
       const today = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
         .toISOString().slice(0, 10);
-      setContext({ profile: loadProfile(), today, grants: loadGrants() });
+      setContext({ profile: loadProfile(), today });
       setClassic(new URLSearchParams(window.location.search).get("view") === "classic");
     }
     const initialRead = window.setTimeout(refresh);
@@ -35,6 +39,30 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
     };
   }, []);
 
+  // Store a plan snapshot when the planning inputs changed since the latest one. Synchronous
+  // read-compare-write, so the second effect run in React strict mode finds the snapshot just
+  // stored and does not add a duplicate.
+  const syncSnapshots = useCallback(() => {
+    const current = context?.profile;
+    if (!opportunity || !context || !current) return [];
+    const plan = planRoutes(current, opportunity, { today: context.today });
+    const snapshot = nextSnapshot(latestPlanSnapshot(opportunity.id, current.id), plan, current, opportunity, context.today);
+    return snapshot ? pushPlanSnapshot(snapshot) : loadPlanSnapshots(opportunity.id, current.id);
+  }, [context, opportunity]);
+
+  useEffect(() => {
+    // localStorage is only available after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSnapshots(syncSnapshots());
+  }, [syncSnapshots]);
+
+  function clearReplay() {
+    if (!opportunity) return;
+    if (!window.confirm("Clear the replay history for this opportunity? This removes it for every profile in this browser and cannot be undone.")) return;
+    clearPlanSnapshots(opportunity.id);
+    setSnapshots(syncSnapshots());
+  }
+
   if (!opportunity) return (
     <div className="rpg-head crt">
       <h1>Adventure Map</h1>
@@ -46,9 +74,11 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
   const profile = context?.profile;
   const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today }) : null;
   const route = plan?.routes.find((item) => item.id === selected) ?? plan?.routes[0];
+
   const alternatives = profile && context
-    ? findAlternatives(profile, opportunity, catalogJson as Opportunity[], { today: context.today, grants: context.grants })
+    ? findAlternatives(profile, opportunity, catalog, { today: context.today })
     : [];
+
   return (
     <div className="rpg-stack rpg-stack--loose">
       <header className="rpg-head crt">
@@ -61,7 +91,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         <div className="rpg-row">
           {!opportunity.is_sample && <a className="rpg-button rpg-button--primary" href={opportunity.official_url}>Go directly to the official application</a>}
           <a className="rpg-button rpg-button--secondary" href={passport}>Open Skill Passport</a>
-          <Link className="rpg-button rpg-button--secondary" href={`/journal?opp=${encodeURIComponent(opportunity.id)}`}>Add to Quest Journal</Link>
+          <Link className="rpg-button rpg-button--secondary" href={`/quests/${encodeURIComponent(opportunity.id)}`}>Details and Quest Journal</Link>
         </div>
       </header>
       {!context && <p role="status">Loading profile…</p>}
@@ -77,12 +107,12 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         <section className="rpg-stack rpg-stack--loose" aria-label="Preparation routes">
           {plan.warnings.map((warning, index) => <p key={index} className="rpg-muted">{warning}</p>)}
           <RpgButton variant="secondary" aria-pressed={classic} onClick={() => {
-            const nextClassic = !classic;
+            const next = !classic;
+            setClassic(next);
             const url = new URL(window.location.href);
-            if (nextClassic) url.searchParams.set("view", "classic");
+            if (next) url.searchParams.set("view", "classic");
             else url.searchParams.delete("view");
             window.history.replaceState(null, "", url);
-            setClassic(nextClassic);
           }}>Classic View</RpgButton>
           {classic ? (
             <table className="rpg-classic-table">
@@ -182,14 +212,16 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       )}
       {alternatives.length > 0 && <QuestCard>
         <h2>Other opportunities and future rounds</h2>
-        <ul>{alternatives.map((alternative, index) => <li key={index}>
+        <ul className="rpg-list">{alternatives.map((alternative, index) => <li key={index}>
           {alternative.kind === "same_field" && alternative.opportunity_id
             ? <Link href={`/quests/${encodeURIComponent(alternative.opportunity_id)}`}>{alternative.title}</Link>
             : <strong>{alternative.title} · Future round</strong>}
           <p>{alternative.reason}</p>
         </li>)}</ul>
       </QuestCard>}
-      {profile && context && <ReplayHistory profile={profile} opportunity={opportunity} today={context.today} />}
+      {plan && profile && snapshots.length > 0 && (
+        <RecommendationReplay snapshots={snapshots} isSample={profile.is_sample} onClear={clearReplay} />
+      )}
     </div>
   );
 }
