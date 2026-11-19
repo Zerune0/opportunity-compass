@@ -865,7 +865,8 @@ function teamSizeText(min: number | null, max: number | null): string | null {
 /**
  * opp.team_requirement（第四阶段）：
  * - 是对象且 required === true → materials 类一条（id `materials:team_requirement`，basis 为 requirement、
- *   requirement_id `team_requirement`、source_text 为官网原文，没有原文时为空字符串），写明人数范围（有就写）与官网原文；
+ *   requirement_id `team_requirement`、source_text 为官网原文；没有原文时 basis 改为 missing_field
+ *   `opportunity.team_requirement`，不造空字符串），写明人数范围（有就写）与官网原文；
  *   行动：组队并按官网要求确认人数。放在 materials 组末尾（准备差距之后）。
  * - 是对象且 required === null → unknown_info 类一条（id `unknown_info:team_requirement`，basis 为 missing_field
  *   `opportunity.team_requirement`）：官网没写清是否要组队，向主办方确认。放在 missing_info 各条之前。
@@ -887,7 +888,11 @@ function teamRequirementItems(o: Opportunity, groups: Record<GapCategory, GapIte
         (size
           ? `The organizer requires you to take part as a team of ${size}.`
           : 'The organizer requires you to take part as a team; the team size is not recorded.') + official,
-        { kind: 'requirement', requirement_id: 'team_requirement', source_text: src ?? '' },
+        // GapBasis 的 requirement 种类要求有原文字符串；没有原文时不造空字符串（页面会把它当原文渲染），
+        // 改用 missing_field，与本文件其他「没有原文」的处理一致（不编原文）。
+        src != null
+          ? { kind: 'requirement', requirement_id: 'team_requirement', source_text: src }
+          : { kind: 'missing_field', field: 'opportunity.team_requirement' },
         `Find teammates${size ? ` (${size})` : ''} before you apply, and check the team rules on the official page.`,
       ),
     );

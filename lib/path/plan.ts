@@ -29,7 +29,9 @@
  *    - 路线 = 其他步骤照旧，被替代的那个准备项换成「参加 <候选标题>」一步（id `competition-<候选 id>`，
  *      related_opportunity_id = 候选 id，依赖沿用被替代项；原本依赖被替代项的步骤改为依赖这一步），按 practice_first 的方式排序；
  *    - 小时 = hours_per_week × total_weeks、费用 = cost.fee_usd，取自候选记录；为 null 时按 0 计入并加 warning
- *      （"…so this route's total is a minimum." / "…total cost is a minimum."）；线下且不确定无差旅费时提醒差旅费未计入；
+ *      （"…so this route's total is a minimum." / "…total cost is a minimum."）；小时未知时合计只是下限，
+ *      feasible_by_deadline 若按下限算出 true 则改报 null（无法判断，并加 "We can't tell yet…" 提醒），下限已放不下的 false 保留；
+ *      线下且不确定无差旅费时提醒差旅费未计入；
  *    - 说明固定包含 "This is one way to build evidence. It is not an official requirement of <目标标题>."；
  *      official = team_suggestion，relation 写明替代了哪个准备项；合计、feasible_by_deadline、预算提醒走 buildRoute。
  *    - 不传 options.catalog 时与以前完全相同（只多了下一条的三个说明字段）。
@@ -646,6 +648,12 @@ function competitionRoute(opp: Opportunity, items: BaseStep[], pick: Competition
 
   if (hours == null) {
     route.warnings.push(`The time needed for ${c.title} is not stated by its organizer, so this route's total is a minimum.`);
+    // 合计只是下限：下限放得下不代表来得及 → 与其他信息不足一样报 null（「无法判断」），不报 true；
+    // 下限都放不下时 false 仍然成立，保留。
+    if (route.feasible_by_deadline === true) {
+      route.feasible_by_deadline = null;
+      route.warnings.push(`We can't tell yet if you can finish before the deadline: the time needed for ${c.title} is not stated by its organizer.`);
+    }
   }
   if (fee == null) {
     route.warnings.push(`The cost of ${c.title} is not stated by its organizer, so this route's total cost is a minimum.`);

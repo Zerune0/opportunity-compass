@@ -106,8 +106,8 @@
 - 生成条件（全部满足）：候选来自共用筛选且类别为 `hackathon` 或 `competition`；`options.today`、目标 `deadline`、候选 `time_commitment.end_date` 都可解析，且 **today ≤ end_date < 目标截止日期**（任一不清楚就不生成——无法确认能在截止前完成时不给）；候选的 `links` 里有目标的一个**未被证据覆盖的实践类准备项**（口径同 practice_first：`evidence_kind` ∈ project / portfolio / competition_result / work_experience / volunteer_experience）。取候选顺序中第一个满足的候选、它对应的第一个这样的准备项。
 - 路线 = 其他步骤照旧，被替代的准备项换成「参加 <候选标题>」一步：`id` = `competition-<候选 id>`（与准备项 id 冲突时不生成），`related_opportunity_id` = 候选 id，`prep_item_id` = null，依赖沿用被替代项（原本依赖被替代项的步骤改为依赖这一步），按 practice_first 的方式排序；`hours` = 候选 `hours_per_week × total_weeks`，`cost_usd` = 候选 `cost.fee_usd`；为 null 时按 0 计入并加 warning（"The time needed for <标题> is not stated by its organizer, so this route's total is a minimum." / "The cost of <标题> is not stated by its organizer, so this route's total cost is a minimum."）；候选不是线上且没写明无差旅费时提醒差旅费未计入；候选资格为 unknown、或被替代项是申请必需项时各加一条提醒。
 - 这一步的 `description` 固定包含 `This is one way to build evidence. It is not an official requirement of <目标标题>.`，并写明替代了哪个准备项、日期与官网链接；`official` = `team_suggestion`；`relation` = `Builds <种类> evidence in place of the prep item "<准备项标题>". Suggested by our team; not tied to a requirement stated by the organizer.`；`evidence_needed` = 被替代项的种类。
-- 合计、`estimated_weeks`、`feasible_by_deadline`、预算与截止提醒全部走现有逻辑（小时未知时 `feasible_by_deadline` 按下限计算，warning 已说明合计是下限）。
-- **不传 `options.catalog` 时不生成 competition**，去掉三个说明字段后的结果与 0905b62 逐字相同（`lib/contract-p4.test.ts` 用改动前引擎生成的基线钉住）。
+- 合计、`estimated_weeks`、`feasible_by_deadline`、预算与截止提醒走现有逻辑；**例外：候选小时未知时合计只是下限**，按下限算出 `feasible_by_deadline: true` 时改报 `null`（无法判断，与其他信息不足一致，并加 "We can't tell yet if you can finish before the deadline: the time needed for <标题> is not stated by its organizer."），下限都放不下时 `false` 保留。费用未知时照常生成，`feasible_by_deadline` 不受影响，只加「合计费用是下限」的 warning。
+- **不传 `options.catalog` 时不生成 competition**，去掉三个说明字段后的结果与 0905b62 逐字相同（`lib/contract-p4.test.ts` 用改动前引擎生成的基线对照；基线按数据指纹记录，**只在记录时的数据快照上运行**，数据变了就跳过、不失败）。任何数据上都成立的性质（传 / 不传 catalog 时非 competition 路线完全相同等）由 `lib/engine-p4.test.ts` 在真实目录上始终检查。
 
 **`RouteStep` 的三个说明字段（`planRoutes` 每一步都填）**
 - 准备项：`official` = `official_requirement` 当且仅当 `required_for_application === true`、`source_text` 是非空字符串、且 `source_text` 不含 "team" 一词或 "not an official"（数据里团队建议写作 "Team suggestion…" / "…not an official application requirement…"）；**其余一律 `team_suggestion`**（判别不了时宁可少标官方）。`relation`：能对上一条官方要求（与 `analyzeGaps` 找「能补上要求的准备项」同口径：技能要求看 `skill`；作品要求看 `skill` 与 `evidence_kind` / `material_kind`）→ `Works toward "<要求标题>", which the organizer lists as a requirement / a plus (not required).`；否则官方准备项 → `Prepares "<准备项标题>", which the organizer lists as needed to apply.`；否则 `Suggested by our team; not tied to a requirement stated by the organizer.`。`evidence_needed` = `material_kind ?? evidence_kind ?? null`。
@@ -121,11 +121,11 @@
   - (b) 目录里 `location.format === 'online'`、非 `user_posted`、与目标至少一个共同领域标签、给了 `today` 时截止没过、`checkEligibility` 不出错且不是 `not_eligible` 的其他机会（已是 stepping_stone 的除外），最多 3 条，排序 eligible 在 unknown 前 → 共同标签多 → 截止早（null 最后）→ id。(a) 在 (b) 前。
 
 **`analyzeGaps` 的组队要求**
-- `team_requirement` 是对象且 `required === true` → `materials` 组末尾加一条（`id` `materials:team_requirement`；`basis` = `{ kind: 'requirement', requirement_id: 'team_requirement', source_text: <官网原文，没有时为 ''> }`；标题带人数范围，如 "Team needed (2–4 people)" / "(exactly 3 people)" / "(at least 2 people)"；`detail` 附官网原文；`action` 为组队并查看官网组队规则；小时 / 费用为 null）。
+- `team_requirement` 是对象且 `required === true` → `materials` 组末尾加一条（`id` `materials:team_requirement`；`basis` = `{ kind: 'requirement', requirement_id: 'team_requirement', source_text: <官网原文> }`，**没有官网原文时**改为 `{ kind: 'missing_field', field: 'opportunity.team_requirement' }`（不用空字符串冒充原文）；标题带人数范围，如 "Team needed (2–4 people)" / "(exactly 3 people)" / "(at least 2 people)"；`detail` 附官网原文；`action` 为组队并查看官网组队规则；小时 / 费用为 null）。
 - `required === null` → `unknown_info` 组里、`missing_info` 各条之前加一条（`id` `unknown_info:team_requirement`；`basis` = `{ kind: 'missing_field', field: 'opportunity.team_requirement' }`；行动为向主办方确认是否要组队、几个人）。
 - `required === false`、字段缺失、`team_requirement: null` 或不是对象 → 不加，结果逐字不变。不新增障碍类型，不影响 `eligibility_overall` / `reachable`。
 
-**真实数据上的结果**（4 个示例档案 × 12 条机会，today = 2026-11-19，`lib/engine-p4.test.ts` 钉住）：competition 0 条（唯一的 hackathon `mlh-open-source-week-2026` 领域为 software_development / open_source，与其他 11 条都没有交集）；stepping_stone 0 条（同一原因：目录里没有能对上的候选）；remote_option 2 条——`sample-leo` 与 `sample-noor` 在 `dan-herbatschek-fellowship-2027`（hybrid，二人交通受限）上的 (a)「向官方确认」；没有 (b)。现有 12 条机会都没有 `team_requirement`，`analyzeGaps` 结果不变。这三类在虚构数据上都有测试证明能生成。
+**真实数据上的结果（截至 2026-11-19 的数据，仅供参考；测试不写死这些条数，数据由队友 A 继续更新）**（4 个示例档案 × 12 条机会，today = 2026-11-19）：competition 0 条（唯一的 hackathon `mlh-open-source-week-2026` 领域为 software_development / open_source，与其他 11 条都没有交集）；stepping_stone 0 条（同一原因：目录里没有能对上的候选）；remote_option 2 条——`sample-leo` 与 `sample-noor` 在 `dan-herbatschek-fellowship-2027`（hybrid，二人交通受限）上的 (a)「向官方确认」；没有 (b)。现有 12 条机会都没有 `team_requirement`，`analyzeGaps` 结果不变。这三类在虚构数据上都有测试证明能生成。
 
 **领域标签的比较**：`Opportunity.fields` 与档案的 `interests` 比较时一律用 `lib/tags.ts` 的 `normalizeTag`（去首尾空格、转小写，连续的空白 / 下划线 / 连字符合并成一个下划线，所以 `Data-Science`、`data science`、`data_science` 视为同一标签）；页面做领域筛选、兴趣匹配时也必须用它（或 `normalizedTagSet` / `sharedTags`），不要自己写 `===`。归一化只用于比较，给学生看的标签保留数据原本的写法。数据里推荐统一写成小写加下划线。
 
@@ -845,10 +845,11 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - **`lib/metrics/` 本轮归 Charles**；`package.json` 的 `metrics` 脚本等他确定入口文件后再加。
 - 2026-11-19：**第四阶段第 1 层：引擎实现**（向后兼容；规则见「① 类型一览」末尾「第四阶段第 1 层：引擎规则」）：
   - 新文件 `lib/match/evidence-building.ts`：共用筛选 `findEvidenceBuildingCandidates`（已核实目录、非 user_posted、非目标自身、截止没过、资格不是 not_eligible、领域标签有交集**并且**类别产出能对上目标还缺的证据）。
-  - `planRoutes`：传了 `options.catalog` 时可能在最后多一条 `competition` 路线（`routes` 现为 2–4 条）；每个步骤都填 `relation` / `official` / `evidence_needed`。**不传 `catalog` 时**去掉这三个字段后与 0905b62 逐字相同（基线钉在 `lib/contract-p4.test.ts`；按数据指纹记录 0905b62 与 3509d8e 两份数据的基线，数据再变时测试会明确报错，需用改动前的引擎重新生成）。
+  - `planRoutes`：传了 `options.catalog` 时可能在最后多一条 `competition` 路线（`routes` 现为 2–4 条）；每个步骤都填 `relation` / `official` / `evidence_needed`。**不传 `catalog` 时**去掉这三个字段后与 0905b62 逐字相同（基线钉在 `lib/contract-p4.test.ts`；按数据指纹记录 0905b62 与 3509d8e 两份数据的基线；数据变了这两条对照跳过、不失败，标题注明 "runs only on the data snapshots it was recorded for"）。
   - `findAlternatives`：新增 `stepping_stone`、`remote_option`；被归入新类的机会不再出现在 `same_field`（同一机会只出现一次）。没有新类出现的输入上旧两类不变。
   - `analyzeGaps`：读 `team_requirement`（`required` 为 true → materials 一条；null → unknown_info 一条；其余不变）。
   - `lib/types.ts` 只加了可选字段 `RouteStep.related_opportunity_id?: string | null` 与注释更新；已有字段与联合类型未改。
   - 页面暂未传 `catalog`，所以 competition 路线在页面上还不会出现；`findAlternatives` 的两类新建议页面已能收到（Quest Details 等已为新 kind 准备了默认文字）。
-  - 真实数据上：competition 0、stepping_stone 0、remote_option 2（`sample-leo` / `sample-noor` × `dan-herbatschek-fellowship-2027`）。
-  - 测试：`lib/engine-p4.test.ts`（三项功能与共用筛选的正向 / 反向 / blocked / 真实目录）、`lib/fairness-p4.test.ts`（只改学校名 / 显示名结果不变）；`lib/contract-p4.test.ts` 中原来两条 "contract only" 测试按新行为改写。
+  - 真实数据上（截至 2026-11-19 的数据）：competition 0、stepping_stone 0、remote_option 2（`sample-leo` / `sample-noor` × `dan-herbatschek-fellowship-2027`）。测试不写死这些条数。
+  - 竞赛候选小时未知时 `feasible_by_deadline` 不报 true（改报 null）；组队要求没有官网原文时 basis 为 missing_field。
+  - 测试：`lib/engine-p4.test.ts`（三项功能与共用筛选的正向 / 反向 / blocked；真实目录上只断言不随数据变化的性质，并在「真实目录 + 虚构机会」上确认三类都实际出现）、`lib/fairness-p4.test.ts`（只改学校名 / 显示名结果不变）；`lib/contract-p4.test.ts` 中原来两条 "contract only" 测试按新行为改写。

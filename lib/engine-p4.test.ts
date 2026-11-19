@@ -6,10 +6,13 @@
  * - RouteStep 的 relation / official / evidence_needed；analyzeGaps 读 team_requirement
  *
  * 机会与学生都是本文件里的虚构数据（example.com、is_sample: true），不是真实机会。
- * 真实目录上的结果（数量很少，如实钉住）见文末「真实目录」一节。
+ * 真实目录上只断言不随数据变化的性质（见文末）；截至 2026-11-19 的具体条数记在 README / CONTRACT。
  */
 import { describe, expect, it } from 'vitest';
 import { catalogOpportunities, sampleProfiles } from './data';
+import { checkEligibility } from './eligibility';
+import { analyzeReachability } from './reachability';
+import { normalizedTagSet, sharedTags } from './tags';
 import { analyzeGaps } from './gap';
 import { findAlternatives } from './match';
 import { CONFIRM_ONLINE, STEPPING_STONE_NOTE } from './match';
@@ -239,6 +242,23 @@ describe('planRoutes：新手竞赛路线', () => {
     expect(r.steps[1].cost_usd).toBe(0);
     expect(r.warnings).toContain(`The time needed for ${HACK.title} is not stated by its organizer, so this route's total is a minimum.`);
     expect(r.warnings).toContain(`The cost of ${HACK.title} is not stated by its organizer, so this route's total cost is a minimum.`);
+    // 小时未知：下限放得下也不报 true，报 null（无法判断）。
+    expect(r.feasible_by_deadline).toBeNull();
+    expect(r.warnings).toContain(`We can't tell yet if you can finish before the deadline: the time needed for ${HACK.title} is not stated by its organizer.`);
+  });
+
+  it('小时未知、但下限都已放不下 → feasible_by_deadline 仍为 false', () => {
+    const hack = { ...HACK, time_commitment: { ...HACK.time_commitment, hours_per_week: null } };
+    const busy = { ...STUDENT, hours_per_week_available: 0.1 };
+    const r = competitionOf(planRoutes(busy, TARGET, { today: TODAY, catalog: [hack] })) as Route;
+    expect(r.feasible_by_deadline).toBe(false);
+  });
+
+  it('只有费用未知时照常生成，feasible_by_deadline 按现有逻辑（不受影响）', () => {
+    const hack = { ...HACK, cost: { fee_usd: null, requires_travel_expense: false } };
+    const r = competitionOf(planRoutes(STUDENT, TARGET, { today: TODAY, catalog: [hack] })) as Route;
+    expect(r.feasible_by_deadline).toBe(true);
+    expect(r.warnings).toEqual([`The cost of ${HACK.title} is not stated by its organizer, so this route's total cost is a minimum.`]);
   });
 
   it('有费用时计入合计与预算提醒', () => {
@@ -559,6 +579,9 @@ describe('analyzeGaps：team_requirement', () => {
     const none = withTeam({ required: true, source_text: null }).items.find((i) => i.id === 'materials:team_requirement');
     expect(none?.title).toBe('Team needed');
     expect(none?.detail).toBe('The organizer requires you to take part as a team; the team size is not recorded.');
+    // 没有官网原文：basis 不用空字符串冒充原文。
+    expect(none?.basis).toEqual({ kind: 'missing_field', field: 'opportunity.team_requirement' });
+    expect(JSON.stringify(none)).not.toContain('""');
   });
 
   it('required === null → unknown_info 一条（向官方确认）', () => {
@@ -579,63 +602,142 @@ describe('analyzeGaps：team_requirement', () => {
   });
 });
 
-// ───────────────────────────── 真实目录（如实钉住） ─────────────────────────────
+// ───────────────────────────── 真实目录：只断言不随数据变化的性质 ─────────────────────────────
+// data/opportunities.json 由队友 A 维护、会继续变化，这里不写死条数或具体组合（截至 2026-11-19 的条数记在 README / CONTRACT）。
+// 同一组性质也在「真实目录 + 本文件的虚构机会」上跑一遍，并要求三类新结果都确实出现，证明这些检查不是空转。
 
-describe('真实目录：4 个示例档案 × 12 条机会', () => {
-  const profiles = sampleProfiles();
-  const catalog = catalogOpportunities();
+const FIELD_TARGET_HYBRID: Opportunity = { ...TARGET, id: 'p4-inv-hybrid', title: 'Fictional Invariant Hybrid (sample, not real)', location: { format: 'hybrid', country: 'US', state: 'CA' } };
+const FIELD_TARGET_PF: Opportunity = {
+  ...TARGET,
+  id: 'p4-inv-pf',
+  requirements: [...TARGET.requirements, { id: 'req-pf', type: 'portfolio', evidence_kind: 'project', label: 'A project you built', hard: true, source_text: 'Submit one project you built.' }],
+};
+const FIELD_ONLINE: Opportunity = { ...HACK, id: 'p4-inv-online', title: 'Fictional Invariant Online Club (sample, not real)', category: 'other' };
+const FICTIONAL_EXTRA = [TARGET, FIELD_TARGET_HYBRID, FIELD_TARGET_PF, HACK, FIELD_ONLINE];
+const FICTIONAL_STUDENTS: StudentProfile[] = [STUDENT, { ...STUDENT, id: 'p4-inv-no-car', transport: { level: 'none' } }];
 
-  function tally(today: string) {
-    const out: string[] = [];
-    for (const p of profiles) {
-      for (const o of catalog) {
-        for (const r of routesOf(planRoutes(p, o, { today, catalog }))) if (r.type === 'competition') out.push(`competition ${p.id} × ${o.id}`);
-        for (const a of findAlternatives(p, o, catalog, { today })) {
-          if (a.kind === 'stepping_stone' || a.kind === 'remote_option') out.push(`${a.kind} ${p.id} × ${o.id} → ${a.opportunity_id}`);
+const KIND_ORDER = ['next_cycle', 'same_field', 'stepping_stone', 'remote_option'];
+const STRIP = (r: Route): Route => ({
+  ...r,
+  steps: r.steps.map((s) => {
+    const { relation: _r, official: _o, evidence_needed: _e, ...rest } = s;
+    void _r;
+    void _o;
+    void _e;
+    return rest;
+  }),
+});
+
+interface Seen {
+  competition: number;
+  stepping_stone: number;
+  remote_option: number;
+}
+
+function checkInvariants(profiles: StudentProfile[], catalog: Opportunity[], today: string): Seen {
+  const seen: Seen = { competition: 0, stepping_stone: 0, remote_option: 0 };
+  const byId = new Map(catalog.map((o) => [o.id, o]));
+  const dayOf = (d: string | null | undefined) => (typeof d === 'string' ? d : null);
+  for (const p of profiles) {
+    for (const o of catalog) {
+      const without = planRoutes(p, o, { today });
+      const withCat = planRoutes(p, o, { today, catalog });
+      // 不传 catalog 时没有 competition；非 competition 路线两边完全相同，去掉三个说明字段后也相同。
+      expect(routesOf(without).some((r) => r.type === 'competition')).toBe(false);
+      expect(withCat.status).toBe(without.status);
+      expect(routesOf(withCat).filter((r) => r.type !== 'competition')).toStrictEqual(routesOf(without));
+      expect(routesOf(withCat).filter((r) => r.type !== 'competition').map(STRIP)).toStrictEqual(routesOf(without).map(STRIP));
+      if (withCat.status === 'blocked') expect(withCat.routes).toEqual([]);
+
+      for (const r of routesOf(withCat)) {
+        for (const st of r.steps) {
+          // official_requirement 只可能来自满足三条判别条件的准备项。
+          if (st.official === 'official_requirement') {
+            const pr = o.preparation.find((x) => x.id === st.prep_item_id);
+            expect(pr).toBeDefined();
+            expect(pr?.required_for_application).toBe(true);
+            expect(typeof pr?.source_text === 'string' && pr.source_text.trim() !== '').toBe(true);
+            expect(pr?.source_text ?? '').not.toMatch(/\bteam\b|not an official/i);
+          }
         }
+        if (r.type !== 'competition') continue;
+        seen.competition++;
+        expect(r).toBe(routesOf(withCat)[routesOf(withCat).length - 1]);
+        const step = r.steps.find((st) => st.related_opportunity_id != null);
+        expect(step).toBeDefined();
+        if (!step) continue;
+        const cand = byId.get(step.related_opportunity_id as string);
+        expect(cand).toBeDefined();
+        if (!cand) continue;
+        expect(cand.id).not.toBe(o.id);
+        expect(['hackathon', 'competition']).toContain(cand.category);
+        expect(cand.source_tier ?? 'official').not.toBe('user_posted');
+        expect(sharedTags(cand.fields, normalizedTagSet(o.fields)).length).toBeGreaterThan(0);
+        const end = dayOf(cand.time_commitment.end_date);
+        expect(end).not.toBeNull();
+        expect((end as string) < (o.deadline as string)).toBe(true);
+        expect((end as string) >= today).toBe(true);
+        expect(checkEligibility(p, cand, { today }).overall).not.toBe('not_eligible');
+        expect(step.description).toContain(competitionDisclaimer(o.title));
+        expect(step.official).toBe('team_suggestion');
+        expect(step.id).toBe(`competition-${cand.id}`);
       }
-    }
-    return out;
-  }
 
-  it('数据规模', () => {
-    expect(profiles.map((p) => p.id)).toEqual(['sample-maya', 'sample-leo', 'sample-ana', 'sample-noor']);
-    expect(catalog).toHaveLength(12);
-    // 唯一的竞赛类机会是 mlh-open-source-week-2026，领域 software_development / open_source，与其他 11 条都没有交集。
-    expect(catalog.filter((o) => o.category === 'hackathon' || o.category === 'competition').map((o) => o.id)).toEqual(['mlh-open-source-week-2026']);
-  });
-
-  it('today = 2026-11-19：competition 0 条、stepping_stone 0 条、remote_option 2 条（都是 hybrid 目标自身的「向官方确认」）', () => {
-    expect(tally('2026-11-19')).toEqual([
-      'remote_option sample-leo × dan-herbatschek-fellowship-2027 → dan-herbatschek-fellowship-2027',
-      'remote_option sample-noor × dan-herbatschek-fellowship-2027 → dan-herbatschek-fellowship-2027',
-    ]);
-  });
-
-  it('today = 2027-02-01（多数截止已过）：三类都是 0 条——Dan Herbatschek 截止已过，不再给 (a)；目录里没有可积累证据的候选', () => {
-    expect(tally('2027-02-01')).toEqual([]);
-  });
-
-  it('没有任何团队建议的准备项被标成 official_requirement（真实目录全部准备项都是团队建议）', () => {
-    for (const o of catalog) for (const pr of o.preparation) expect(prepOfficial(pr)).toBe('team_suggestion');
-    let steps = 0;
-    for (const p of profiles) {
-      for (const o of catalog) {
-        for (const r of routesOf(planRoutes(p, o, { today: TODAY, catalog }))) {
-          for (const s of r.steps) {
-            steps++;
-            const pr = o.preparation.find((x) => x.id === s.prep_item_id);
-            if (pr && /team suggestion/i.test(pr.source_text ?? '')) expect(s.official).toBe('team_suggestion');
-            expect(s.official).not.toBe('official_requirement');
+      const alts = findAlternatives(p, o, catalog, { today });
+      const idx = alts.map((a) => KIND_ORDER.indexOf(a.kind));
+      expect(idx).toEqual([...idx].sort((x, y) => x - y));
+      const others = new Map<string, string[]>();
+      for (const a of alts) if (a.opportunity_id != null) others.set(a.opportunity_id, [...(others.get(a.opportunity_id) ?? []), a.kind]);
+      for (const a of alts) {
+        if (a.kind === 'stepping_stone') {
+          seen.stepping_stone++;
+          expect(byId.has(a.opportunity_id as string)).toBe(true);
+          expect(a.opportunity_id).not.toBe(o.id);
+          expect(a.eligibility_overall).not.toBe('not_eligible');
+          expect(a.reason).toContain(STEPPING_STONE_NOTE);
+          expect(a.shared_fields.length).toBeGreaterThan(0);
+          expect(others.get(a.opportunity_id as string)).toEqual(['stepping_stone']);
+        }
+        if (a.kind === 'remote_option') {
+          seen.remote_option++;
+          const r = analyzeReachability(p, o, [], { today });
+          expect(r.barriers.some((b) => b.type === 'transport' && !b.resolved)).toBe(true);
+          if (a.opportunity_id === o.id) {
+            expect(o.location.format).toBe('hybrid');
+            expect(a.reason.startsWith(CONFIRM_ONLINE)).toBe(true);
+          } else {
+            const c = byId.get(a.opportunity_id as string);
+            expect(c?.location.format).toBe('online');
+            expect(a.eligibility_overall).not.toBe('not_eligible');
+            expect(others.get(a.opportunity_id as string)).toEqual(['remote_option']);
           }
         }
       }
+
+      // 组队要求：有且只有 required 为 true / null 时出现对应条目。
+      const team = o.team_requirement;
+      const gapIds = analyzeGaps(p, o, [], { today }).items.map((i) => i.id);
+      expect(gapIds.includes('materials:team_requirement')).toBe(team != null && team.required === true);
+      expect(gapIds.includes('unknown_info:team_requirement')).toBe(team != null && team.required === null);
     }
-    expect(steps).toBeGreaterThan(0);
+  }
+  return seen;
+}
+
+describe('真实目录：不随数据变化的性质', () => {
+  const profiles = sampleProfiles();
+  const catalog = catalogOpportunities();
+
+  it.each(['2026-11-19', '2027-02-01'])('示例档案 × 真实目录（today = %s）', (today) => {
+    expect(profiles.length).toBeGreaterThan(0);
+    expect(catalog.length).toBeGreaterThan(0);
+    checkInvariants(profiles, catalog, today);
   });
 
-  it('真实目录没有 team_requirement 字段，analyzeGaps 不出现组队条目', () => {
-    expect(catalog.some((o) => o.team_requirement !== undefined)).toBe(false);
-    for (const p of profiles) for (const o of catalog) expect(analyzeGaps(p, o, [], { today: TODAY }).items.some((i) => i.id.includes('team_requirement'))).toBe(false);
+  it('同一组性质在「真实目录 + 虚构机会」上也成立，且三类新结果都确实出现（检查不是空转）', () => {
+    const seen = checkInvariants([...profiles, ...FICTIONAL_STUDENTS], [...catalog, ...FICTIONAL_EXTRA], TODAY);
+    expect(seen.competition).toBeGreaterThan(0);
+    expect(seen.stepping_stone).toBeGreaterThan(0);
+    expect(seen.remote_option).toBeGreaterThan(0);
   });
 });
