@@ -18,7 +18,14 @@ import {
   storageKey,
   STORE_KEYS,
 } from '@/lib/store';
-import { bridgeGrantId, buildClientBridgeInfo, decideBridge, rosterStudentId } from '@/lib/joint/bridge';
+import { findCatalogOpportunity, sampleProfiles } from '@/lib/data';
+import {
+  bridgeGrantId,
+  buildClientBridgeInfo,
+  decideBridge,
+  opportunitiesNeedingLocalCopy,
+  rosterStudentId,
+} from '@/lib/joint/bridge';
 import { DEVICE_LOAN_IDS as IDS, SCENARIOS, anonymizeScenarioForClient, deviceLoanScenario } from '@/lib/joint/scenarios';
 import { defaultWhatIfInput, runWhatIfWithPlan } from '@/lib/joint/whatif';
 import type { ResourceGrant, Scenario, StudentProfile } from '@/lib/types';
@@ -373,5 +380,60 @@ describe('学生端目录里没有的机会：存成本地示例副本', () => {
     installFakeWindow();
     failWrites();
     expect(storeLocalOpportunities([opp])).toEqual({ ok: false });
+  });
+});
+
+describe('shared-support（仓库里的真实数据）：页面的整条路径，含本地示例副本', () => {
+  it('Maya 在默认方案的分配里 → 存副本 + 写入 → 学生端可达 → 撤回 → 不可达，副本保留', () => {
+    const entry = SCENARIOS.find((e) => e.id === 'shared-support');
+    expect(entry, 'shared-support is listed').toBeDefined();
+    const original = entry!.scenario;
+    const anonymized = anonymizeScenarioForClient(original);
+    const catalogIds = original.opportunities.filter((o) => findCatalogOpportunity(o.id) !== null).map((o) => o.id);
+    const info = buildClientBridgeInfo({
+      original,
+      anonymized,
+      loadableProfileIds: sampleProfiles().map((p) => p.id),
+      catalogOpportunityIds: catalogIds,
+      provider: entry!.sampleOrganizer,
+    });
+    // 「有 Quest Details 页面」只认目录里的机会；不在目录里的必须走本地副本，否则链接打不开。
+    expect(info.quest_opportunity_ids).toEqual(catalogIds);
+    const maya = sampleProfiles().find((p) => p.id === 'sample-maya')!;
+    const anonId = rosterStudentId(info.roster, maya.id);
+    expect(anonId).not.toBeNull();
+
+    const { plan } = runWhatIfWithPlan(anonymized, defaultWhatIfInput(anonymized), entry!.suggestedFairnessFloors);
+    const decision = decideBridge({
+      scenarioId: anonymized.id,
+      plan,
+      profile: { id: maya.id, is_sample: maya.is_sample === true },
+      scenarioStudentId: anonId,
+      provider: info.provider,
+    });
+    expect(decision.state).toBe('ready');
+    expect(decision.grants.every((g) => g.provider === 'Sample community partner (simulated)')).toBe(true);
+
+    const copies = opportunitiesNeedingLocalCopy({
+      scenarioOpportunities: anonymized.opportunities,
+      grantOpportunityIds: decision.opportunity_ids,
+      catalogOpportunityIds: info.quest_opportunity_ids,
+    });
+    expect(copies.map((o) => o.id)).toEqual(decision.opportunity_ids.filter((id) => !catalogIds.includes(id)));
+
+    installFakeWindow();
+    const today = { today: original.evaluation_date };
+    expect(storeLocalOpportunities(copies)).toEqual({ ok: true });
+    expect(applyBridgeGrants(decision.grants)).toEqual({ ok: true });
+    for (const oppId of decision.opportunity_ids) {
+      // 学生端能打开的那一份：目录里的，或刚存的本地副本。
+      const seen = findCatalogOpportunity(oppId) ?? loadUserPostedOpportunities().find((o) => o.id === oppId);
+      expect(seen, `student side can open ${oppId}`).toBeDefined();
+      expect(analyzeReachability(maya, seen!, grantsFor(maya.id, oppId), today).reachable).toBe(true);
+      expect(analyzeReachability(maya, seen!, [], today).reachable).toBe(false);
+    }
+    expect(undoBridgeGrants(anonymized)).toEqual({ ok: true, removed: decision.grants.length });
+    expect(loadGrants()).toEqual([]);
+    expect(readLocalOpportunityIds(copies.map((o) => o.id))).toEqual(copies.map((o) => o.id));
   });
 });

@@ -197,9 +197,11 @@ export default function StudentBridge({
         <p className="font-semibold">{BRIDGE_DEMO_NOTICE}</p>
       </div>
       <p className="text-sm text-gray-700">{EXPLANATION}</p>
-      {scenario.opportunities.some((o) => !bridge.quest_opportunity_ids.includes(o.id)) && (
-        <p className="text-sm text-gray-700">{LOCAL_COPY_NOTE}</p>
-      )}
+      {/* 只在本场景真的可能写入（有可载入的示例档案）且机会不在学生端目录里时才说明。 */}
+      {Object.keys(bridge.roster).length > 0 &&
+        scenario.opportunities.some((o) => !bridge.quest_opportunity_ids.includes(o.id)) && (
+          <p className="text-sm text-gray-700">{LOCAL_COPY_NOTE}</p>
+        )}
 
       {local === null ? (
         <p className="text-sm text-gray-700">{CHECKING_TEXT}</p>
