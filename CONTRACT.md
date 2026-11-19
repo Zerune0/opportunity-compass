@@ -522,6 +522,14 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
 
 第一阶段（不变）：`loadProfile / saveProfile / clearProfile`、`loadEvidence / addEvidence / removeEvidence`（证据存在档案里）、`loadSavedOpportunityIds / saveSavedOpportunityIds / toggleSavedOpportunity / clearSavedOpportunityIds`、`loadGrants / saveGrants / grantsFor / clearGrants`、`clearAll`（现在也会清除第二阶段新增的键）。
 
+**主办方 grants：追加与按 id 撤回**（第三阶段新增；上面四个 grants 函数的行为不变）
+- **页面不要直接操作 localStorage，也不要为了加 / 删几条而先 `loadGrants` 再整体 `saveGrants`**：主办方端的桥用 `addGrants` 写入、`removeGrants` 撤回；学生端照旧用 `grantsFor` / `loadGrants` 读取。
+- `addGrants(grants: ResourceGrant[]): ResourceGrant[]` —— 追加：过不了 `isGrant` 的条目（如缺 `opportunity_id`、缺 `id` / `student_id`、不是对象）丢弃；**每条一律强制 `is_sample: true`**（本应用里所有支持都是模拟的，学生端靠它显示 "Simulated support"；与 `lib/backup.ts` 导入时的做法一致；不修改调用方传入的对象）；按 `id` 去重——同 id 的新条目替换已存的旧条目（保持旧条目的位置），同一批里同 id 以最后一条为准；新 id 接在末尾。返回写入后存储里的完整列表。传入的不是数组、或没有合法条目时不写入，返回当前列表。
+- `removeGrants(ids: string[]): ResourceGrant[]` —— 只删除给定 id 的条目，别的学生、别的机会、别的键都不动；id 不存在不报错；非字符串的 id 忽略；传入的不是数组视为空。返回剩余列表。
+- `grantsByIntervention(interventionId: string): ResourceGrant[]` —— 某个措施（`Intervention.id`）写出的全部 grants（所有学生、所有机会）；没有 `intervention_id` 的不取。用途：主办方页面刷新后找回「这次应用写入了哪些」，再交给 `removeGrants` 撤回（建议桥写入时带上 `intervention_id`，并用可区分的 id，例如以措施 id 为前缀）。
+- 失败不抛异常：SSR、存储被禁用或写入失败（如配额满）时，`addGrants` / `removeGrants` 返回存储里实际的（未改变的）列表——SSR 下为 `[]`。调用方检查返回列表里是否包含（或已不含）这些 id 来判断是否成功。`addGrants` / `removeGrants` 写回的是 `loadGrants()` 读得出来的列表，所以存储里原本就读不出来的非法条目会被顺手清掉。`grantsByIntervention('')` 返回 `[]`。
+- 只有 `status: 'approved'` 的 grant 才化解障碍；写入 pending 的 grant 只会让学生端显示「尚未生效」的提示。可达 ≠ 录取。
+
 第二阶段新增（新键：`journal`、`materials`、`plan_snapshots`、`user_posted_opportunities`、`share_settings`、`invitations`）。**Journal 与材料都按 `profile_id` 隔离**：同一浏览器里可能切换示例档案，各档案的 Journal、材料互不影响；读写时都带上当前档案的 `profile_id`。
 
 **档案与证据**
@@ -773,3 +781,4 @@ npm run lint       # ESLint（开 PR 前必须通过）
 - 2026-11-18：**数据加载层 `lib/data.ts`**（新增，向后兼容）：`loadCatalog` / `loadSampleProfiles` / `catalogOpportunities` / `findCatalogOpportunity` / `sampleProfiles`，加载时用 `lib/validation.ts` 校验，坏记录不进页面（规则见「数据加载」一节）。页面（Quests、Quest Journal、Skill Passport、Adventure Map）改为通过它取数；当前数据全部通过，页面行为不变。`lib/data.test.ts` 把仓库数据钉住（全部通过、id 唯一、底线字段齐全、无 `user_posted`、示例档案全部 `is_sample: true`）。
 - 2026-11-18：**日历导出 `lib/calendar.ts`**（新增，向后兼容）：`buildDeadlineCalendar` 把 Quest Journal 中机会的截止日期（可选加参与期）生成 iCalendar 文本，全天事件、不含提醒、截止时间只写在说明里，返回被跳过的机会；规则见「日历导出」一节。Quest Journal 的 "Plan across my quests" 新增 "Add deadlines to my calendar (.ics)" 与 "Print this plan"（只作用于本页的 `print:` 样式，不改全局 CSS）。
 - 2026-11-18：**数据备份 `lib/backup.ts`**（新增，向后兼容）：`buildBackup` / `parseBackup` / `summarizeBackup` / `backupFileName` / `collectBackupData` / `applyBackup`，规则见「数据备份」一节；`lib/store.ts` 只读导出 `STORE_VALIDATORS`（已有的单条校验函数，行为不变）。新页面 `/data`（"Your data"，导航最后一项）：查看各类条数、导出 JSON、导入前先预览并对照、确认后整体替换、全部清除。
+- 2026-11-18：**第三阶段：grants 追加与按 id 撤回**（全部向后兼容：`lib/store.ts` 新增 `addGrants` / `removeGrants` / `grantsByIntervention`；`loadGrants` / `saveGrants` / `grantsFor` / `clearGrants` / `isGrant` 的行为不变，存储键不变）：供主办方端的桥在求解通过后把批准的资源写成 grants，并只撤回这次写入的那几条。`addGrants` 丢弃非法条目、按 id 去重（同 id 替换）、一律强制 `is_sample: true`；`removeGrants` 只删给定 id。规则见「浏览器存储」一节。页面暂未调用（主办方端的写回操作尚未做）。测试：`lib/store.test.ts`；`lib/demo-mainline.test.ts` 新增「演示最后一幕」一组用例（含 store 往返）。

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   addEvidence,
+  addGrants,
   clearAll,
+  grantsByIntervention,
+  removeGrants,
   grantsFor,
   loadGrants,
   saveGrants,
@@ -966,5 +969,155 @@ describe('store 第二阶段：clearAll', () => {
     }
     clearAll();
     expect(data.size).toBe(0);
+  });
+});
+
+// ═════════════════════════════ 第三阶段：grants 追加与按 id 撤回 ═════════════════════════════
+
+describe('store 第三阶段：addGrants / removeGrants / grantsByIntervention', () => {
+  const base = { type: 'device' as const, device: 'laptop' as const, status: 'approved' as const, provider: 'Example Org（虚构）' };
+  const g = (id: string, extra: Partial<ResourceGrant> = {}): ResourceGrant => ({
+    ...base,
+    id,
+    student_id: 'p1',
+    opportunity_id: 'opp-a',
+    is_sample: true,
+    ...extra,
+  });
+
+  it('无 window（SSR）：不抛异常，返回 []', () => {
+    expect(typeof window).toBe('undefined');
+    expect(() => addGrants([g('g1')])).not.toThrow();
+    expect(addGrants([g('g1')])).toEqual([]);
+    expect(removeGrants(['g1'])).toEqual([]);
+    expect(grantsByIntervention('iv-1')).toEqual([]);
+  });
+
+  it('localStorage 访问抛错或写入失败（如配额满）：不抛异常，返回存储里未改变的列表', () => {
+    const data = installFakeWindow();
+    expect(saveGrants([g('g-old')])).toBe(true);
+    const storage = (globalThis as unknown as { window: { localStorage: Storage } }).window.localStorage;
+    storage.setItem = () => {
+      throw new Error('QuotaExceededError');
+    };
+    expect(addGrants([g('g-new')]).map((x) => x.id)).toEqual(['g-old']);
+    expect(removeGrants(['g-old']).map((x) => x.id)).toEqual(['g-old']);
+    expect(JSON.parse(data.get(storageKey(STORE_KEYS.grants))!).map((x: ResourceGrant) => x.id)).toEqual(['g-old']);
+
+    // 访问 localStorage 本身就抛错（某些隐私模式）
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        get localStorage(): Storage {
+          throw new Error('SecurityError');
+        },
+      },
+    });
+    expect(addGrants([g('g-new')])).toEqual([]);
+    expect(removeGrants(['g-old'])).toEqual([]);
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it('追加：保留已有条目，新条目接在后面，返回写入后的完整列表', () => {
+    installFakeWindow();
+    expect(saveGrants([g('g1')])).toBe(true);
+    const next = addGrants([g('g2'), g('g3', { student_id: 'p2' })]);
+    expect(next.map((x) => x.id)).toEqual(['g1', 'g2', 'g3']);
+    expect(loadGrants()).toEqual(next);
+  });
+
+  it('同 id 的新条目替换旧条目（保持原位置）；同一批里同 id 以最后一条为准', () => {
+    installFakeWindow();
+    addGrants([g('g1', { status: 'pending' }), g('g2')]);
+    const next = addGrants([g('g1', { status: 'approved' }), g('g3', { amount_usd: 1 }), g('g3', { amount_usd: 2 })]);
+    expect(next.map((x) => x.id)).toEqual(['g1', 'g2', 'g3']);
+    expect(next[0].status).toBe('approved');
+    expect(next[2].amount_usd).toBe(2);
+  });
+
+  it('非法条目（过不了 isGrant）丢弃，合法的照常写入', () => {
+    installFakeWindow();
+    const missingOpp = { ...base, id: 'g-bad', student_id: 'p1', is_sample: true } as unknown as ResourceGrant;
+    const noId = { ...base, student_id: 'p1', opportunity_id: 'opp-a', is_sample: true } as unknown as ResourceGrant;
+    const next = addGrants([missingOpp, g('g-ok'), noId, 'x' as unknown as ResourceGrant, null as unknown as ResourceGrant]);
+    expect(next.map((x) => x.id)).toEqual(['g-ok']);
+  });
+
+  it('每条一律强制 is_sample: true（包括传入 false 或缺失的）', () => {
+    installFakeWindow();
+    const unmarked = { ...g('g-false'), is_sample: false };
+    const missing = { ...g('g-missing') } as Partial<ResourceGrant>;
+    delete missing.is_sample;
+    const next = addGrants([unmarked, missing as ResourceGrant]);
+    expect(next.map((x) => x.is_sample)).toEqual([true, true]);
+    expect(loadGrants().every((x) => x.is_sample === true)).toBe(true);
+    // 不修改调用方传入的对象
+    expect(unmarked.is_sample).toBe(false);
+  });
+
+  it('空数组与坏输入：不写入，返回当前列表', () => {
+    const data = installFakeWindow();
+    expect(addGrants([])).toEqual([]);
+    expect(data.has(storageKey(STORE_KEYS.grants))).toBe(false);
+    saveGrants([g('g1')]);
+    expect(addGrants(null as unknown as ResourceGrant[]).map((x) => x.id)).toEqual(['g1']);
+    expect(addGrants('g2' as unknown as ResourceGrant[]).map((x) => x.id)).toEqual(['g1']);
+    expect(removeGrants([]).map((x) => x.id)).toEqual(['g1']);
+    expect(removeGrants(undefined as unknown as string[]).map((x) => x.id)).toEqual(['g1']);
+    expect(removeGrants([42, null] as unknown as string[]).map((x) => x.id)).toEqual(['g1']);
+  });
+
+  it('removeGrants 只删指定 id；id 不存在不报错；不影响其他学生的 grant 和其他键', () => {
+    const data = installFakeWindow();
+    saveProfile(PROFILE);
+    toggleSavedOpportunity('opp-a');
+    addGrants([g('g1'), g('g2', { student_id: 'p2' }), g('g3', { opportunity_id: null })]);
+    const before = new Map(data);
+
+    expect(removeGrants(['g1', 'no-such-id']).map((x) => x.id)).toEqual(['g2', 'g3']);
+    expect(grantsFor('p2', 'opp-a').map((x) => x.id)).toEqual(['g2']);
+    expect(grantsFor('p1', 'opp-a').map((x) => x.id)).toEqual(['g3']);
+    for (const [k, v] of before) if (k !== storageKey(STORE_KEYS.grants)) expect(data.get(k)).toBe(v);
+
+    expect(removeGrants(['no-such-id']).map((x) => x.id)).toEqual(['g2', 'g3']);
+    expect(removeGrants(['g2', 'g3'])).toEqual([]);
+    expect(loadGrants()).toEqual([]);
+  });
+
+  it('addGrants 不影响别的键（档案、收藏）', () => {
+    const data = installFakeWindow();
+    saveProfile(PROFILE);
+    toggleSavedOpportunity('opp-a');
+    const profileRaw = data.get(storageKey(STORE_KEYS.profile));
+    const savedRaw = data.get(storageKey(STORE_KEYS.savedOpportunityIds));
+    addGrants([g('g1')]);
+    expect(data.get(storageKey(STORE_KEYS.profile))).toBe(profileRaw);
+    expect(data.get(storageKey(STORE_KEYS.savedOpportunityIds))).toBe(savedRaw);
+  });
+
+  it('grantsByIntervention：按 intervention_id 取（所有学生、所有机会），没有 intervention_id 的不取', () => {
+    installFakeWindow();
+    addGrants([
+      g('g1', { intervention_id: 'iv-1' }),
+      g('g2', { intervention_id: 'iv-1', student_id: 'p2', opportunity_id: 'opp-b' }),
+      g('g3', { intervention_id: 'iv-2' }),
+      g('g4'),
+      g('g5', { intervention_id: null }),
+    ]);
+    expect(grantsByIntervention('iv-1').map((x) => x.id)).toEqual(['g1', 'g2']);
+    expect(grantsByIntervention('iv-9')).toEqual([]);
+    // 空串不算措施 id：存了 intervention_id 为 '' 的条目也不会被取出（否则会被一并撤回）
+    addGrants([g('g6', { intervention_id: '' })]);
+    expect(grantsByIntervention('')).toEqual([]);
+    removeGrants(['g6']);
+    // 撤销「某次应用」：按措施找回再按 id 删除，别的不动
+    expect(removeGrants(grantsByIntervention('iv-1').map((x) => x.id)).map((x) => x.id)).toEqual(['g3', 'g4', 'g5']);
+  });
+
+  it('saveGrants / loadGrants 行为不变：saveGrants 不强制 is_sample', () => {
+    installFakeWindow();
+    const unmarked = { ...g('g1'), is_sample: false };
+    expect(saveGrants([unmarked])).toBe(true);
+    expect(loadGrants()[0].is_sample).toBe(false);
   });
 });
