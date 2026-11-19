@@ -1,12 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { readBoardQuery, writeBoardQuery } from "./board-discovery";
 import { saveSavedOpportunityIds } from "../../lib/store";
 import { normalizeTag } from "../../lib/tags";
 import { VerificationAge } from "./verification-age-badge";
 import type { Opportunity } from "../../lib/types";
-import { emptyFilters, filterCatalog, orderedCatalog, type BoardFilters } from "./board-model";
+import { emptyFilters, filterCatalog, explainCatalog, orderPreparedCatalog, type BoardFilters } from "./board-model";
 import { sourceLabels, useQuestContext } from "./use-quest-context";
 import { SavedComparison } from "./saved-comparison";
 const categories: Record<Opportunity["category"], string> = { research: "Research", scholarship: "Scholarship", hackathon: "Hackathon", competition: "Competition", internship: "Internship", fellowship: "Fellowship", summer_program: "Summer program", public_service: "Public service", project: "Project", other: "Other" };
@@ -56,7 +56,8 @@ export default function QuestBoard() {
     const fields = [...new Set(context.catalog.flatMap(o => o.fields.map(normalizeTag)))].sort();
     const countries = [...new Set(context.catalog.map(o => o.location.country).filter((v): v is string => !!v))].sort();
     const states = [...new Set(context.catalog.filter(o => !filters.country || o.location.country === filters.country).map(o => o.location.state).filter((v): v is string => !!v))].sort();
-    const { items, explanations } = orderedCatalog(filterCatalog(context.catalog, filters, saved, context.today), sort, context.profile, context.grants, context.today);
+    const explanations = useMemo(() => explainCatalog(context.catalog, context.profile, context.grants, context.today), [context.catalog, context.profile, context.grants, context.today]);
+    const items = orderPreparedCatalog(filterCatalog(context.catalog, filters, saved, context.today), sort, !!context.profile, explanations);
     const hiddenUnknownFees = filters.maxFee ? filterCatalog(context.catalog, { ...filters, maxFee: "" }, saved, context.today).filter(o => o.cost.fee_usd == null).length : 0;
     function toggle(id: string) { const next = saved.includes(id) ? saved.filter(v => v !== id) : [...saved, id]; if (saveSavedOpportunityIds(next)) {
         context.setSaved(next);
