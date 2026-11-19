@@ -31,6 +31,12 @@ describe('Quest Board discovery safeguards', () => {
         expect(filterCatalog([rutgers], { ...emptyFilters, grade: '10' }, [])).toEqual([]);
         expect(filterCatalog([rutgers], { ...emptyFilters, grade: '13' }, [])).toEqual([rutgers]);
     });
+    it('the "Online or hybrid" filter excludes an unknown format; without the filter it stays listed', () => {
+        const at = (id: string, format: Opportunity['location']['format']): Opportunity => ({ ...base, id, location: { format, country: null, state: null, city: null } });
+        const list = [at('on', 'online'), at('hy', 'hybrid'), at('ip', 'in_person'), at('unk', 'unknown')];
+        expect(filterCatalog(list, { ...emptyFilters, remote: true }, []).map(o => o.id)).toEqual(['on', 'hy']);
+        expect(filterCatalog(list, emptyFilters, []).map(o => o.id)).toEqual(['on', 'hy', 'ip', 'unk']);
+    });
     it('places unknown deadlines after known deadlines', () => {
         const unknown = { ...base, id: 'unknown', deadline: null };
         const known = { ...base, id: 'known', deadline: '2027-01-01' };

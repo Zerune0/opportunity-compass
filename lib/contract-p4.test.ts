@@ -329,7 +329,7 @@ function fnv1a(str: string): string {
 
 /**
  * 序列化哈希依赖 data/*.json 的内容，所以按数据指纹（目录 + 示例档案的序列化哈希）分别记录，
- * 都是用第四阶段第 1 层之前的引擎（0905b62）算出的。数据变了（指纹未知）时相关测试跳过，不失败；
+ * 用不含第四阶段第 1 层的引擎（origin/main 8f8b87a）算出；main 上的引擎再变时需重新生成。数据变了（指纹未知）时相关测试跳过，不失败；
  * 想恢复这项对照，需用改动前的引擎在新数据上重新生成（不要直接改成当前输出）。
  * BASELINE_DIGESTS 在这两份数据上相同。
  */
@@ -343,8 +343,8 @@ interface Baseline {
 }
 
 const BASELINE_HASHES: Record<string, Baseline> = {
-  c738bec7: { label: 'data at 0905b62', plan: '04e20ec5', alternatives: 'f4ac4dab', gaps: 'cd27af04' },
-  aea3ba98: { label: 'data at origin/main 3509d8e', plan: '09311aab', alternatives: '4a7b4cff', gaps: 'dbe476c8', diff: 'f8b41e6e' },
+  // 由 origin/main 8f8b87a（含「参与形式未知」改动、不含第四阶段第 1 层）的引擎在这份数据上生成。
+  aea3ba98: { label: 'data at origin/main 3509d8e–8f8b87a', plan: '09311aab', alternatives: '4a7b4cff', gaps: '13286278', diff: 'f8b41e6e' },
 };
 
 /** 当前数据命中已知基线时返回它，否则 null（不抛错）。 */

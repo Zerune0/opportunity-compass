@@ -7,7 +7,7 @@ import type { Opportunity } from "../../lib/types";
 import { emptyFilters, filterCatalog, orderedCatalog, type BoardFilters } from "./board-model";
 import { sourceLabels, useQuestContext } from "./use-quest-context";
 const categories: Record<Opportunity["category"], string> = { research: "Research", scholarship: "Scholarship", hackathon: "Hackathon", competition: "Competition", internship: "Internship", fellowship: "Fellowship", summer_program: "Summer program", public_service: "Public service", project: "Project", other: "Other" };
-const formats = { online: "Online", hybrid: "Hybrid", in_person: "In person" };
+const formats: Record<Opportunity["location"]["format"], string> = { online: "Online", hybrid: "Hybrid", in_person: "In person", unknown: "Format unknown" };
 export default function QuestBoard() {
     const context = useQuestContext();
     const [filters, setFilters] = useState(emptyFilters);
@@ -51,7 +51,7 @@ export default function QuestBoard() {
  <p className="rpg-row"><span className="rpg-tag">{categories[o.category]}</span><span className="rpg-tag">{formats[o.location.format]}</span></p>
  {o.source_tier === "user_posted" ? <p className="rpg-tag rpg-tag--warning">User-posted · not verified against an official site · Sample</p> : o.is_sample && <p className="rpg-tag rpg-tag--warning">Sample opportunity</p>}
  <h2><Link href={`/quests/${encodeURIComponent(o.id)}`}>{o.title}</Link></h2><p>{o.organizer}</p><p>{o.summary}</p>
- <dl><dt>Deadline</dt><dd>{o.deadline ?? "Unknown, confirm with the organizer"}</dd><dt>Location</dt><dd>{[o.location.city, o.location.state, o.location.country].filter(Boolean).join(", ") || (o.location.format === "online" ? "Online" : "Unknown, confirm with the organizer")}</dd>
+ <dl><dt>Deadline</dt><dd>{o.deadline ?? "Unknown, confirm with the organizer"}</dd><dt>Location</dt><dd>{[o.location.city, o.location.state, o.location.country].filter(Boolean).join(", ") || (o.location.format === "online" ? "Online" : o.location.format === "unknown" ? "Format unknown — confirm with the organizer" : "Unknown, confirm with the organizer")}</dd>
  <dt>Time</dt><dd>{o.time_commitment.hours_per_week == null ? "Weekly hours unknown" : `${o.time_commitment.hours_per_week} h/week`}; {o.time_commitment.total_weeks == null ? "duration unknown" : `${o.time_commitment.total_weeks} ${o.time_commitment.total_weeks === 1 ? "week" : "weeks"}`}</dd>
  <dt>Program fee</dt><dd>{o.cost.fee_usd == null ? "Unknown, confirm with the organizer" : o.cost.fee_usd === 0 ? "Free" : `$${o.cost.fee_usd}`}</dd><dt>Source</dt><dd>{sourceLabels[o.source_tier ?? "official"]}</dd><dt>{o.source_tier === "user_posted" ? "Sample record date" : "Verified"}</dt><dd>{o.verified_on}</dd></dl>
  {sort === "match" && explanations.get(o.id)?.reasons.map(r => <p key={r.kind}>{r.text}</p>)}
