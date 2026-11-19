@@ -734,7 +734,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-18",
     "required_devices": [],
     "preparation": [
       {
@@ -753,7 +753,8 @@
     ],
     "time_commitment": {
       "hours_per_week": null,
-      "total_weeks": null
+      "total_weeks": null,
+      "note": "The official program description states 12 months, including mentorship, practical projects and a final showcase. This is not converted into an exact number of weeks; weekly hours remain unconfirmed. Human verification: Jiale Li, 2026-11-18. Source: https://www.herbatschekfellowship.org/fellowship"
     },
     "cost": {
       "fee_usd": null,
@@ -774,8 +775,8 @@
     "deadline": "2027-01-15",
     "deadline_note": "2:00 PM Eastern Time",
     "location": {
-      "format": "hybrid",
-      "note": "Online application. The fellowship's required attendance locations and format need confirmation.",
+      "format": "unknown",
+      "note": "Participation format is not stated on the official fellowship or application pages. Online application submission does not establish online or hybrid participation. Human verification: Jiale Li, 2026-11-18. Sources: https://www.herbatschekfellowship.org/fellowship ; https://www.herbatschekfellowship.org/apply",
       "country": null,
       "state": null,
       "city": null
