@@ -55,6 +55,13 @@ describe("verification age display", () => {
     it("does not label user-posted sample records as officially verified", () => {
         expect(renderToStaticMarkup(React.createElement(VerificationAge, { opportunity: { ...opportunity, source_tier: "user_posted" }, today: "2026-11-19" }))).toBe("");
     });
+    it("does not link a stale sample record to an official page", () => {
+        const page = renderToStaticMarkup(React.createElement(VerificationAge, { opportunity: { ...opportunity, is_sample: true }, today: "2026-11-19" }));
+        expect(page).toContain("more than 30 days ago");
+        expect(page).not.toContain("href=");
+        expect(page).not.toContain("Confirm current details on the official page");
+        expect(page).toContain("This is a sample record with no official page.");
+    });
     it("hides while the reference date is loading", () => {
         expect(renderToStaticMarkup(React.createElement(VerificationAge, { opportunity, today: "" }))).toBe("");
     });
