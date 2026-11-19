@@ -1,7 +1,8 @@
 /**
  * Talent Board 的示例邀请（./invitations）：理由只由分享的内容拼成、没有分数；发送前的拒绝规则（对所有档案都必须选任务、
- * 回应过的不能重发）；发布者端文字不透露保护状态；内存版浏览器存储里的完整流程（发送 → 列出 → 接受 / 拒绝；
- * 任务找不到时不能接受；屏蔽 → 隐藏且不能再发；受保护档案；撤回分享保留句柄）。
+ * 回应过的不能重发、同一发布者对同一句柄最多 1 条待回应）；发布者端文字与行为不透露保护状态；学生端收件箱
+ * （受保护时待回应的收起、不能接受）；内存版浏览器存储里的完整流程（发送 → 列出 → 接受 / 拒绝；
+ * 任务找不到时不能接受；屏蔽 → 隐藏且不能再发 → 解除屏蔽；受保护档案；撤回分享保留句柄）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -22,24 +23,33 @@ import {
   ACCEPTED_QUEST_GONE_LABEL,
   ACTION_STATUS,
   ANSWERED_REFUSAL,
+  BLOCK_HINT,
   BLOCKED_REFUSAL,
   CHOOSE_PUBLISHER_REFUSAL,
   DUPLICATE_QUEST_REFUSAL,
   NOTHING_SHARED_REFUSAL,
   NOT_ACCEPTABLE_NOTICE,
   PUBLISHER_PANE_TEXT,
+  PUBLISHER_PENDING_REFUSAL,
   PUBLISHER_REFUSALS,
   QUEST_REQUIRED_REFUSAL,
-  REPORT_HINT,
+  REVIEW_HELD_LABEL,
+  STRICT_NO_ACCEPT_NOTICE,
   TRY_AGAIN_REFUSAL,
   actionMessage,
+  actionsFor,
   blockedLine,
+  heldNotice,
+  inboxAllows,
+  invitationInbox,
   invitationList,
   invitationReasons,
   planInvitation,
   publisherQuests,
   sentMessage,
+  unblockTargets,
   type InvitationRequest,
+  type InvitationRow,
 } from './invitations';
 import { protectionFor, unprotected, type Protection } from './protection';
 import { samplePublishers } from './publishers';
@@ -195,6 +205,9 @@ describe('planInvitation：拒绝规则（对所有档案相同）', () => {
     ['同一任务已有待回应的邀请', { existing: [old()] }, DUPLICATE_QUEST_REFUSAL],
     ['同一任务已被拒绝过', { existing: [old({ status: 'declined' })] }, ANSWERED_REFUSAL],
     ['同一任务已被接受过', { existing: [old({ status: 'accepted' })] }, ANSWERED_REFUSAL],
+    ['同一发布者对同一句柄已有待回应的邀请（另一个任务）', { existing: [old({ opportunity_id: QA2 })] }, PUBLISHER_PENDING_REFUSAL],
+    ['同一发布者已有待回应的旧邀请（没有任务）', { existing: [old({ opportunity_id: null })] }, PUBLISHER_PENDING_REFUSAL],
+    ['受保护：同一发布者已有待回应的邀请', { existing: [old({ opportunity_id: QA2 })], protection: PROTECTED }, PUBLISHER_PENDING_REFUSAL],
     ['id 重复', { existing: [old({ id: 'inv-new', opportunity_id: QA2, status: 'declined' })] }, TRY_AGAIN_REFUSAL],
     ['id 为空', { id: '' }, TRY_AGAIN_REFUSAL],
     ['今天不合法', { today: 'nope' }, TRY_AGAIN_REFUSAL],
@@ -209,6 +222,25 @@ describe('planInvitation：拒绝规则（对所有档案相同）', () => {
     expect(outcome(req({ publisher_id: B.id, quest_id: QB, existing: [old({ status: 'declined' })] }))).toBe('ok');
   });
 
+  it('限流：只数同一发布者 + 同一句柄的 pending；别的发布者或别的学生的待回应邀请不算', () => {
+    expect(PUBLISHER_PENDING_REFUSAL).toBe('Not sent. This sample publisher already has a pending invitation to this handle.');
+    expect(outcome(req({ existing: [old({ opportunity_id: QA2, share_handle: 'another-handle' })] }))).toBe('ok');
+    expect(outcome(req({ publisher_id: B.id, quest_id: QB, existing: [old({ opportunity_id: QA2 })] }))).toBe('ok');
+    expect(outcome(req({ existing: [old({ opportunity_id: QA2, status: 'declined' })] }))).toBe('ok');
+    expect(outcome(req({ existing: [old({ opportunity_id: QA2, status: 'accepted' })] }))).toBe('ok');
+  });
+
+  it('受保护与不受保护：同一请求得到完全相同的结果（成功时邀请也是 pending）', () => {
+    const view = { ...VIEW, collaboration_note: null };
+    for (const over of [{}, { existing: [old({ opportunity_id: QA2 })] }, { quest_id: null }, { blocked: [A.id] }] as Partial<InvitationRequest>[]) {
+      expect(planInvitation(req({ ...over, view, protection: PROTECTED }))).toEqual(
+        planInvitation(req({ ...over, view, protection: unprotected() })),
+      );
+    }
+    const plan = planInvitation(req({ view, protection: PROTECTED }));
+    expect(plan.ok && plan.invitation.status).toBe('pending');
+  });
+
   it('受保护：理由里不提合作说明', () => {
     const plan = planInvitation(req({ protection: PROTECTED }));
     if (!plan.ok) throw new Error(plan.message);
@@ -221,14 +253,42 @@ describe('planInvitation：拒绝规则（对所有档案相同）', () => {
     expect(publisherQuests(stored, '', PUBLISHERS)).toEqual([]);
   });
 
-  it('Report and block 只是屏蔽，提示写明不发送举报并建议找大人谈', () => {
-    expect(ACTION_STATUS.report).toBe('blocked');
-    expect(actionMessage('report', A.name)).toBe(
-      `Blocked ${A.name}. This is a local demo, so no report is sent to anyone. If something worried you, talk with a parent, guardian or teacher.`,
+  it('屏蔽的说明如实：本地演示没有举报；只有一个屏蔽操作', () => {
+    expect(ACTION_STATUS.block).toBe('blocked');
+    expect(BLOCK_HINT).toBe(
+      "Blocking hides this publisher's invitations in this browser. This local demo has no reporting: nothing is sent to anyone and no one reviews it.",
     );
-    expect(REPORT_HINT).toContain('This is a local demo, so no report is sent to anyone.');
-    expect(REPORT_HINT).toContain('If something worried you, talk with a parent, guardian or teacher.');
+    expect(actionMessage('block', A.name)).toContain('This local demo has no reporting: nothing is sent to anyone.');
+    expect(actionMessage('block', A.name).toLowerCase()).not.toContain('report is sent');
     expect(actionMessage('accept', A.name)).toContain('nothing is sent and no one is contacted');
+    for (const status of ['pending', 'accepted', 'declined', 'blocked'] as const) {
+      for (const quest of [{ kind: 'stored', id: QA, title: 'T' }, { kind: 'missing' }, { kind: 'none' }] as const) {
+        expect(actionsFor(status, quest)).not.toContain('report');
+      }
+    }
+  });
+
+  it('解除屏蔽：actionsFor(blocked) 只有 unblock，写入 declined；unblockTargets 只挑这个句柄 + 发布者的 blocked 邀请', () => {
+    expect(actionsFor('blocked', { kind: 'stored', id: QA, title: 'T' })).toEqual(['unblock']);
+    expect(actionsFor('blocked', { kind: 'missing' })).toEqual(['unblock']);
+    expect(ACTION_STATUS.unblock).toBe('declined');
+    expect(actionMessage('unblock', A.name)).toBe(
+      `Unblocked ${A.name}. Its earlier invitations are listed as declined, and it can send you new sample invitations. Nothing is sent to anyone.`,
+    );
+    const invs = [
+      old({ id: 'x1', status: 'blocked' }),
+      old({ id: 'x2', status: 'blocked', opportunity_id: QA2 }),
+      old({ id: 'x3', status: 'declined' }),
+      old({ id: 'x4', status: 'blocked', publisher_id: B.id }),
+      old({ id: 'x5', status: 'blocked', share_handle: 'another-handle' }),
+    ];
+    expect(unblockTargets(invs, VIEW.share_handle, A.id)).toEqual(['x1', 'x2']);
+    expect(unblockTargets(invs, null, A.id)).toEqual([]);
+    expect(unblockTargets(invs, VIEW.share_handle, '')).toEqual([]);
+    // 改回 declined 之后不再被当作屏蔽：发布者可以发送（另一个任务）
+    const after = invs.map((i) => (['x1', 'x2'].includes(i.id) ? { ...i, status: 'declined' as const } : i));
+    expect(outcome(req({ quest_id: QA, existing: after }))).toBe(ANSWERED_REFUSAL);
+    expect(outcome(req({ quest_id: QA, existing: after.filter((i) => i.opportunity_id !== QA) }))).toBe('ok');
   });
 
   it('已屏蔽的那一行单复数一致', () => {
@@ -367,7 +427,7 @@ describe('内存版浏览器存储里的完整流程', () => {
 
   it('只读取不会创建分享设置或邀请', () => {
     const data = installFakeWindow();
-    expect(listFor(ADULT)).toEqual({ rows: [], blocked_publishers: [] });
+    expect(listFor(ADULT)).toEqual({ rows: [], blocked_publishers: [], blocked_list: [] });
     expect(loadShareSettings(ADULT.id)).toBeNull();
     expect(loadInvitations()).toEqual([]);
     expect(data.size).toBe(0);
@@ -388,7 +448,7 @@ describe('内存版浏览器存储里的完整流程', () => {
     ]);
     expect(rows[0].quest).toEqual({ kind: 'stored', id: QA, title: 'Quest Title Marker' });
     expect(rows[0].reasons).toEqual(['You shared the skill "python".', 'You shared 2 pieces of evidence.']);
-    expect(rows[0].actions).toEqual(['accept', 'decline', 'block', 'report']);
+    expect(rows[0].actions).toEqual(['accept', 'decline', 'block']);
     expect(rows[0].notice).toBeNull();
 
     setInvitationStatus('inv-1', ACTION_STATUS.accept, TODAY);
@@ -400,8 +460,8 @@ describe('内存版浏览器存储里的完整流程', () => {
     ]);
     rows = listFor(ADULT).rows;
     expect(rows.map((r) => [r.status_label, r.actions])).toEqual([
-      ['Accepted', ['block', 'report']],
-      ['Declined', ['block', 'report']],
+      ['Accepted', ['block']],
+      ['Declined', ['block']],
     ]);
     expect(send(ADULT, B.id, QB, 'inv-3')).toEqual({ ok: false, message: ANSWERED_REFUSAL });
     expect(send(ADULT, A.id, QA, 'inv-4')).toEqual({ ok: false, message: ANSWERED_REFUSAL });
@@ -424,28 +484,29 @@ describe('内存版浏览器存储里的完整流程', () => {
     const byId = Object.fromEntries(listFor(ADULT).rows.map((r) => [r.id, r]));
     for (const id of ['inv-withdrawn', 'inv-foreign', 'inv-unknown']) {
       expect(byId[id].quest, id).toEqual({ kind: 'missing' });
-      expect(byId[id].actions, id).toEqual(['decline', 'block', 'report']);
+      expect(byId[id].actions, id).toEqual(['decline', 'block']);
       expect(byId[id].notice, id).toBe(NOT_ACCEPTABLE_NOTICE);
     }
     expect(byId['inv-none'].quest).toEqual({ kind: 'none' });
-    expect(byId['inv-none'].actions).toEqual(['decline', 'block', 'report']);
+    expect(byId['inv-none'].actions).toEqual(['decline', 'block']);
     expect(byId['inv-accepted'].status_label).toBe(ACCEPTED_QUEST_GONE_LABEL);
-    expect(byId['inv-accepted'].actions).toEqual(['block', 'report']);
+    expect(byId['inv-accepted'].actions).toEqual(['block']);
     expect(NOT_ACCEPTABLE_NOTICE).toBe(
       'This invitation is not about a quest this sample publisher has posted in this browser, so it cannot be accepted.',
     );
   });
 
-  it('屏蔽：该发布者的邀请全部隐藏，之后发送被拒绝；Report and block 不新增任何存储键', () => {
+  it('屏蔽：该发布者的邀请全部隐藏，之后发送被拒绝，不新增任何存储键；解除屏蔽后可以再发', () => {
     const data = installFakeWindow();
     postQuests();
     share(ADULT, { skills: ['python'] });
     expect(send(ADULT, A.id, QA, 'inv-1').ok).toBe(true);
-    expect(send(ADULT, A.id, QA2, 'inv-2').ok).toBe(true);
+    // 限流：A 对这个句柄已有一条待回应
+    expect(send(ADULT, A.id, QA2, 'inv-2')).toEqual({ ok: false, message: PUBLISHER_PENDING_REFUSAL });
     expect(send(ADULT, B.id, QB, 'inv-3').ok).toBe(true);
 
     const keysBefore = [...data.keys()].sort();
-    setInvitationStatus('inv-1', ACTION_STATUS.report, TODAY);
+    setInvitationStatus('inv-1', ACTION_STATUS.block, TODAY);
     expect([...data.keys()].sort()).toEqual(keysBefore);
 
     const handle = loadShareSettings(ADULT.id)!.share_handle;
@@ -453,6 +514,7 @@ describe('内存版浏览器存储里的完整流程', () => {
     const list = listFor(ADULT);
     expect(list.rows.map((r) => r.id)).toEqual(['inv-3']);
     expect(list.blocked_publishers).toEqual([A.name]);
+    expect(list.blocked_list).toEqual([{ id: A.id, name: A.name }]);
 
     const countBefore = loadInvitations().length;
     expect(send(ADULT, A.id, QA, 'inv-4')).toEqual({ ok: false, message: BLOCKED_REFUSAL });
@@ -460,6 +522,19 @@ describe('内存版浏览器存储里的完整流程', () => {
     expect(loadInvitations().length).toBe(countBefore);
     // 别的发布者不受屏蔽影响（这里因为已有待回应的邀请而被拒绝）
     expect(send(ADULT, B.id, QB, 'inv-6')).toEqual({ ok: false, message: DUPLICATE_QUEST_REFUSAL });
+
+    // 解除屏蔽（与页面相同：unblockTargets → setInvitationStatus(…, 'declined')）
+    for (const id of unblockTargets(loadInvitations(handle), handle, A.id)) setInvitationStatus(id, ACTION_STATUS.unblock, TODAY);
+    expect(blockedPublisherIds(handle)).toEqual([]);
+    expect([...data.keys()].sort()).toEqual(keysBefore);
+    const unblocked = listFor(ADULT);
+    expect(unblocked.blocked_list).toEqual([]);
+    expect(unblocked.rows.map((r) => [r.id, r.status])).toEqual([
+      ['inv-1', 'declined'],
+      ['inv-3', 'pending'],
+    ]);
+    expect(send(ADULT, A.id, QA, 'inv-7')).toEqual({ ok: false, message: ANSWERED_REFUSAL });
+    expect(send(ADULT, A.id, QA2, 'inv-8').ok).toBe(true);
   });
 
   it('受保护的档案：针对任务的邀请可以；说明不分享、标题不显示；邀请与预览里没有身份信息', () => {
@@ -490,11 +565,18 @@ describe('内存版浏览器存储里的完整流程', () => {
 
     let rows = listFor(MINOR).rows;
     expect(rows[0].quest).toEqual({ kind: 'stored', id: QA, title: 'Quest Title Marker' });
-    expect(rows[0].actions).toEqual(['accept', 'decline', 'block', 'report']);
+    expect(rows[0].actions).toEqual(['accept', 'decline', 'block']);
+    // 学生端收件箱：受保护时收起，不直接显示，不能接受
+    const inbox = invitationInbox(protection, rows);
+    expect(inbox.held).toBe(1);
+    expect(inbox.visible).toEqual([]);
+    expect(inbox.held_rows.map((r) => [r.id, r.actions, r.notice])).toEqual([['inv-2', ['decline', 'block'], STRICT_NO_ACCEPT_NOTICE]]);
+    expect(inboxAllows(inbox, 'inv-2', 'accept')).toBe(false);
+    expect(inboxAllows(inbox, 'inv-2', 'decline')).toBe(true);
     removeUserPostedOpportunity(QA);
     rows = listFor(MINOR).rows;
     expect(rows[0].quest).toEqual({ kind: 'missing' });
-    expect(rows[0].actions).toEqual(['decline', 'block', 'report']);
+    expect(rows[0].actions).toEqual(['decline', 'block']);
   });
 
   it('撤回分享：句柄保留，已有邀请仍在学生端列出；发布者端无法再发送', () => {
@@ -506,5 +588,75 @@ describe('内存版浏览器存储里的完整流程', () => {
     expect(loadShareSettings(ADULT.id)?.share_handle).toBe(s.share_handle);
     expect(listFor(ADULT).rows.map((r) => r.id)).toEqual(['inv-1']);
     expect(send(ADULT, B.id, QB, 'inv-2')).toEqual({ ok: false, message: NOTHING_SHARED_REFUSAL });
+  });
+});
+
+describe('invitationInbox：受保护档案的待回应邀请先收起，不能接受', () => {
+  const row = (over: Partial<InvitationRow>): InvitationRow => ({
+    id: 'r',
+    publisher_id: A.id,
+    publisher_name: A.name,
+    quest: { kind: 'stored', id: QA, title: 'Quest Title Marker' },
+    reasons: ['You shared the skill "python".'],
+    status: 'pending',
+    status_label: 'Waiting for your answer',
+    notice: null,
+    sent_on: TODAY,
+    actions: ['accept', 'decline', 'block'],
+    ...over,
+  });
+  const ROWS: InvitationRow[] = [
+    row({ id: 'p1' }),
+    row({ id: 'p2', publisher_id: B.id, publisher_name: B.name, quest: { kind: 'missing' }, notice: NOT_ACCEPTABLE_NOTICE, actions: ['decline', 'block'] }),
+    row({ id: 'd1', status: 'declined', status_label: 'Declined', actions: ['block'] }),
+    row({ id: 'a1', status: 'accepted', status_label: 'Accepted', actions: ['block'] }),
+  ];
+
+  it('受保护：pending 进 held、不进直接可见列表、动作里没有 accept；已回应的历史照常显示', () => {
+    const inbox = invitationInbox(PROTECTED, ROWS);
+    expect(inbox.held).toBe(2);
+    expect(inbox.visible.map((r) => r.id)).toEqual(['d1', 'a1']);
+    expect(inbox.held_rows.map((r) => r.id)).toEqual(['p1', 'p2']);
+    for (const r of [...inbox.held_rows, ...inbox.visible]) expect(r.actions).not.toContain('accept');
+    expect(inbox.held_rows.map((r) => r.actions)).toEqual([
+      ['decline', 'block'],
+      ['decline', 'block'],
+    ]);
+    expect(inbox.held_rows.every((r) => r.notice === STRICT_NO_ACCEPT_NOTICE)).toBe(true);
+    expect(inbox.visible.map((r) => r.notice)).toEqual([null, null]);
+    expect(inbox.allowed_actions).not.toContain('accept');
+    expect(inboxAllows(inbox, 'p1', 'accept')).toBe(false);
+    expect(inboxAllows(inbox, 'p1', 'block')).toBe(true);
+    expect(inboxAllows(inbox, 'nope', 'decline')).toBe(false);
+    // 不修改输入
+    expect(ROWS[0].actions).toEqual(['accept', 'decline', 'block']);
+  });
+
+  it('protection 缺失或损坏时按受保护处理', () => {
+    for (const bad of [null, undefined, {}, { protected: 'no' }] as unknown as Protection[]) {
+      expect(invitationInbox(bad, ROWS).held).toBe(2);
+    }
+  });
+
+  it('不受保护：与以前一致，全部直接显示，held = 0，可以接受', () => {
+    const inbox = invitationInbox(unprotected(), ROWS);
+    expect(inbox.held).toBe(0);
+    expect(inbox.held_rows).toEqual([]);
+    expect(inbox.visible).toEqual(ROWS);
+    expect(inboxAllows(inbox, 'p1', 'accept')).toBe(true);
+    expect(inboxAllows(inbox, 'p2', 'accept')).toBe(false);
+  });
+
+  it('汇总提示与按钮文字', () => {
+    expect(heldNotice(1)).toBe(
+      '1 sample invitation is held because stricter defaults apply to this profile. Review it together with a parent, guardian or teacher.',
+    );
+    expect(heldNotice(3)).toBe(
+      '3 sample invitations are held because stricter defaults apply to this profile. Review them together with a parent, guardian or teacher.',
+    );
+    expect(REVIEW_HELD_LABEL).toBe('Review held invitations with a trusted adult');
+    expect(STRICT_NO_ACCEPT_NOTICE).toBe(
+      'With stricter defaults, an invitation cannot be accepted here. Use the official application route for the quest instead.',
+    );
   });
 });

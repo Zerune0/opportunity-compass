@@ -118,17 +118,17 @@ describe('默认什么都不分享', () => {
 });
 
 describe('每个开关只放出自己那一类', () => {
-  it('证据：只出被勾的那一条，只含标题、种类、状态、技能', () => {
+  it('证据：只出被勾的那一条，只含种类、状态、技能（标题对所有档案都不显示）', () => {
     const s = applyShareChange(base(), { kind: 'evidence', id: 'ev-1', on: true }, TODAY, U);
     const p = sharedProfilePreview(PROFILE, s, U);
     expect(sections(p)).toEqual({
-      evidence: [{ primary: 'Evidence One Title', details: ['Project', 'Self-reported'], skills: ['evskill-one'] }],
+      evidence: [{ primary: 'Project', details: ['Self-reported'], skills: ['evskill-one'] }],
       skills: [],
       interests: [],
       collaboration: [],
     });
     const json = JSON.stringify(p);
-    for (const hidden of ['Evidence Two Title', 'skill-alpha', 'skill-beta', 'interest_gamma']) expect(json).not.toContain(hidden);
+    for (const hidden of ['Evidence One Title', 'Evidence Two Title', 'skill-alpha', 'skill-beta', 'interest_gamma']) expect(json).not.toContain(hidden);
     expect(shareChoices(PROFILE, s, U).evidence.map((e) => e.checked)).toEqual([true, false]);
   });
 
@@ -172,7 +172,7 @@ describe('每个开关只放出自己那一类', () => {
   it('预览保持档案原顺序，不按勾选顺序或任何「匹配度」排序', () => {
     let s = applyShareChange(base(), { kind: 'evidence', id: 'ev-2', on: true }, TODAY, U);
     s = applyShareChange(s, { kind: 'evidence', id: 'ev-1', on: true }, TODAY, U);
-    expect(sections(sharedProfilePreview(PROFILE, s, U)).evidence.map((i) => i.primary)).toEqual(['Evidence One Title', 'Evidence Two Title']);
+    expect(sections(sharedProfilePreview(PROFILE, s, U)).evidence.map((i) => i.primary)).toEqual(['Project', 'Course']);
   });
 });
 
@@ -221,7 +221,7 @@ describe('未授权的字段永远不出现', () => {
       ...Object.values(EVIDENCE_KIND_LABELS),
       ...Object.values(EVIDENCE_STATUS_LABELS),
       ...Object.values(SKILL_LEVEL_LABELS),
-      ...shared.flatMap((e) => [e.title, ...e.skills]),
+      ...shared.flatMap((e) => e.skills),
       ...skills.map((s) => s.name),
       ...(settings.share_interests ? (PROFILE.interests ?? []) : []),
       ...(settings.collaboration_note ? [settings.collaboration_note] : []),

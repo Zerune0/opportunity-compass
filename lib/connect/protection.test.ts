@@ -1,15 +1,18 @@
 /**
  * 未成年人更严格的默认设置（./protection）与发布者视图（./talent 的 publisherView / sharedProfilePreview）：
- * 判断规则（18 岁、12 年级、年龄未知）；失败时从严；受保护时合作说明不分享（但不删除）、证据不显示标题；
- * 所有档案：证据 id 换成位置编号、像联系方式的字符串不给发布者看；发布者视图里永远没有年龄、出生日期、年级、身份信息。
+ * 判断规则（18 岁、12 年级、年龄未知；birth_date 优先，没有时用 age）；失败时从严；受保护时合作说明不分享（但不删除）；
+ * 所有档案：证据不显示标题、证据 id 换成位置编号、像联系方式的字符串不给发布者看；
+ * 发布者视图里永远没有年龄、出生日期、年级、身份信息，受保护与否结构完全相同；修改分享前的确认（canChangeSharing）。
  */
 import { describe, expect, it } from 'vitest';
 import { defaultShareSettings } from '../store';
 import type { ShareSettings, StudentProfile } from '../types';
 import { invitationReasons } from './invitations';
 import {
+  EVIDENCE_TITLE_NOTICE,
   GUARDIAN_ADVICE,
   PROTECTION_EFFECTS,
+  canChangeSharing,
   exactlyAsWrittenWarning,
   isUnprotected,
   protectionFor,
@@ -62,7 +65,18 @@ describe('protectionFor：任一成立即受保护', () => {
     ['明天才满 18', { birth_date: '2008-11-20', grade: null }, TODAY, ['under_18']],
     ['成年但 12 年级', { birth_date: '2000-01-01', grade: 12 }, TODAY, ['grade_12_or_below']],
     ['成年、本科第一年（13）', { birth_date: '2000-01-01', grade: 13 }, TODAY, []],
-    ['没有出生日期（自填 age 不算）', { birth_date: null, grade: 16, age: 25 }, TODAY, ['age_unknown']],
+    ['没有出生日期时用 age：age 25、研究生 → 不受保护', { birth_date: null, grade: 16, age: 25 }, TODAY, []],
+    ['只有 age 18 + 年级 13 → 不受保护', { birth_date: null, grade: 13, age: 18 }, TODAY, []],
+    ['只有 age 17 + 年级 13 → 受保护', { birth_date: null, grade: 13, age: 17 }, TODAY, ['under_18']],
+    ['年级 11 + age 18 → 受保护（年级始终适用）', { birth_date: null, grade: 11, age: 18 }, TODAY, ['grade_12_or_below']],
+    ['age 与 birth_date 都没有、年级为 null → 年龄未知', { birth_date: null, grade: null, age: null }, TODAY, ['age_unknown']],
+    ['全空（没有 grade / age / birth_date 字段）→ 年龄未知', { birth_date: undefined, grade: undefined, age: undefined }, TODAY, ['age_unknown']],
+    ['birth_date 成年 + age 16 → 以 birth_date 为准，不受保护', { birth_date: '2000-01-01', grade: null, age: 16 }, TODAY, []],
+    ['birth_date 未成年 + age 25 → 以 birth_date 为准，受保护', { birth_date: '2010-04-05', grade: null, age: 25 }, TODAY, ['under_18']],
+    ['birth_date 空白字符串时用 age', { birth_date: '  ', grade: null, age: 30 }, TODAY, []],
+    ['birth_date 不合法时不退回 age → 年龄未知', { birth_date: '2008-02-30', grade: null, age: 30 }, TODAY, ['age_unknown']],
+    ['age 不是有限非负数 → 年龄未知', { birth_date: null, grade: null, age: Number.NaN }, TODAY, ['age_unknown']],
+    ['age 为负数 → 年龄未知', { birth_date: null, grade: null, age: -3 }, TODAY, ['age_unknown']],
     ['出生日期不存在', { birth_date: '2008-02-30', grade: null }, TODAY, ['age_unknown']],
     ['出生日期格式不对', { birth_date: '01/02/2000', grade: null }, TODAY, ['age_unknown']],
     ['出生日期晚于今天', { birth_date: '2030-01-01', grade: null }, TODAY, ['age_unknown']],
@@ -96,7 +110,11 @@ describe('学生端提示', () => {
       'Stricter defaults apply because this profile is under 18 and is in grade 12 or below.',
     );
     expect(protectionNotice(protectionFor(profile(), TODAY))).toBe(
-      'Stricter defaults apply because this profile does not have a birth date saved.',
+      'Stricter defaults apply because this profile does not have a usable age or birth date saved.',
+    );
+    // 只有 age 的档案：不说「没有保存出生日期」
+    expect(protectionNotice(protectionFor(profile({ age: 17, grade: 13 }), TODAY))).toBe(
+      'Stricter defaults apply because this profile is under 18.',
     );
     expect(protectionNotice(protectionFor(ADULT, TODAY))).toBeNull();
     const all = [protectionNotice(protectionFor(MINOR, TODAY)), PROTECTION_EFFECTS, GUARDIAN_ADVICE].join(' ');
@@ -109,14 +127,32 @@ describe('学生端提示', () => {
       'Skill names and interests are shown exactly as written, so do not put contact details, your name or your school in them.',
     );
     const broad =
-      'Skill names, interests, your note and evidence titles are shown exactly as written, so do not put contact details, your name or your school in them.';
+      'Skill names, interests and your note are shown exactly as written, so do not put contact details, your name or your school in them.';
     expect(exactlyAsWrittenWarning(unprotected())).toBe(broad);
     expect(exactlyAsWrittenWarning(null)).toBe(broad);
+  });
+
+  it('证据标题的说明对所有档案都一样，不再是受保护专属', () => {
+    expect(EVIDENCE_TITLE_NOTICE).toBe('Publishers see the kind and status of your evidence, never its title.');
+    expect(PROTECTION_EFFECTS).not.toMatch(/title/i);
+  });
+});
+
+describe('canChangeSharing：受保护时修改分享前要先确认', () => {
+  it('不受保护：始终可以；受保护：只有确认后可以；protection 缺失按受保护处理', () => {
+    expect(canChangeSharing(unprotected(), false)).toBe(true);
+    expect(canChangeSharing(unprotected(), true)).toBe(true);
+    expect(canChangeSharing(PROTECTED, false)).toBe(false);
+    expect(canChangeSharing(PROTECTED, true)).toBe(true);
+    expect(canChangeSharing(null, false)).toBe(false);
+    expect(canChangeSharing(undefined, true)).toBe(true);
+    expect(canChangeSharing(protectionFor(MINOR, TODAY), false)).toBe(false);
+    expect(canChangeSharing(protectionFor(ADULT, TODAY), false)).toBe(true);
   });
 });
 
 describe('受保护时的发布者视图', () => {
-  it('证据只显示种类、状态、技能，不显示标题；合作说明不出现', () => {
+  it('证据只显示种类、状态、技能，不显示标题（与所有档案相同）；合作说明不出现', () => {
     const p = sharedProfilePreview(MINOR, EVERYTHING, protectionFor(MINOR, TODAY));
     if (p.empty) throw new Error('expected a non-empty preview');
     const byCategory = Object.fromEntries(p.sections.map((s) => [s.category, s.items]));
@@ -138,11 +174,13 @@ describe('受保护时的发布者视图', () => {
     expect(c).toMatchObject({ note: 'Free on weekends.', note_allowed: false, note_shared: false, anything_shared: false });
   });
 
-  it('不受保护的成年档案：标题与说明都显示', () => {
+  it('不受保护的成年档案：说明显示，证据标题同样不显示', () => {
     const p = sharedProfilePreview(ADULT, EVERYTHING, protectionFor(ADULT, TODAY));
     const json = JSON.stringify(p);
-    expect(json).toContain('Secret Title Marker');
+    expect(json).not.toContain('Secret Title Marker');
+    expect(json).not.toContain('Other Title Marker');
     expect(json).toContain('Free on weekends.');
+    expect(publisherView(ADULT, EVERYTHING, unprotected())?.evidence.map((e) => e.title)).toEqual(['', '']);
     expect(shareChoices(ADULT, EVERYTHING, unprotected())).toMatchObject({ note_allowed: true, note_shared: true });
   });
 
@@ -175,12 +213,19 @@ describe('所有档案：发布者视图里没有证据 id 与身份信息', () 
     const view = publisherView(p, EVERYTHING, protection);
     expect(view?.evidence.map((e) => e.id)).toEqual(['evidence-1', 'evidence-2']);
     const json = JSON.stringify(view);
-    for (const hidden of ['ev-maya', 'maya', 'Maya', 'DisplayNameMarker', 'SchoolNameMarker', p.birth_date ?? 'none']) {
+    for (const hidden of [
+      'ev-maya',
+      'maya',
+      'Maya',
+      'DisplayNameMarker',
+      'SchoolNameMarker',
+      p.birth_date ?? 'none',
+      'Secret Title Marker',
+      'Other Title Marker',
+    ]) {
       expect(json, hidden).not.toContain(hidden);
     }
-    if (protection.protected) {
-      for (const hidden of ['Secret Title Marker', 'Other Title Marker', 'Free on weekends']) expect(json, hidden).not.toContain(hidden);
-    }
+    if (protection.protected) expect(json).not.toContain('Free on weekends');
   });
 });
 
@@ -255,5 +300,66 @@ describe('受保护时 applyShareChange 不写入新说明，也不删掉旧说�
     expect(applyShareChange(b, { kind: 'skill', name: 'python', on: true }, TODAY, PROTECTED).collaboration_note).toBe('Old note.');
     // 不受保护时照旧写入
     expect(applyShareChange(b, { kind: 'note', note: 'New note.' }, TODAY, unprotected()).collaboration_note).toBe('New note.');
+  });
+});
+
+describe('C2：发布者一侧分辨不出档案是否受保护', () => {
+  // 同一份档案内容，只有年龄信息不同：受保护（年级 11、无出生日期）与不受保护（出生日期显示成年）。
+  const content: Partial<StudentProfile> = {
+    skills: [
+      { name: 'python', level: 'intermediate' },
+      { name: 'sql', level: 'beginner' },
+    ],
+    interests: ['climate_data', 'robotics'],
+  };
+  const PROTECTED_PROFILE = profile({ ...content, grade: 11, birth_date: null, age: 16 });
+  const ADULT_PROFILE = profile({ ...content, grade: null, birth_date: '1999-03-14', age: null });
+  // 同一组分享开关（不含合作说明）。
+  const SAME_SWITCHES = settings({ evidence_ids: ['ev-maya-1', 'ev-maya-2'], skills: ['python', 'sql'], share_interests: true });
+
+  it('两份档案确实一个受保护、一个不受保护', () => {
+    expect(protectionFor(PROTECTED_PROFILE, TODAY).protected).toBe(true);
+    expect(protectionFor(ADULT_PROFILE, TODAY).protected).toBe(false);
+  });
+
+  it('publisherView 与 sharedProfilePreview 的输出深度相等', () => {
+    const a = publisherView(PROTECTED_PROFILE, SAME_SWITCHES, protectionFor(PROTECTED_PROFILE, TODAY));
+    const b = publisherView(ADULT_PROFILE, SAME_SWITCHES, protectionFor(ADULT_PROFILE, TODAY));
+    expect(a).not.toBeNull();
+    expect(a).toEqual(b);
+    const pa = sharedProfilePreview(PROTECTED_PROFILE, SAME_SWITCHES, protectionFor(PROTECTED_PROFILE, TODAY));
+    const pb = sharedProfilePreview(ADULT_PROFILE, SAME_SWITCHES, protectionFor(ADULT_PROFILE, TODAY));
+    expect(pa.empty).toBe(false);
+    expect(pa).toEqual(pb);
+    expect(invitationReasons(a)).toEqual(invitationReasons(b));
+  });
+
+  it('每一种开关组合（不含合作说明）都深度相等', () => {
+    const evidenceChoices = [[], ['ev-maya-1'], ['ev-maya-2'], ['ev-maya-1', 'ev-maya-2']];
+    const skillChoices = [[], ['python'], ['sql', 'python']];
+    for (const evidence_ids of evidenceChoices) {
+      for (const skills of skillChoices) {
+        for (const share_interests of [false, true]) {
+          const s = settings({ evidence_ids, skills, share_interests });
+          expect(sharedProfilePreview(PROTECTED_PROFILE, s, protectionFor(PROTECTED_PROFILE, TODAY))).toEqual(
+            sharedProfilePreview(ADULT_PROFILE, s, protectionFor(ADULT_PROFILE, TODAY)),
+          );
+        }
+      }
+    }
+  });
+
+  it('序列化文本里没有年龄、年级、出生日期的值，也没有暗示保护状态的字样', () => {
+    for (const p of [PROTECTED_PROFILE, ADULT_PROFILE]) {
+      const protection = protectionFor(p, TODAY);
+      const text = [
+        JSON.stringify(publisherView(p, SAME_SWITCHES, protection)),
+        JSON.stringify(sharedProfilePreview(p, SAME_SWITCHES, protection)),
+      ].join(' ');
+      for (const hidden of ['1999-03-14', '1999', '"age"', '"grade"', 'birth', 'minor', 'under 18', 'grade', 'stricter', 'protected', 'guardian']) {
+        expect(text.toLowerCase(), hidden).not.toContain(hidden.toLowerCase());
+      }
+      for (const value of ['16', '11']) expect(text, value).not.toMatch(new RegExp(`\\b${value}\\b`));
+    }
   });
 });

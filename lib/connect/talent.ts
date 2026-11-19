@@ -7,10 +7,13 @@
  *   逐字段整理成行；什么都没分享时为空。这里不读档案的其他字段，所以未授权的内容不可能出现在结果里。
  * - 不排序、不打分、不算「匹配度」：证据、技能、兴趣保持档案里的原顺序。
  * - 发布者视图一律经过 `publisherView`（对所有档案）：证据 id 换成按位置编号的 `evidence-1`、`evidence-2`……
- *   （示例 id 可能含名字或档案 id 片段）；像联系方式的技能名、兴趣、证据技能（`checkCollaborationNote` 不通过的字符串）
- *   直接去掉；同样不通过检查的合作说明（例如导入的旧数据）也不显示。
+ *   （示例 id 可能含名字或档案 id 片段）；证据标题一律清空（标题是学生自由填写的文字，没有做联系方式检查；
+ *   而且如果只对受保护档案隐藏，发布者就能据此分辨出谁受保护）——证据只显示种类、状态、技能；
+ *   像联系方式的技能名、兴趣、证据技能（`checkCollaborationNote` 不通过的字符串）直接去掉；
+ *   同样不通过检查的合作说明（例如导入的旧数据）也不显示。
  * - 受保护的档案（./protection 的 protectionFor）：合作说明不分享（已保存的说明留在设置里，但不进发布者视图、
- *   不进任何邀请）；发布者视图里的证据不显示标题（只显示种类、状态、技能）。
+ *   不进任何邀请）。发布者视图里「没有说明」对任何档案都可能出现（成年人也可以不写），不构成区分；
+ *   除此之外，同一组分享选择在受保护与否时得到的发布者视图完全相同。
  * - `shareChoices` / `applyShareChange` / `sharedProfilePreview` / `publisherView` 的 protection 参数是必填的，
  *   失败时从严：只有显式的 `protected === false` 才按不受保护处理。
  *
@@ -74,9 +77,9 @@ export function looksLikeContact(s: string): boolean {
 const shownToPublisher = (s: unknown): s is string => typeof s === 'string' && !looksLikeContact(s);
 
 /**
- * 发布者能看到的视图。所有档案：证据 id 换成 `evidence-<位置>`；像联系方式的技能名、兴趣、证据技能与合作说明去掉；
- * 去掉之后什么都不剩时为 null。受保护时：先把合作说明设为 null 再交给 buildSharedProfileView
- * （所以只分享了说明的受保护档案得到 null），并把证据标题清空，下游（预览、邀请理由）拿不到标题。
+ * 发布者能看到的视图。所有档案：证据 id 换成 `evidence-<位置>`、证据标题清空（下游的预览、邀请理由拿不到标题）；
+ * 像联系方式的技能名、兴趣、证据技能与合作说明去掉；去掉之后什么都不剩时为 null。
+ * 受保护时：先把合作说明设为 null 再交给 buildSharedProfileView（所以只分享了说明的受保护档案得到 null）。
  * protection 只有显式 `protected === false` 才算不受保护。不修改输入；buildSharedProfileView 万一抛异常也返回 null。
  */
 export function publisherView(
@@ -96,7 +99,7 @@ export function publisherView(
   const evidence = view.evidence.map((e, i) => ({
     ...e,
     id: `evidence-${i + 1}`,
-    title: strict ? '' : e.title,
+    title: '',
     skills: strings(e.skills).filter(shownToPublisher),
   }));
   const skills = view.skills.filter((s) => shownToPublisher(s.name));
@@ -249,7 +252,7 @@ export function sameShareSettings(a: ShareSettings | null, b: ShareSettings | nu
 export type PreviewCategory = 'evidence' | 'skills' | 'interests' | 'collaboration';
 
 /**
- * 发布者视图的一行。每个字符串都直接取自视图（标题、技能名、兴趣、说明）或固定的标签表（种类、状态、等级），
+ * 发布者视图的一行。每个字符串都直接取自视图（技能名、兴趣、说明）或固定的标签表（种类、状态、等级），
  * 不拼接新的句子，这样测试可以逐个叶子核对来源。页面显示时用 " · " 连接 `details`，`skills` 前加 "Skills:"。
  */
 export interface PreviewItem {
@@ -268,16 +271,8 @@ export type SharedPreview =
   | { empty: true; message: string }
   | { empty: false; alias: string; share_handle: string; is_sample: boolean; sections: PreviewSection[] };
 
-function evidenceItem(e: Pick<EvidenceItem, 'title' | 'kind' | 'skills' | 'status'>): PreviewItem {
-  return {
-    primary: e.title,
-    details: [labelOf(EVIDENCE_KIND_LABELS, e.kind), labelOf(EVIDENCE_STATUS_LABELS, e.status)],
-    skills: strings(e.skills),
-  };
-}
-
-/** 受保护时的证据行：不显示标题，种类作主行、状态作补充，技能照常。 */
-function evidenceItemWithoutTitle(e: Pick<EvidenceItem, 'kind' | 'skills' | 'status'>): PreviewItem {
+/** 证据行（对所有档案）：不显示标题，种类作主行、状态作补充，技能照常。 */
+function evidenceItem(e: Pick<EvidenceItem, 'kind' | 'skills' | 'status'>): PreviewItem {
   return {
     primary: labelOf(EVIDENCE_KIND_LABELS, e.kind),
     details: [labelOf(EVIDENCE_STATUS_LABELS, e.status)],
@@ -290,8 +285,8 @@ const textItem = (primary: string): PreviewItem => ({ primary, details: [], skil
 /**
  * 发布者端预览：只用 `buildSharedProfileView(profile, settings)` 的输出（不读档案的其他字段）。
  * 视图为 null（默认、撤回、设置属于别的档案、勾选的都不存在……）→ `{ empty: true }`。
- * 证据只显示标题、种类、状态与技能（证据 id 不显示）；顺序与档案一致，不排序、不打分。
- * 受保护时（见 publisherView）：合作说明一节为空，证据不显示标题；只分享了说明时整个预览为空。
+ * 证据只显示种类、状态与技能（标题与证据 id 都不显示，对所有档案相同）；顺序与档案一致，不排序、不打分。
+ * 受保护时（见 publisherView）：合作说明一节为空；只分享了说明时整个预览为空。
  * 像联系方式的技能名、兴趣、证据技能对所有档案都不显示。
  */
 export function sharedProfilePreview(
@@ -301,14 +296,13 @@ export function sharedProfilePreview(
 ): SharedPreview {
   const view = publisherView(profile, settings, protection);
   if (view === null) return { empty: true, message: NOT_SHARING_TEXT };
-  const strict = !isUnprotected(protection);
   return {
     empty: false,
     alias: view.alias,
     share_handle: view.share_handle,
     is_sample: view.is_sample,
     sections: [
-      { category: 'evidence', heading: 'Evidence', items: view.evidence.map(strict ? evidenceItemWithoutTitle : evidenceItem) },
+      { category: 'evidence', heading: 'Evidence', items: view.evidence.map(evidenceItem) },
       {
         category: 'skills',
         heading: 'Skills',

@@ -5,16 +5,22 @@
  *   view 必须是 ./talent 的 `publisherView`（已按保护规则过滤、去掉了像联系方式的字符串）。不含分数、名次或「匹配度」，
  *   也不含证据标题、说明原文、档案 id、显示名、学校、出生日期。
  * - `planInvitation(request)`：发送前的全部检查 + 组装一条邀请。邀请只指向 share_handle（发布者不知道档案 id），
- *   `is_sample: true`、`status: 'pending'`、`sent_on = today`。对所有档案都一样：邀请必须针对该示例发布者
- *   在本浏览器发布的一个任务（规则不随档案变化，发布者无从推断学生是否未成年）。拒绝时返回给发布者看的英文原因：
+ *   `is_sample: true`、`status: 'pending'`、`sent_on = today`。拒绝时返回给发布者看的英文原因：
  *   什么都没分享；没选示例发布者；被这个学生屏蔽；没选任务或任务不是该发布者在本浏览器发布的；
- *   同一发布者 + 同一任务已有待回应的邀请；学生已回应过（接受或拒绝）同一发布者 + 同一任务的邀请；id 或日期不可用。
+ *   同一发布者 + 同一任务已有待回应的邀请；学生已回应过（接受或拒绝）同一发布者 + 同一任务的邀请；
+ *   同一发布者对同一学生句柄已有一条待回应的邀请（每个发布者对每个句柄同时最多 1 条 pending）；id 或日期不可用。
+ * - 受保护的档案（./protection）：发布者一侧**完全不区分**——照常生成并保存 pending 邀请，检查、拒绝原因、成功提示
+ *   与不受保护的档案一模一样。原因：如果对受保护档案「发送被拒」或换一句提示，发布者就能据此推断学生未成年，
+ *   这本身就是泄露。保护放在学生一侧执行：`invitationInbox` 把受保护档案的待回应邀请收起（held），
+ *   学生选择和可信任的大人一起查看时才展开；展开后只能拒绝或屏蔽，不能接受。
  * - 发布者端页面上的全部固定文字也在这里（PUBLISHER_PANE_TEXT 等），测试逐条确认它们不透露保护状态。
  * - `publisherQuests`：某示例发布者在本浏览器发布的任务。
  * - `invitationList`：学生端列表（隐藏已屏蔽的发布者）与已屏蔽的发布者名单。任务只在「该邀请的发布者」发布的任务里找；
  *   找不到（任务已撤回、id 属于别的发布者、或没有任务）时不能接受，只能拒绝或屏蔽。
- * - `actionsFor` / `ACTION_STATUS` / `actionMessage`：学生的四个操作。「Report and block」与「Block」写入的都是
- *   `blocked` 状态：没有举报的存储，也不发送任何举报。
+ * - `invitationInbox`：学生端在 invitationList 之上按保护状态决定哪些直接显示、哪些收起、各行能做哪些操作。
+ * - `actionsFor` / `ACTION_STATUS` / `actionMessage`：学生的操作（Accept / Decline / Block / Unblock）。
+ *   这个本地演示没有举报：Block 只写入 `blocked` 状态，不发送任何东西；Unblock 把该发布者 `blocked` 的邀请改回 `declined`。
+ * - `unblockTargets`：解除屏蔽时要改回 `declined` 的邀请 id。
  *
  * 纯函数：日期与 id 由调用方传入；不读时钟、无随机、不读写存储、永不抛异常、不修改输入。
  */
@@ -84,6 +90,9 @@ export const QUEST_REQUIRED_REFUSAL = "Not sent. Choose one of this sample publi
 export const DUPLICATE_QUEST_REFUSAL =
   'Not sent. This sample publisher already has an invitation about this quest waiting for an answer.';
 export const ANSWERED_REFUSAL = 'Not sent. This student already answered an invitation about this quest.';
+/** 同一示例发布者对同一句柄同时最多 1 条待回应的邀请（对所有档案相同）。 */
+export const PUBLISHER_PENDING_REFUSAL =
+  'Not sent. This sample publisher already has a pending invitation to this handle.';
 export const TRY_AGAIN_REFUSAL = 'Not sent. Could not create the invitation. Try again.';
 
 /** planInvitation 可能返回的全部拒绝原因（测试逐条检查不透露保护状态）。 */
@@ -94,6 +103,7 @@ export const PUBLISHER_REFUSALS: readonly string[] = [
   QUEST_REQUIRED_REFUSAL,
   DUPLICATE_QUEST_REFUSAL,
   ANSWERED_REFUSAL,
+  PUBLISHER_PENDING_REFUSAL,
   TRY_AGAIN_REFUSAL,
 ];
 
@@ -170,6 +180,8 @@ export function planInvitation(req: InvitationRequest): InvitationPlan {
   const sameQuest = sameStudentAndPublisher.filter((i) => i.opportunity_id === questId);
   if (sameQuest.some((i) => i.status === 'pending')) return { ok: false, message: DUPLICATE_QUEST_REFUSAL };
   if (sameQuest.some((i) => i.status === 'declined' || i.status === 'accepted')) return { ok: false, message: ANSWERED_REFUSAL };
+  // 限流：同一发布者对同一句柄同时最多 1 条待回应的邀请（不论任务）。
+  if (sameStudentAndPublisher.some((i) => i.status === 'pending')) return { ok: false, message: PUBLISHER_PENDING_REFUSAL };
 
   if (!nonEmpty(req.id) || existing.some((i) => i.id === req.id) || parseISODate(req.today) === null) {
     return { ok: false, message: TRY_AGAIN_REFUSAL };
@@ -214,10 +226,9 @@ export const ACCEPTED_QUEST_GONE_LABEL = 'Accepted earlier. Its quest is no long
 export const NOT_ACCEPTABLE_NOTICE =
   'This invitation is not about a quest this sample publisher has posted in this browser, so it cannot be accepted.';
 
-/** 「Report and block」按钮下的说明。 */
-export const REPORT_HINT =
-  'Report and block blocks the publisher. This is a local demo, so no report is sent to anyone. ' +
-  'If something worried you, talk with a parent, guardian or teacher.';
+/** 「Block this sample publisher」按钮下的说明（如实：本地演示没有举报）。 */
+export const BLOCK_HINT =
+  "Blocking hides this publisher's invitations in this browser. This local demo has no reporting: nothing is sent to anyone and no one reviews it.";
 
 /**
  * 邀请针对的任务：none = 邀请没有任务 id（旧数据）；stored = 该邀请的发布者在本浏览器发布了这个任务（可以链接、可以接受）；
@@ -225,7 +236,7 @@ export const REPORT_HINT =
  */
 export type InvitationQuest = { kind: 'none' } | { kind: 'stored'; id: string; title: string } | { kind: 'missing' };
 
-export type InvitationAction = 'accept' | 'decline' | 'block' | 'report';
+export type InvitationAction = 'accept' | 'decline' | 'block' | 'unblock';
 
 export interface InvitationRow {
   id: string;
@@ -246,6 +257,8 @@ export interface InvitationList {
   rows: InvitationRow[];
   /** 已屏蔽的示例发布者名称（去重，按 blocked 的顺序）。 */
   blocked_publishers: string[];
+  /** 已屏蔽的示例发布者（id + 名称，按 blocked 的顺序，按 id 去重）：页面给每个加 Unblock 按钮。 */
+  blocked_list: { id: string; name: string }[];
 }
 
 /** 示例发布者的名称；找不到时为 UNKNOWN_PUBLISHER。 */
@@ -255,13 +268,14 @@ export function publisherName(publishers: readonly SamplePublisher[], id: string
 }
 
 /**
- * 某一行可用的操作：待回应且任务找得到时 Accept / Decline / Block / Report and block；
- * 待回应但任务找不到时没有 Accept；已回应时只剩 Block / Report and block。对所有档案都一样。
+ * 某一行可用的操作（不看保护状态；受保护时由 invitationInbox 再去掉 Accept）：
+ * 待回应且任务找得到时 Accept / Decline / Block；待回应但任务找不到时没有 Accept；已回应时只剩 Block；
+ * 已屏蔽时只有 Unblock。
  */
 export function actionsFor(status: InvitationStatus, quest: InvitationQuest): InvitationAction[] {
-  if (status === 'blocked') return [];
-  if (status !== 'pending') return ['block', 'report'];
-  return quest?.kind === 'stored' ? ['accept', 'decline', 'block', 'report'] : ['decline', 'block', 'report'];
+  if (status === 'blocked') return ['unblock'];
+  if (status !== 'pending') return ['block'];
+  return quest?.kind === 'stored' ? ['accept', 'decline', 'block'] : ['decline', 'block'];
 }
 
 /** 已屏蔽的示例发布者那一行文字（单复数一致）；没有屏蔽时为 null。 */
@@ -321,22 +335,91 @@ export function invitationList(input: {
       });
     }
   }
-  return { rows, blocked_publishers: unique(blocked.map((id) => publisherName(input?.publishers ?? [], id))) };
+  const blockedList = blocked.map((id) => ({ id, name: publisherName(input?.publishers ?? [], id) }));
+  return { rows, blocked_publishers: unique(blockedList.map((b) => b.name)), blocked_list: blockedList };
 }
 
-/** 学生的操作 → 写入的状态。「Report and block」只是屏蔽：没有举报的存储。 */
+/** 受保护档案收起的待回应邀请展开后，每一行的说明。 */
+export const STRICT_NO_ACCEPT_NOTICE =
+  'With stricter defaults, an invitation cannot be accepted here. Use the official application route for the quest instead.';
+
+/** 受保护档案 Invitations 区的汇总提示（held > 0 时）。 */
+export function heldNotice(held: number): string {
+  return held === 1
+    ? '1 sample invitation is held because stricter defaults apply to this profile. Review it together with a parent, guardian or teacher.'
+    : `${held} sample invitations are held because stricter defaults apply to this profile. Review them together with a parent, guardian or teacher.`;
+}
+
+/** 展开收起的邀请的按钮文字。 */
+export const REVIEW_HELD_LABEL = 'Review held invitations with a trusted adult';
+
+export interface InvitationInbox {
+  /** 收起的待回应邀请条数（受保护时 = pending 行数；否则 0）。 */
+  held: number;
+  /** 收起的行（学生点了 REVIEW_HELD_LABEL 才显示）：没有 Accept，notice = STRICT_NO_ACCEPT_NOTICE。 */
+  held_rows: InvitationRow[];
+  /** 直接显示的行：不受保护时 = 全部行（不变）；受保护时 = 已回应的历史（同样没有 Accept）。 */
+  visible: InvitationRow[];
+  /** 本档案此刻允许的操作（受保护时没有 accept）。页面写入前用 `inboxAllows` 再确认。 */
+  allowed_actions: InvitationAction[];
+}
+
+const ALL_ACTIONS: readonly InvitationAction[] = ['accept', 'decline', 'block', 'unblock'];
+
+/**
+ * 学生端收件箱：在 invitationList 的行之上按保护状态分组。
+ * - 不受保护（显式 `protected === false`）：与以前一致，全部直接显示，held = 0。
+ * - 受保护（或 protection 缺失 / 损坏，失败时从严）：pending 的行全部收起（不直接显示发布者、任务、理由），
+ *   只给条数；展开后可 Decline / Block，不能 Accept。已回应（declined / accepted）的历史照常显示，同样没有 Accept。
+ * 已屏蔽发布者的邀请不在 rows 里（见 invitationList），由 blocked_list 显示。不修改输入。
+ */
+export function invitationInbox(protection: Protection | null | undefined, rows: readonly InvitationRow[]): InvitationInbox {
+  const all = arr(rows).filter((r) => isObj(r));
+  if (isUnprotected(protection)) {
+    return { held: 0, held_rows: [], visible: [...all], allowed_actions: [...ALL_ACTIONS] };
+  }
+  const strip = (r: InvitationRow): InvitationRow => ({
+    ...r,
+    actions: arr(r.actions).filter((a) => a !== 'accept'),
+    notice: r.status === 'pending' ? STRICT_NO_ACCEPT_NOTICE : r.notice,
+  });
+  const held_rows = all.filter((r) => r.status === 'pending').map(strip);
+  const visible = all.filter((r) => r.status !== 'pending').map(strip);
+  return { held: held_rows.length, held_rows, visible, allowed_actions: ALL_ACTIONS.filter((a) => a !== 'accept') };
+}
+
+/** 这一行在收件箱里是否允许这个操作（受保护时 accept 一律不允许）。 */
+export function inboxAllows(inbox: InvitationInbox, rowId: string, action: InvitationAction): boolean {
+  if (!inbox.allowed_actions.includes(action)) return false;
+  const row = [...inbox.visible, ...inbox.held_rows].find((r) => r.id === rowId);
+  return row !== undefined && row.actions.includes(action);
+}
+
+/**
+ * 解除屏蔽：这个句柄下、该发布者状态为 blocked 的全部邀请 id（改回 declined 后，blockedPublisherIds 不再包含它，
+ * 发布者又可以发送示例邀请；同一任务之前已回应过的仍按 ANSWERED_REFUSAL 拒绝）。
+ */
+export function unblockTargets(invitations: readonly Invitation[], shareHandle: string | null, publisherId: string): string[] {
+  if (!nonEmpty(shareHandle) || !nonEmpty(publisherId)) return [];
+  return arr(invitations)
+    .filter((i) => isObj(i) && i.share_handle === shareHandle && i.publisher_id === publisherId && i.status === 'blocked')
+    .map((i) => i.id)
+    .filter(nonEmpty);
+}
+
+/** 学生的操作 → 写入的状态。解除屏蔽 = 改回 declined（不恢复成 pending）。 */
 export const ACTION_STATUS: Record<InvitationAction, InvitationStatus> = {
   accept: 'accepted',
   decline: 'declined',
   block: 'blocked',
-  report: 'blocked',
+  unblock: 'declined',
 };
 
 export const ACTION_LABELS: Record<InvitationAction, string> = {
   accept: 'Accept',
   decline: 'Decline',
-  block: 'Block this publisher',
-  report: 'Report and block',
+  block: 'Block this sample publisher',
+  unblock: 'Unblock',
 };
 
 /** 操作成功后的提示（英文，给学生看）：每一句都写明本地演示里没有发送任何东西。 */
@@ -347,11 +430,11 @@ export function actionMessage(action: InvitationAction, name: string): string {
     case 'decline':
       return `Declined the sample invitation from ${name}. In this local demo nothing is sent and no one is contacted.`;
     case 'block':
-      return `Blocked ${name}. Its invitations are hidden and it cannot send you new ones. Nothing is sent to anyone.`;
-    case 'report':
       return (
-        `Blocked ${name}. This is a local demo, so no report is sent to anyone. ` +
-        'If something worried you, talk with a parent, guardian or teacher.'
+        `Blocked ${name}. Its invitations are hidden in this browser and it cannot send you new ones. ` +
+        'This local demo has no reporting: nothing is sent to anyone. If something worried you, talk with a parent, guardian or teacher.'
       );
+    case 'unblock':
+      return `Unblocked ${name}. Its earlier invitations are listed as declined, and it can send you new sample invitations. Nothing is sent to anyone.`;
   }
 }

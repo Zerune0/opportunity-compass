@@ -11,13 +11,19 @@
  *    合作说明分享前先过 checkCollaborationNote（长度、像邮箱 / 网址 / 电话号码的内容一律拒绝）。
  *    说明草稿按档案 id 记：别的标签页换了档案时，旧档案没发出的草稿不会出现在新档案上。
  *    像联系方式的技能名 / 兴趣即使勾选，发布者也看不到（页面写明）。
- *    受保护的档案（lib/connect/protection.ts：未满 18、12 年级及以下、或没有出生日期）：显示提示；
- *    合作说明不能分享（输入框禁用；以前保存的说明留在本浏览器但不分享，学生可以删除）；发布者看不到证据标题。
- *    「Invitations」：按本档案的 share_handle 列出示例邀请，隐藏已屏蔽的发布者；Accept / Decline / Block / Report and block
- *    都只改邀请状态（setInvitationStatus），没有举报的存储，也不发送任何东西。任务找不到的邀请不能接受。
+ *    发布者对所有档案都看不到证据标题（页面写明）。
+ *    受保护的档案（lib/connect/protection.ts：未满 18、12 年级及以下、或年龄未知）：显示提示；
+ *    合作说明不能分享（输入框禁用；以前保存的说明留在本浏览器但不分享，学生可以删除）；
+ *    分享区顶部多一个「已经和家长 / 监护人 / 老师谈过」的复选框，没勾选时各分享开关禁用（canChangeSharing），
+ *    已开着的分享不变，「Stop sharing everything」始终可用；勾选只放在组件状态里，每次打开页面要重新确认。
+ *    「Invitations」：按本档案的 share_handle 列出示例邀请，隐藏已屏蔽的发布者（invitationList），再按保护状态分组
+ *    （invitationInbox）：受保护时待回应的邀请先收起，只显示条数，点「Review held invitations with a trusted adult」
+ *    才展开（组件状态，不存储），展开后只能 Decline / Block，不能 Accept。Accept / Decline / Block / Unblock
+ *    都只改邀请状态（setInvitationStatus），没有举报，也不发送任何东西。任务找不到的邀请不能接受。
+ *    已屏蔽的示例发布者各有一个 Unblock 按钮：把它 blocked 的邀请改回 declined。
  * 2. 发布者端「Shared profile」：只渲染 lib/connect/talent.ts 的 publisherView 整理出的预览（sharedProfilePreview）；
  *    什么都没分享时立即为空。有分享内容时可以选示例发布者及其在本浏览器发布的任务，发一条示例邀请：
- *    对所有档案都必须选任务（规则相同，发布者端不透露保护状态）；只指向 share_handle，理由只由分享的内容拼成
+ *    对所有档案规则与反馈完全相同（受保护的档案照样保存 pending 邀请，只在学生端收起），发布者端不透露保护状态；只指向 share_handle，理由只由分享的内容拼成
  *    （lib/connect/invitations.ts）。发布者端的固定文字都来自 PUBLISHER_PANE_TEXT。
  *    不排序、不打分，也没有任何「匹配度」。
  *
@@ -33,20 +39,29 @@ import type { FormEvent, ReactNode } from "react";
 import {
   ACTION_LABELS,
   ACTION_STATUS,
+  BLOCK_HINT,
   PUBLISHER_PANE_TEXT,
-  REPORT_HINT,
+  REVIEW_HELD_LABEL,
   actionMessage,
   blockedLine,
+  heldNotice,
+  inboxAllows,
+  invitationInbox,
   invitationList,
   planInvitation,
   publisherName,
   publisherQuests,
   sentMessage,
+  unblockTargets,
 } from "@/lib/connect/invitations";
 import type { InvitationAction, InvitationRow } from "@/lib/connect/invitations";
 import {
+  EVIDENCE_TITLE_NOTICE,
   GUARDIAN_ADVICE,
   PROTECTION_EFFECTS,
+  SHARING_CONFIRM_LABEL,
+  SHARING_LOCKED_REASON,
+  canChangeSharing,
   exactlyAsWrittenWarning,
   isUnprotected,
   protectionFor,
@@ -146,6 +161,10 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
   const [publisherId, setPublisherId] = useState("");
   const [questId, setQuestId] = useState("");
   const [focusRequest, setFocusRequest] = useState<{ target: FocusTarget; n: number } | null>(null);
+  /** 受保护档案：已确认和可信任的大人谈过（只在组件状态里，按档案 id 记；不存储）。 */
+  const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
+  /** 受保护档案：收起的邀请已展开（只在组件状态里，按档案 id 记；不存储）。 */
+  const [heldOpenFor, setHeldOpenFor] = useState<string | null>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const inviteStatusRef = useRef<HTMLParagraphElement>(null);
   const publisherStatusRef = useRef<HTMLParagraphElement>(null);
@@ -209,6 +228,10 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
           stored_quests: local.quests,
         })
       : null;
+  const inbox = invitations && protection ? invitationInbox(protection, invitations.rows) : null;
+  const heldOpen = profile !== null && heldOpenFor === profile.id;
+  const sharingConfirmed = profile !== null && confirmedFor === profile.id;
+  const sharingUnlocked = protection !== null && canChangeSharing(protection, sharingConfirmed);
   const quests = local ? publisherQuests(local.quests, publisherId, publishers) : [];
   const draftText = profile && noteDraft && noteDraft.profileId === profile.id ? noteDraft.text : null;
   const noteValue = choices && !choices.note_allowed ? (choices.note ?? "") : (draftText ?? choices?.note ?? "");
@@ -225,6 +248,12 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
     if (!formShown) setPublisherMessage("");
     const today = localToday();
     const freshProtection = protectionFor(fresh, today);
+    // 受保护时，没确认过就不能改证据 / 技能 / 兴趣的开关（删除或分享说明另有规则）。
+    if (c.kind !== "note" && !canChangeSharing(freshProtection, confirmedFor === fresh.id)) {
+      setLocal(readLocal(fresh));
+      setMessage(SHARING_LOCKED_REASON);
+      return false;
+    }
     // 第一次打开开关时才新建设置（默认什么都不分享），之后沿用已保存的句柄。
     const base = loadShareSettings(fresh.id) ?? defaultShareSettings(fresh.id, today);
     const next = applyShareChange(base, c, today, freshProtection);
@@ -339,17 +368,22 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
     }
     const today = localToday();
     const handle = loadShareSettings(fresh.id)?.share_handle ?? null;
-    const current =
+    // 按最新数据与最新的保护状态重新分组：受保护时 accept 一律不允许。
+    const freshInbox =
       handle === null
-        ? undefined
-        : invitationList({
-            invitations: loadInvitations(handle),
-            share_handle: handle,
-            blocked: blockedPublisherIds(handle),
-            publishers,
-            stored_quests: loadUserPostedOpportunities(),
-          }).rows.find((r) => r.id === row.id);
-    if (handle === null || !current || !current.actions.includes(action)) {
+        ? null
+        : invitationInbox(
+            protectionFor(fresh, today),
+            invitationList({
+              invitations: loadInvitations(handle),
+              share_handle: handle,
+              blocked: blockedPublisherIds(handle),
+              publishers,
+              stored_quests: loadUserPostedOpportunities(),
+            }).rows,
+          );
+    const current = freshInbox ? [...freshInbox.visible, ...freshInbox.held_rows].find((r) => r.id === row.id) : undefined;
+    if (handle === null || freshInbox === null || !current || !inboxAllows(freshInbox, row.id, action)) {
       setLocal(readLocal(fresh));
       setInviteMessage(INVITATION_CHANGED);
       requestFocus("invitations");
@@ -360,6 +394,29 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
     const ok = loadInvitations(handle).some((i) => i.id === row.id && i.status === status);
     setLocal(readLocal(fresh));
     setInviteMessage(ok ? actionMessage(action, current.publisher_name) : SAVE_FAILED);
+    requestFocus("invitations");
+  };
+
+  /** 解除屏蔽：把这个句柄下该发布者 blocked 的邀请全部改回 declined，读回确认。 */
+  const unblock = (publisherIdToUnblock: string, name: string) => {
+    const fresh = currentProfile(setInviteMessage);
+    if (!fresh) {
+      requestFocus("invitations");
+      return;
+    }
+    const today = localToday();
+    const handle = loadShareSettings(fresh.id)?.share_handle ?? null;
+    const targets = unblockTargets(handle === null ? [] : loadInvitations(handle), handle, publisherIdToUnblock);
+    if (handle === null || targets.length === 0) {
+      setLocal(readLocal(fresh));
+      setInviteMessage(INVITATION_CHANGED);
+      requestFocus("invitations");
+      return;
+    }
+    for (const id of targets) setInvitationStatus(id, ACTION_STATUS.unblock, today);
+    const ok = !blockedPublisherIds(handle).includes(publisherIdToUnblock);
+    setLocal(readLocal(fresh));
+    setInviteMessage(ok ? actionMessage("unblock", name) : SAVE_FAILED);
     requestFocus("invitations");
   };
 
@@ -420,30 +477,50 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
                 </div>
               )}
 
+              {strict && (
+                <div className="space-y-1">
+                  <label className={CHOICE_CLASS}>
+                    <input
+                      type="checkbox"
+                      className="mt-1 shrink-0"
+                      checked={sharingConfirmed}
+                      onChange={(e) => setConfirmedFor(e.target.checked ? profile.id : null)}
+                    />
+                    <span className="min-w-0 font-medium">{SHARING_CONFIRM_LABEL}</span>
+                  </label>
+                  {!sharingUnlocked && (
+                    <p id="talent-sharing-locked" className="text-sm">
+                      {SHARING_LOCKED_REASON}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <ShareGroup legend="Evidence" empty="Your profile has no evidence yet." items={choices.evidence}>
                 {(item) => (
                   <ShareCheckbox
                     key={item.key}
                     item={item}
+                    disabled={!sharingUnlocked}
                     onChange={(on) =>
                       change(
                         { kind: "evidence", id: item.key, on },
                         on
-                          ? strict
-                            ? `Sharing the kind, skills and status of the evidence "${item.label}". Its title is not shown.`
-                            : `Sharing the evidence "${item.label}".`
+                          ? `Sharing the kind, skills and status of the evidence "${item.label}". Its title is not shown.`
                           : `Stopped sharing the evidence "${item.label}".`,
                       )
                     }
                   />
                 )}
               </ShareGroup>
+              {choices.evidence.length > 0 && <p className="text-xs text-gray-600">{EVIDENCE_TITLE_NOTICE}</p>}
 
               <ShareGroup legend="Skills" empty="Your profile has no skills yet." items={choices.skills}>
                 {(item) => (
                   <ShareCheckbox
                     key={item.key}
                     item={item}
+                    disabled={!sharingUnlocked}
                     onChange={(on) =>
                       change(
                         { kind: "skill", name: item.key, on },
@@ -474,6 +551,7 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
                       checked: choices.interests.checked,
                       withheld: false,
                     }}
+                    disabled={!sharingUnlocked}
                     onChange={(on) =>
                       change({ kind: "interests", on }, on ? "Sharing your interests." : "Stopped sharing your interests.")
                     }
@@ -567,21 +645,60 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
                 Sample invitations from fictional publishers, saved only in this browser. Nothing you choose here is sent
                 to anyone.
               </p>
-              {invitations.rows.length === 0 ? (
-                <p className="text-sm text-gray-700">No invitations.</p>
+              {inbox !== null && inbox.held > 0 && (
+                <div role="note" className="space-y-2 rounded border border-sky-700 bg-sky-50 p-2 text-sm text-sky-950">
+                  <p className="font-medium">{heldNotice(inbox.held)}</p>
+                  {heldOpen ? (
+                    <ul className="space-y-3" aria-label="Held sample invitations">
+                      {inbox.held_rows.map((row) => (
+                        <InvitationCard key={row.id} row={row} onAction={(a) => respond(row, a)} />
+                      ))}
+                    </ul>
+                  ) : (
+                    <button
+                      type="button"
+                      className={BUTTON_CLASS}
+                      onClick={() => profile && setHeldOpenFor(profile.id)}
+                    >
+                      {REVIEW_HELD_LABEL}
+                    </button>
+                  )}
+                </div>
+              )}
+              {inbox === null || inbox.visible.length === 0 ? (
+                inbox !== null && inbox.held > 0 ? null : <p className="text-sm text-gray-700">No invitations.</p>
               ) : (
                 <ul className="space-y-3">
-                  {invitations.rows.map((row) => (
+                  {inbox.visible.map((row) => (
                     <InvitationCard key={row.id} row={row} onAction={(a) => respond(row, a)} />
                   ))}
                 </ul>
               )}
-              {invitations.rows.length > 0 && (
-                <p id="invite-report-hint" className="text-xs text-gray-600">
-                  {REPORT_HINT}
+              {inbox !== null && (inbox.visible.length > 0 || (heldOpen && inbox.held > 0)) && (
+                <p id="invite-block-hint" className="text-xs text-gray-600">
+                  {BLOCK_HINT}
                 </p>
               )}
-              {blocked !== null && <p className="text-sm text-gray-700">{blocked}</p>}
+              {blocked !== null && (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-700">{blocked}</p>
+                  <ul className="space-y-2">
+                    {invitations.blocked_list.map((b) => (
+                      <li key={b.id} className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="break-words">{b.name} (sample publisher)</span>
+                        <button
+                          type="button"
+                          className={BUTTON_CLASS}
+                          aria-label={`Unblock ${b.name}`}
+                          onClick={() => unblock(b.id, b.name)}
+                        >
+                          {ACTION_LABELS.unblock}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </section>
           )}
 
@@ -768,7 +885,7 @@ function InvitationCard({ row, onAction }: { row: InvitationRow; onAction: (acti
               type="button"
               className={BUTTON_CLASS}
               onClick={() => onAction(a)}
-              aria-describedby={a === "report" ? "invite-report-hint" : undefined}
+              aria-describedby={a === "block" ? "invite-block-hint" : undefined}
             >
               {ACTION_LABELS[a]}
             </button>
@@ -806,10 +923,26 @@ function ShareGroup({
   );
 }
 
-function ShareCheckbox({ item, onChange }: { item: ShareChoice; onChange: (on: boolean) => void }) {
+/** disabled 时（受保护且还没确认）用 aria-describedby 指向 talent-sharing-locked 的原因说明。 */
+function ShareCheckbox({
+  item,
+  onChange,
+  disabled = false,
+}: {
+  item: ShareChoice;
+  onChange: (on: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
-    <label className={CHOICE_CLASS}>
-      <input type="checkbox" className="mt-1 shrink-0" checked={item.checked} onChange={(e) => onChange(e.target.checked)} />
+    <label className={disabled ? CHOICE_CLASS.replace("cursor-pointer", "cursor-not-allowed text-gray-600") : CHOICE_CLASS}>
+      <input
+        type="checkbox"
+        className="mt-1 shrink-0"
+        checked={item.checked}
+        disabled={disabled}
+        aria-describedby={disabled ? "talent-sharing-locked" : undefined}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       <span className="min-w-0">
         <span className="block break-words">{item.label}</span>
         <span className="block text-xs text-gray-600">{item.detail}</span>
