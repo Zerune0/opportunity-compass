@@ -27,7 +27,8 @@ describe("organizer question drafts", () => {
         ], fullProfile);
         expect(draft.questions).toHaveLength(2);
         expect(draft.message).toContain("Subject: Questions about Test research program");
-        expect(draft.message).toContain(item.confirm_with_official);
+        expect(draft.message).toContain(item.source_text);
+        expect(draft.message).not.toContain(item.confirm_with_official);
         expect(draft.message).toContain("1. Regarding Academic email:");
         expect(draft.message).toContain("2. Could you please confirm the participation or application fee");
     });
@@ -200,5 +201,30 @@ describe("organizer question drafts from real engine output", () => {
         expect(draftFor(profile, opp)).toEqual(first);
         expect(first.questions).toEqual([expect.stringContaining("Faculty nomination")]);
         expectNoStudentText(first.message, profile);
+    });
+});
+
+describe("organizer-facing wording after review", () => {
+    it("uses the official manual rule instead of copying instructions addressed to the student", () => {
+        const opp = { ...baseOpportunity, requirements: [manualRule] };
+        const eligibility = checkEligibility(fullProfile, opp, { today });
+        const hint = eligibility.items[0].confirm_with_official;
+        const draft = draftFor(fullProfile, opp);
+        expect(draft.message).toContain(manualRule.source_text);
+        expect(draft.message).toContain("Required eligibility");
+        expect(draft.message).toContain("Could you please clarify this requirement");
+        if (hint) expect(draft.message).not.toContain(hint);
+        expect(draft.message).not.toContain("check it yourself");
+        expectNoStudentText(draft.message, fullProfile);
+    });
+    it("distinguishes an optional official preference from a hard requirement", () => {
+        const preference = { ...manualRule, id: "preference", hard: false, label: "Research experience", source_text: "Prior research experience is preferred." };
+        const draft = draftFor(fullProfile, { ...baseOpportunity, requirements: [manualRule, preference] });
+        expect(draft.questions).toHaveLength(2);
+        expect(draft.questions[0]).toContain("Required eligibility");
+        expect(draft.questions[1]).toContain("Official preference — not a hard eligibility requirement");
+        expect(draft.questions[1]).toContain("how this preference is considered in selection");
+        expect(draft.questions[1]).toContain(preference.source_text);
+        expect(draft.questions[1]).not.toContain("what evidence applicants should provide");
     });
 });
