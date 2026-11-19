@@ -262,6 +262,62 @@ export function clearGrants(): void {
   removeKey(STORE_KEYS.grants);
 }
 
+// ───────────── 主办方 grants：追加与按 id 撤回（第三阶段新增）─────────────
+//
+// 主办方端的「桥」：求解通过后用 addGrants 把批准的资源写成 grants，用 removeGrants 撤回这次写入的那几条。
+// 上面四个函数的行为不变。写入失败（SSR、存储被禁用、配额满）时不抛异常，返回存储里实际的（未改变的）列表，
+// 调用方可据此判断是否写入成功。
+
+/**
+ * 追加 grants：过不了 isGrant 的条目丢弃；每条一律强制 is_sample: true（本应用里所有支持都是模拟的，
+ * 学生端靠它显示 Simulated 标签，与 lib/backup.ts 导入时的做法一致）；按 id 去重——同 id 的新条目
+ * 替换旧条目（保持旧条目的位置），同一批里同 id 以最后一条为准。返回写入后存储里的完整列表。
+ * 传入的不是数组、或没有合法条目时不写入，直接返回当前列表。
+ */
+export function addGrants(grants: ResourceGrant[]): ResourceGrant[] {
+  const current = loadGrants();
+  if (!Array.isArray(grants)) return current;
+  const incoming = new Map<string, ResourceGrant>();
+  for (const g of grants) {
+    if (!isGrant(g)) continue;
+    incoming.delete(g.id); // 同一批里同 id：以最后一条为准
+    incoming.set(g.id, { ...g, is_sample: true });
+  }
+  if (incoming.size === 0) return current;
+  const next = current.map((g) => {
+    const replacement = incoming.get(g.id);
+    if (!replacement) return g;
+    incoming.delete(g.id);
+    return replacement;
+  });
+  next.push(...incoming.values());
+  return writeJSON(STORE_KEYS.grants, next) ? loadGrants() : current;
+}
+
+/**
+ * 只删除给定 id 的 grants，别的不动；id 不存在不报错。返回剩余列表。
+ * 传入的不是数组时视为空；非字符串的 id 忽略；没有要删的条目时不写入。
+ */
+export function removeGrants(ids: string[]): ResourceGrant[] {
+  const current = loadGrants();
+  if (!Array.isArray(ids)) return current;
+  const drop = new Set(ids.filter((x): x is string => typeof x === 'string'));
+  const next = current.filter((g) => !drop.has(g.id));
+  if (next.length === current.length) return current;
+  return writeJSON(STORE_KEYS.grants, next) ? loadGrants() : current;
+}
+
+/**
+ * 某个措施（Intervention.id）写出的全部 grants（所有学生、所有机会）。
+ * 供主办方页面在刷新后找回「这次应用写入了哪些」，再用 removeGrants 撤回。
+ * 没有 intervention_id 的 grant 不会被取到。
+ */
+export function grantsByIntervention(interventionId: string): ResourceGrant[] {
+  // 空串不算一个措施 id：否则会把所有 intervention_id 为 '' 的条目一起取出、再被一并撤回。
+  if (typeof interventionId !== 'string' || interventionId === '') return [];
+  return loadGrants().filter((g) => g.intervention_id === interventionId);
+}
+
 // ═════════════════════════════ 第二阶段新增 ═════════════════════════════
 //
 // 约定（与上面一致）：SSR 安全、JSON 损坏或形状不对回退默认值、列表逐条过滤非法条目、不抛异常。
