@@ -4,6 +4,7 @@ import profiles from '../../data/profiles.json';
 import { validateOpportunities, opportunityWarnings } from '../../lib/validation';
 import type { Opportunity, StudentProfile } from '../../lib/types';
 import { emptyFilters, filterCatalog, orderedCatalog } from './board-model';
+import { matchesDiscovery, readBoardQuery, writeBoardQuery } from './board-discovery';
 import { catalogOpportunities } from '../../lib/data';
 const catalog = data as Opportunity[];
 /**
@@ -259,5 +260,54 @@ describe('phase 2 catalog contract', () => {
         expect(RUTGERS.cost.requires_travel_expense).toBeNull();
         expect(RUTGERS.time_commitment.hours_per_week).toBeNull();
         expect(RUTGERS.preparation.length).toBeGreaterThanOrEqual(3);
+    });
+});
+
+describe('phase 4 board search and query state', () => {
+    it.each(['GLOBAL', 'major league', 'open source', 'live workshops'])('searches title, organizer, fields or summary: %s', q => {
+        expect(filterCatalog([base, RUTGERS], { ...emptyFilters, q }, []).map(o => o.id)).toEqual([base.id]);
+    });
+    it('combines search with existing filters and saved state', () => {
+        expect(filterCatalog([base, RUTGERS], { ...emptyFilters, q: 'Rutgers', country: 'US', savedOnly: true }, [RUTGERS.id])).toEqual([RUTGERS]);
+        expect(filterCatalog([base, RUTGERS], { ...emptyFilters, q: 'Rutgers', remote: true }, [])).toEqual([]);
+    });
+    it('includes today and day 30, excluding past, day 31 and unknown deadlines', () => {
+        const dates = ['2026-11-18', '2026-11-19', '2026-12-19', '2026-12-20', null];
+        const list = dates.map((deadline, index) => ({ ...base, id: String(index), deadline }));
+        expect(filterCatalog(list, { ...emptyFilters, closingSoon: true }, [], '2026-11-19').map(o => o.id)).toEqual(['1', '2']);
+        expect(filterCatalog(list, { ...emptyFilters, closingSoon: true }, [], '').length).toBe(0);
+    });
+    it('does not accept invalid calendar dates as deadlines', () => {
+        expect(matchesDiscovery({ ...base, deadline: '2027-02-30' }, { ...emptyFilters, closingSoon: true }, '2027-02-01')).toBe(false);
+        expect(matchesDiscovery(base, { ...emptyFilters, closingSoon: true }, '2026-11-31')).toBe(false);
+    });
+    it('applies an inclusive fee cap without treating unknown fees as zero or travel as covered', () => {
+        const at = (id: string, fee: number | null): Opportunity => ({ ...base, id, cost: { fee_usd: fee, requires_travel_expense: true } });
+        const list = [at('free', 0), at('cap', 25), at('over', 26), at('unknown', null)];
+        expect(filterCatalog(list, { ...emptyFilters, maxFee: '25' }, []).map(o => o.id)).toEqual(['free', 'cap']);
+        expect(filterCatalog(list, { ...emptyFilters, maxFee: '0' }, []).map(o => o.id)).toEqual(['free']);
+        expect(filterCatalog(list, { ...emptyFilters, maxFee: '25', free: true }, [])).toEqual([]);
+    });
+    it('round-trips every filter and sort through a shareable query', () => {
+        const filters = { ...emptyFilters, q: 'lab & biology', category: 'research', field: 'life_sciences', country: 'US', state: 'NJ', hours: '2.5', grade: '13', remote: true, free: true, savedOnly: true, maxFee: '0', closingSoon: true };
+        const query = writeBoardQuery('?utm_source=team', filters, 'match');
+        expect(readBoardQuery(query, emptyFilters)).toEqual({ filters, sort: 'match' });
+        expect(new URLSearchParams(query).get('utm_source')).toBe('team');
+    });
+    it('clears all board parameters on reset while keeping unrelated parameters', () => {
+        const query = writeBoardQuery('?q=old&sort=match&savedOnly=1&closingSoon=1&maxFee=20&utm_source=team', emptyFilters, 'deadline');
+        expect(query).toBe('utm_source=team');
+        expect(readBoardQuery(query, emptyFilters)).toEqual({ filters: emptyFilters, sort: 'deadline' });
+    });
+    it('ignores malformed numeric, boolean, grade and sort parameters', () => {
+        const parsed = readBoardQuery('?hours=NaN&maxFee=-1&grade=99&remote=true&closingSoon=yes&sort=unknown', emptyFilters);
+        expect(parsed).toEqual({ filters: emptyFilters, sort: 'deadline' });
+        expect(readBoardQuery('?hours=Infinity&maxFee=0', emptyFilters).filters).toEqual({ ...emptyFilters, maxFee: '0' });
+    });
+    it('preserves spaces while typing and does not mutate filter defaults', () => {
+        const before = JSON.stringify(emptyFilters);
+        expect(readBoardQuery('?q=lab+', emptyFilters).filters.q).toBe('lab ');
+        writeBoardQuery('', { ...emptyFilters, q: 'lab ' }, 'deadline');
+        expect(JSON.stringify(emptyFilters)).toBe(before);
     });
 });
