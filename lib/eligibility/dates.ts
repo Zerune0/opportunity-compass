@@ -54,3 +54,36 @@ export function wholeYearsBetween(from: YMD, to: YMD): { years: number; exact: b
   const exact = to.m === from.m && to.d === from.d;
   return { years: Math.max(0, years), exact };
 }
+
+function isLeapYear(y: number): boolean {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+}
+
+/**
+ * 出生日期为 birth 的人在 on 这一天的整岁（按日历年月日）；birth 晚于 on → null。
+ * 约定：2 月 29 日出生者在非闰年按 3 月 1 日满岁（2 月 28 日还差一天）。
+ */
+export function ageOnYMD(birth: YMD, on: YMD): number | null {
+  if (compareYMD(birth, on) > 0) return null;
+  let annM = birth.m;
+  let annD = birth.d;
+  if (annM === 2 && annD === 29 && !isLeapYear(on.y)) {
+    annM = 3;
+    annD = 1;
+  }
+  const beforeBirthday = on.m < annM || (on.m === annM && on.d < annD);
+  return on.y - birth.y - (beforeBirthday ? 1 : 0);
+}
+
+/**
+ * ageOn(birthDate, onDate)：birthDate 出生的人在 onDate 当天的整岁（纯函数，不读系统时钟）。
+ * - 两个参数都必须是合法的 `YYYY-MM-DD`，否则 null；
+ * - 出生日期晚于 onDate → null；同一天 → 0；
+ * - 2 月 29 日出生者在非闰年按 3 月 1 日满岁。
+ */
+export function ageOn(birthDate: ISODate | null | undefined, onDate: ISODate | null | undefined): number | null {
+  const b = parseISODate(birthDate);
+  const on = parseISODate(onDate);
+  if (b == null || on == null) return null;
+  return ageOnYMD(b, on);
+}

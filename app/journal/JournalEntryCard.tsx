@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { QuestCard, StatusTag } from "@/components/rpg";
+import { resolveRecordDate } from "@/lib/journal";
 import { recordJournalEvent, removeJournalEntry, toggleJournalTask } from "@/lib/store";
 import type { JournalEntry, JournalEvent, Opportunity } from "@/lib/types";
 import { FeedbackForm } from "./FeedbackForm";
@@ -29,15 +30,18 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
   const officialUrl = opportunity?.official_url ?? entry.official_url;
   const headingId = `journal-entry-${entry.id}`;
 
-  function record(event: JournalEvent) {
+  function record(event: JournalEvent, chosenDate: string) {
+    // Never record a future date: the date input has max = today, and anything else falls back to today.
+    const on = resolveRecordDate(chosenDate, today);
     // Guide, never block: offer to also record the submission, but record the event either way.
     if (AFTER_SUBMISSION.includes(event) && entry.application === "preparing") {
+      const dateText = on === today ? `today (${today})` : on;
       const alsoSubmitted = window.confirm(
-        `You have not recorded a submission for this quest yet. Also record a submission dated today (${today})? Choose Cancel to record only this event; you can record the submission separately with its own button.`,
+        `You have not recorded a submission for this quest yet. Also record a submission dated ${dateText}? Choose Cancel to record only this event; you can record the submission separately with its own button.`,
       );
-      if (alsoSubmitted) recordJournalEvent(profileId, entry.opportunity_id, "submitted", today);
+      if (alsoSubmitted) recordJournalEvent(profileId, entry.opportunity_id, "submitted", on);
     }
-    recordJournalEvent(profileId, entry.opportunity_id, event, today);
+    recordJournalEvent(profileId, entry.opportunity_id, event, on);
     onChange();
   }
 
@@ -51,10 +55,6 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
     removeJournalEntry(profileId, entry.opportunity_id);
     onChange();
   }
-
-  const history = entry.history
-    .map((item, index) => ({ ...item, index }))
-    .sort((a, b) => (a.on === b.on ? a.index - b.index : a.on < b.on ? -1 : 1));
 
   return (
     <QuestCard aria-labelledby={headingId}>
@@ -81,7 +81,7 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
         </p>
       )}
 
-      <StatusLines entry={entry} onRecord={record} />
+      <StatusLines entry={entry} today={today} onRecord={record} />
 
       <section aria-labelledby={`${headingId}-tasks`} className="rpg-stack">
         <h4 id={`${headingId}-tasks`}>Tasks</h4>
@@ -105,9 +105,10 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
 
       <details>
         <summary>History ({entry.history.length})</summary>
+        <p className="rpg-small">Shown in the order you recorded them. The date on each line is the date you gave.</p>
         <ol className="rpg-list">
-          {history.map((item) => (
-            <li key={`${item.event}-${item.on}-${item.index}`}>
+          {entry.history.map((item, index) => (
+            <li key={`${item.event}-${item.on}-${index}`}>
               <time dateTime={item.on}>{item.on}</time> · {eventLabels[item.event]}
             </li>
           ))}

@@ -1,43 +1,61 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
-import opportunities from "@/data/opportunities.json";
-import { addEvidence, loadProfile, removeEvidence, saveProfile } from "@/lib/store";
-import type { EvidenceItem, EvidenceKind, StudentProfile } from "@/lib/types";
+import {
+  addEvidence, loadJournal, loadProfile, loadSavedOpportunityIds, loadUserPostedOpportunities, removeEvidence, saveProfile,
+} from "@/lib/store";
+import type { EvidenceItem, StudentProfile } from "@/lib/types";
+import { EvidenceCard } from "./EvidenceCard";
+import { catalog as opportunities, isHttpUrl, kinds, localToday, parseSkills, toStudentStatus, type LinkContext } from "./evidence-shared";
 import { ProfileEditor } from "./ProfileEditor";
 import { SampleProfiles } from "./SampleProfiles";
+import { StatusHelp } from "./StatusHelp";
 
-const kinds = ["project", "portfolio", "certificate", "competition_result", "work_experience", "volunteer_experience", "course", "recommendation_letter", "other"] as const satisfies readonly EvidenceKind[];
-const labels = {
-  self_reported: "Self-reported",
-  evidence_attached: "Evidence attached",
-  reviewed: "Reviewed",
-  unverified: "Unverified",
-};
+/** Browser-only: call from effects and event handlers. */
+function readLinkContext(profile: StudentProfile | null): LinkContext {
+  return {
+    userPosted: loadUserPostedOpportunities(),
+    journalIds: profile ? loadJournal(profile.id).map((entry) => entry.opportunity_id) : [],
+    savedIds: loadSavedOpportunityIds(),
+    today: localToday(),
+  };
+}
 
 export function Passport({ opportunityId }: { opportunityId?: string }) {
   const [profile, setProfile] = useState<StudentProfile | null>();
   const [message, setMessage] = useState("");
   const [skillsInput, setSkillsInput] = useState("");
   const [selectedSkill, setSelectedSkill] = useState("");
+  const [linkContext, setLinkContext] = useState<LinkContext>();
   const opportunity = opportunities.find((item) => item.id === opportunityId);
   const skillOptions = [...new Set([
     ...(profile?.skills?.map((skill) => skill.name) ?? []),
     ...opportunities.flatMap((item) => item.preparation.flatMap((prep) => prep.skill ? [prep.skill] : [])),
   ])].sort();
 
+  // Re-read localStorage after every write so the page shows what is stored.
+  const refresh = useCallback(() => {
+    const current = loadProfile();
+    setProfile(current);
+    setLinkContext(readLinkContext(current));
+  }, []);
+
+  function changeProfile(next: StudentProfile | null) {
+    setProfile(next);
+    setLinkContext(readLinkContext(next));
+  }
+
   function deleteEvidence(item: EvidenceItem) {
-    if (!window.confirm(`Delete evidence "${item.title}"?`)) return;
+    const linkCount = item.prep_item_ids?.length ?? 0;
+    const linkNote = linkCount ? ` Its ${linkCount === 1 ? "link" : `${linkCount} links`} to preparation steps will be removed too.` : "";
+    if (!window.confirm(`Delete evidence "${item.title}"?${linkNote}`)) return;
     const updated = removeEvidence(item.id);
-    if (updated) setProfile(updated);
+    if (updated) refresh();
     setMessage(updated ? "Evidence deleted." : "Could not delete the evidence.");
   }
-  useEffect(() => {
-    function refresh() {
-      setProfile(loadProfile());
-    }
 
+  useEffect(() => {
     const initialRead = window.requestAnimationFrame(refresh);
     window.addEventListener("storage", refresh);
     window.addEventListener("pageshow", refresh);
@@ -46,7 +64,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
       window.removeEventListener("storage", refresh);
       window.removeEventListener("pageshow", refresh);
     };
-  }, []);
+  }, [refresh]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,15 +73,13 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
     const title = String(data.get("title") ?? "").trim();
     const url = String(data.get("url") ?? "").trim();
     const kind = kinds.find((value) => value === data.get("kind"));
-    if (!title || !kind || (url && !/^https?:\/\//i.test(url))) {
+    if (!title || !kind || (url && !isHttpUrl(url))) {
       setMessage("Enter a title, select a type, and use an HTTP or HTTPS link.");
       return;
     }
-    const skills = String(data.get("skills") ?? "").split(",")
-      .map((skill) => skill.trim().toLowerCase().replace(/[\s-]+/g, "_")).filter(Boolean);
     const item: EvidenceItem = {
-      id: crypto.randomUUID(), title, kind, skills: [...new Set(skills)],
-      status: data.get("status") === "unverified" ? "unverified" : data.get("status") === "evidence_attached" ? "evidence_attached" : "self_reported",
+      id: crypto.randomUUID(), title, kind, skills: parseSkills(String(data.get("skills") ?? "")),
+      status: toStudentStatus(data.get("status")),
       prep_item_ids: opportunity?.preparation.filter((prep) => data.getAll("prep").includes(prep.id)).map((prep) => `${opportunity.id}:${prep.id}`),
       url: url || null, description: String(data.get("description") ?? "").trim() || null,
       added_on: new Date().toISOString().slice(0, 10),
@@ -77,7 +93,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
       setMessage("Could not save evidence in this browser.");
       return;
     }
-    setProfile(next);
+    refresh();
     setMessage("Evidence saved.");
     form.reset();
     setSkillsInput("");
@@ -91,7 +107,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
       {profile?.is_sample && <p><StatusTag tone="warning">Sample profile</StatusTag> {profile.display_name}</p>}
       {opportunityId && <a className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunityId)}`}>Return to Adventure Map</a>}
       </header>
-      <SampleProfiles profile={profile} onChange={setProfile} />
+      <SampleProfiles profile={profile} onChange={changeProfile} />
       {profile && <QuestCard>
         <h2>Current profile</h2>
         <p>{profile.display_name}</p>
@@ -126,6 +142,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
             <option value="evidence_attached">Evidence attached</option>
             <option value="unverified">Unverified</option>
           </select></label>
+          <StatusHelp />
           {Boolean(opportunity?.preparation.length) && <fieldset>
             <legend>Related preparation steps for {opportunity?.title}</legend>
             {opportunity?.preparation.map((prep) => <label key={prep.id}>
@@ -142,14 +159,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
         <h2>Saved evidence</h2>
         <div className="rpg-route-grid">
         {profile !== undefined && !profile?.evidence.length && <p>No evidence saved yet.</p>}
-        {profile?.evidence.map((item) => <QuestCard key={item.id}>
-          <h3>{item.title}</h3>
-          <RpgButton type="button" variant="secondary" onClick={() => deleteEvidence(item)}>Delete evidence: {item.title}</RpgButton>
-          <p><StatusTag>{labels[item.status]}</StatusTag></p>
-          {item.skills.length > 0 && <p className="rpg-row">{item.skills.map((skill) => <span key={skill} className="rpg-tag rpg-tag--success">{skill}</span>)}</p>}
-          {item.description && <p>{item.description}</p>}
-          {item.url && /^https?:\/\//i.test(item.url) && <p><a href={item.url}>View attached evidence</a></p>}
-        </QuestCard>)}
+        {profile?.evidence.map((item) => <EvidenceCard key={item.id} item={item} ctx={linkContext} onChange={refresh} onDelete={deleteEvidence} />)}
         </div>
       </section>
     </div>

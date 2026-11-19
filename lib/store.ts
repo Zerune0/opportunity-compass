@@ -9,6 +9,7 @@
  * 归属：主导（lib/store.ts）。需要新增键请找主导。
  */
 import { applyJournalEvent, isJournalEvent } from './journal';
+import { isStrictISODate } from './validation';
 import {
   MATERIAL_KINDS,
   MATERIAL_STATUSES,
@@ -149,10 +150,21 @@ function isGrant(g: unknown): g is ResourceGrant {
 
 // ───────────── 学生档案 ─────────────
 
+/**
+ * 档案里可单独丢弃的非法可选值：birth_date 不是合法 `YYYY-MM-DD` 时改为 null（丢弃这个值，不丢弃整个档案）。
+ * 不读系统时钟，所以这里不检查「未来日期」；引擎在给了 today 时会忽略晚于 today 的出生日期。
+ */
+function sanitizeProfile(p: StudentProfile): StudentProfile {
+  const b = (p as { birth_date?: unknown }).birth_date;
+  if (b === undefined || b === null || isStrictISODate(b)) return p;
+  return { ...p, birth_date: null };
+}
+
 export function loadProfile(): StudentProfile | null {
-  return readJSON<StudentProfile | null>(STORE_KEYS.profile, null, (v): v is StudentProfile | null =>
+  const p = readJSON<StudentProfile | null>(STORE_KEYS.profile, null, (v): v is StudentProfile | null =>
     isProfile(v),
   );
+  return p == null ? null : sanitizeProfile(p);
 }
 
 export function saveProfile(profile: StudentProfile): boolean {
@@ -320,12 +332,15 @@ export function createEmptyProfile(displayName?: string): StudentProfile {
  * - patch 中 undefined = 不改；null = 清空该字段（保存为 null）。
  * - id、evidence 不能通过 patch 修改（运行时也会忽略）；display_name / is_sample 不接受 null。
  * - 示例档案编辑后 is_sample 仍为 true，除非 patch 明确给出 is_sample。
+ * - birth_date 不是合法 `YYYY-MM-DD` 时保存为 null（丢弃非法值，其余字段照常保存）。
  */
 export function updateProfile(
   patch: Partial<Omit<StudentProfile, 'id' | 'evidence'>>,
 ): StudentProfile | null {
   const base = loadProfile() ?? createEmptyProfile();
-  const next = mergePatch(base, isRecord(patch) ? patch : {}, ['id', 'evidence'], ['display_name', 'is_sample']);
+  const next = sanitizeProfile(
+    mergePatch(base, isRecord(patch) ? patch : {}, ['id', 'evidence'], ['display_name', 'is_sample']),
+  );
   return saveProfile(next) ? next : null;
 }
 
@@ -549,7 +564,7 @@ export function removeJournalEntry(profileId: string, opportunityId: string): Jo
 
 /**
  * 记录一个 Journal 事件（日期由调用方传入）：用 lib/journal.ts 的 applyJournalEvent 一致地更新对应字段
- * （见 JournalEvent 注释）并追加 history；同一事件同一天不重复追加。条目不存在或事件非法返回 null。
+ * （见 JournalEvent 注释）并追加 history；与 history 最后一条相同（同一事件、同一天）时不重复追加。条目不存在或事件非法返回 null。
  *
  * 不阻止不合常理的顺序（如没提交就记 admitted）——学生记录的是现实。页面应当引导：
  * 未提交时把录取结果 / 资格确认放在次要位置并提示「通常在提交后才会有」；记录这些事件时若仍是 preparing，
@@ -910,7 +925,8 @@ function strings(v: unknown): string[] {
  *   （不含 url、description、prep_item_ids、added_on）。
  * - skills：只含被勾选、且档案里确实有的技能（name + level）。
  * - interests：仅当 share_interests 为 true。
- * - alias：示例档案 'Sample student'，否则 'Student'。永不包含档案 id、显示名、学校名、地区、联系方式、身份标签、年级、预算等。
+ * - alias：示例档案 'Sample student'，否则 'Student'。永不包含档案 id、显示名、学校名、地区、联系方式、身份标签、年级、
+ *   年龄、出生日期（birth_date）、预算等。
  * settings 为 null、属于别的档案、没有 share_handle、或最终什么都没分享时返回 null。
  * 档案损坏时不抛异常：evidence / skills / interests 不是数组、证据缺 skills 或 skills 不是数组等，一律按空处理；
  * 缺 id / title 的证据、缺 name 的技能直接跳过。
