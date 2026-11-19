@@ -87,6 +87,11 @@ export function JournalPage() {
 
       {context && profile && (
         <>
+          <nav className="rpg-row journal-jumps print:hidden" aria-label="Journal sections">
+            <a href="#journal-quests">My quests</a>
+            <a href="#journal-materials">My materials</a>
+            {context.entries.length > 0 && <a href="#journal-plan">Plan across my quests</a>}
+          </nav>
           <section className="rpg-stack print:hidden" aria-labelledby="journal-quests">
             <h2 id="journal-quests">My quests</h2>
             {context.entries.length === 0 ? (
