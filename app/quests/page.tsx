@@ -7,6 +7,7 @@ import { normalizeTag } from "../../lib/tags";
 import type { Opportunity } from "../../lib/types";
 import { emptyFilters, filterCatalog, orderedCatalog, type BoardFilters } from "./board-model";
 import { sourceLabels, useQuestContext } from "./use-quest-context";
+import { SavedComparison } from "./saved-comparison";
 const categories: Record<Opportunity["category"], string> = { research: "Research", scholarship: "Scholarship", hackathon: "Hackathon", competition: "Competition", internship: "Internship", fellowship: "Fellowship", summer_program: "Summer program", public_service: "Public service", project: "Project", other: "Other" };
 const formats: Record<Opportunity["location"]["format"], string> = { online: "Online", hybrid: "Hybrid", in_person: "In person", unknown: "Format unknown" };
 
@@ -87,6 +88,7 @@ export default function QuestBoard() {
  {sort === "match" && <p>Interest matches appear first within each source group. No student scores or rankings are used.{!context.profile && <> <Link href="/passport">Load or create a profile</Link> to see matching reasons.</>}</p>}
  <p role="status">{items.length} {items.length === 1 ? "opportunity" : "opportunities"}. {notice}</p>
  {!items.length && <p>No opportunities match these filters. Try resetting them.</p>}
+ <SavedComparison context={context} enabled={filters.savedOnly} />
  <ul className="rpg-route-grid" style={{ padding: 0, listStyle: "none", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 19rem), 1fr))" }}>
  {items.map(o => <li key={o.id} className="rpg-card rpg-stack" style={{ minWidth: 0 }}>
  <p className="rpg-row"><span className="rpg-tag">{categories[o.category]}</span><span className="rpg-tag">{formats[o.location.format]}</span></p>
