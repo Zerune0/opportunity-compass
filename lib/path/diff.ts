@@ -7,6 +7,9 @@
  *   只列至少一侧存在的类型；步骤按 id 对齐，算新增 / 移除 / 新跳过 / 不再跳过，以及小时、费用、是否来得及。
  *   任一侧不存在时 delta 为 null。路线对象有任何差异即为 changed（结构化深比较，不受对象键顺序影响）。
  *   RouteStep 的 relation / official / evidence_needed（第四阶段契约新增的说明字段）不参与比较。
+ * - competition 路线出现 / 消失（第四阶段）：给出能从两份计划看出的原因（被替代的准备项已被证据跳过 / 已不在准备项里），
+ *   看不出时用如实的通用句子（competitionRouteReason）；竞赛那一步（带 related_opportunity_id）换了机会时也说明是竞赛变了，
+ *   不说成「机会的准备项更新了」。没有 competition 路线的输入，结果与以前逐字相同。
  * - 报名费「官网未写清 ↔ 有数字」按 FEE_UNKNOWN_WARNING 区分，不说成「从 $0 变为 …」。
  * - blocked → blocked：比较阻断集合、阻断说明和替代提示（kind + text）。
  * - reasons：面向学生、每条一句、说得出为什么变；同一步骤在多条路线上的同一变化合并成一句；
@@ -104,7 +107,14 @@ function compareSteps(b: Route, a: Route) {
   for (const s of a.steps) {
     const prev = bSteps.get(s.id);
     if (!prev) {
-      added_steps.push(change(s, "The opportunity's prep items were updated, and this step was added"));
+      added_steps.push(
+        change(
+          s,
+          s.related_opportunity_id != null
+            ? 'A different competition in the verified catalog now fits this plan'
+            : "The opportunity's prep items were updated, and this step was added",
+        ),
+      );
       continue;
     }
     if (s.skipped && !prev.skipped) {
@@ -117,9 +127,61 @@ function compareSteps(b: Route, a: Route) {
     if (s.hours !== prev.hours || s.cost_usd !== prev.cost_usd) estimateChanges.push({ step: s, before: prev });
   }
   for (const s of b.steps) {
-    if (!aSteps.has(s.id)) removed_steps.push(change(s, "The opportunity's prep items were updated, and this step is no longer needed"));
+    if (!aSteps.has(s.id)) {
+      removed_steps.push(
+        change(
+          s,
+          s.related_opportunity_id != null
+            ? 'This competition no longer fits this plan (it may have started or closed, or the catalog changed)'
+            : "The opportunity's prep items were updated, and this step is no longer needed",
+        ),
+      );
+    }
   }
   return { added_steps, removed_steps, newly_skipped_steps, unskipped_steps, estimateChanges, bSteps };
+}
+
+/** competition 路线里「参加 <机会>」那一步（带 related_opportunity_id）。 */
+function competitionStep(r: Route | undefined): RouteStep | undefined {
+  return r?.steps.find((s) => s.related_opportunity_id != null);
+}
+
+/** 被 competition 路线替代的准备项：learning_first 里有、competition 路线里没有的准备项步骤。 */
+function replacedPrepId(plan: PlanResult, comp: Route): string | null {
+  if (plan.status !== 'routes') return null;
+  const base = plan.routes.find((r) => r.type === 'learning_first');
+  if (!base) return null;
+  const ids = new Set(comp.steps.map((s) => s.id));
+  return base.steps.find((s) => s.prep_item_id != null && !ids.has(s.id))?.id ?? null;
+}
+
+/**
+ * competition 路线出现 / 消失时的原因：只说能从前后两份计划里看出来的事，看不出来时用如实的通用句子。
+ * - 出现：说明是哪场已核实的竞赛、替代了哪个准备项、它不是官方要求（新计划里能看到）。
+ * - 消失：被替代的准备项在新计划里已被证据跳过 → 因为新证据覆盖了那一步；那个准备项已不在新计划里 → 因为机会的准备项更新了；
+ *   否则用通用句子。
+ */
+function competitionRouteReason(before: PlanResult, after: PlanResult, change: 'added' | 'removed'): string {
+  if (change === 'added') {
+    const comp = after.routes.find((r) => r.type === 'competition') as Route;
+    const step = competitionStep(comp);
+    const replaced = comp.steps.length > 0 ? replacedPrepId(after, comp) : null;
+    const replacedTitle = replaced ? after.routes.flatMap((r) => r.steps).find((s) => s.id === replaced)?.title : undefined;
+    return `New Beginner competition route: ${step ? `"${step.title.replace(/^Take part in /, '')}"` : 'a competition'} in the verified catalog fits this plan${replacedTitle ? ` and takes the place of "${replacedTitle}"` : ''}. It is one way to build evidence, not an official requirement.`;
+  }
+  const comp = before.routes.find((r) => r.type === 'competition') as Route;
+  const replaced = replacedPrepId(before, comp);
+  if (replaced && after.status === 'routes') {
+    const now = after.routes.flatMap((r) => r.steps).find((s) => s.id === replaced);
+    if (now?.skipped) {
+      return `The Beginner competition route is gone: the step it replaced, "${now.title}", is now covered by your evidence (${stripEnd(now.skip_reason ?? 'already covered')}).`;
+    }
+    if (!now) {
+      const title = before.routes.flatMap((r) => r.steps).find((s) => s.id === replaced)?.title ?? replaced;
+      return `The Beginner competition route is gone: the step it replaced, "${title}", is no longer in the opportunity's prep items.`;
+    }
+  }
+  return 'The Beginner competition route is gone: no competition in the verified catalog fits this plan any more (the step it replaced may now be covered, or the competition may have started or closed).';
 }
 
 export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
@@ -235,6 +297,8 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
             ? 'New Practice first route: there are now hands-on prep items (projects, portfolio, etc.) not yet covered by your evidence, so you can start by building.'
             : 'The Practice first route is gone: all hands-on prep items (projects, portfolio, etc.) are covered by your evidence or no longer needed, so the other routes are enough.',
         );
+      } else if (bothRoutes && type === 'competition') {
+        push(competitionRouteReason(before, after, a ? 'added' : 'removed'));
       } else if (bothRoutes) {
         push(`The ${ROUTE_TITLES[type]} route ${a ? 'is new' : 'is gone'}.`);
       }
@@ -264,12 +328,12 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
     }
     for (const c of cmp.added_steps) {
       const s = a.steps.find((x) => x.id === c.step_id) as RouteStep;
-      addEvent(`added:${s.id}`, { kind: 'added', title: s.title, detail: '', hours: s.skipped ? 0 : s.hours, cost: s.skipped ? 0 : s.cost_usd }, type);
+      addEvent(`added:${s.id}`, { kind: 'added', title: s.title, detail: s.related_opportunity_id != null ? 'competition' : '', hours: s.skipped ? 0 : s.hours, cost: s.skipped ? 0 : s.cost_usd }, type);
       explained = true;
     }
     for (const c of cmp.removed_steps) {
       const s = b.steps.find((x) => x.id === c.step_id) as RouteStep;
-      addEvent(`removed:${s.id}`, { kind: 'removed', title: s.title, detail: '', hours: s.skipped ? 0 : s.hours, cost: s.skipped ? 0 : s.cost_usd }, type);
+      addEvent(`removed:${s.id}`, { kind: 'removed', title: s.title, detail: s.related_opportunity_id != null ? 'competition' : '', hours: s.skipped ? 0 : s.hours, cost: s.skipped ? 0 : s.cost_usd }, type);
       explained = true;
     }
     // 报名费「官网未写清」↔「有数字」：未写清时费用记为 0 只是占位，不能说成「从 $0 变为 $25」。
@@ -356,10 +420,18 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
         break;
       }
       case 'added':
-        push(`New step "${ev.title}": the opportunity's prep items were updated. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'more') || affects}`);
+        push(
+          ev.detail === 'competition'
+            ? `New step "${ev.title}": a different competition in the verified catalog now fits this plan (one way to build evidence, not an official requirement). ${deltaSentence(ev.routes, ev.hours, ev.cost, 'more') || affects}`
+            : `New step "${ev.title}": the opportunity's prep items were updated. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'more') || affects}`,
+        );
         break;
       case 'removed':
-        push(`The step "${ev.title}" is no longer needed: the opportunity's prep items were updated. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'less') || affects}`);
+        push(
+          ev.detail === 'competition'
+            ? `The step "${ev.title}" is gone: that competition no longer fits this plan (it may have started or closed, or the catalog changed). ${deltaSentence(ev.routes, ev.hours, ev.cost, 'less') || affects}`
+            : `The step "${ev.title}" is no longer needed: the opportunity's prep items were updated. ${deltaSentence(ev.routes, ev.hours, ev.cost, 'less') || affects}`,
+        );
         break;
       case 'estimate':
         push(`"${ev.title}": ${ev.detail} (the opportunity data was updated). ${affects}`);

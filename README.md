@@ -14,7 +14,7 @@ Discover Opportunities. Understand the Gap. Grow Through Quests. Take Action.
 What you can open and use on the live site. All student data stays in this browser's localStorage; there are no accounts and no backend.
 
 - **Home (`/`)** with the demo steps; every top-level page is reachable from the site navigation or the home page (quest details open from the Quest Board).
-- **Quest Board (`/quests`):** the 12 real opportunities in `data/opportunities.json`, with filters (collapsed behind a toggle on phones), saved quests, and a source-tier label on each card.
+- **Quest Board (`/quests`):** the 13 real opportunities in `data/opportunities.json`, with filters (collapsed behind a toggle on phones), saved quests, and a source-tier label on each card.
 - **Quest Details (`/quests/[id]`):** official eligibility per requirement (Satisfied / Not Satisfied / Unknown, with the quoted official text), match reasons (reasons only, never a score or ranking), five gap groups (knowledge or experience, materials, time and cost, current eligibility limits, unknown info), alternatives shown only when the student is blocked, a "Support received" section, and "Add to my Quest Journal". On the live site the "Support received" section stays empty unless support records are imported from a `/data` backup file, because no page writes organizer support yet.
 - **Adventure Map (`/map`):** 2–3 routes (learning first, practice first, community) with dependencies, hours, cost and whether they finish before the deadline; a Classic View of the same routes; and a replay of Before → What changed → After → Why, stored as plan snapshots (a snapshot is also recorded when evidence is linked to a preparation step).
 - **Skill Passport (`/passport`):** edit your own profile (including an optional date of birth for exact age checks), or load one of 4 clearly labelled sample profiles; add, edit and remove evidence, and link evidence to an opportunity's preparation steps.
@@ -22,7 +22,9 @@ What you can open and use on the live site. All student data stays in this brows
 - **Your data (`/data`):** see what is stored in this browser, download it as one JSON file, import such a file (it replaces what is stored; no merging), or delete it all. This is a manual backup file, not sync.
 - **Organizer what-if (`/organizer`):** a simulation page (see the next section) that runs the joint solver and the independent verifier on sample scenarios and shows aggregate counts only, never individual students.
 
-Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEligibility`, `analyzeReachability`, `planRoutes`, `diffRoutes`, `analyzeGaps`, `findAlternatives`, `explainMatch`, `planAcrossOpportunities`, `solveJoint`, `verifyPlan` and `compareBaselines`. `npm test` currently runs 2,043 tests in 37 files (33 under `lib/`, 4 under `app/`), including fairness control tests (`lib/fairness.test.ts`, `lib/fairness-p2.test.ts`) showing results do not change when only the school name or display name changes, and an end-to-end engine test of the demo path (`lib/demo-mainline.test.ts`).
+Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEligibility`, `analyzeReachability`, `planRoutes`, `diffRoutes`, `analyzeGaps`, `findAlternatives`, `explainMatch`, `planAcrossOpportunities`, `solveJoint`, `verifyPlan` and `compareBaselines`. `npm test` currently runs 2,290 tests in 45 files (38 under `lib/`, 7 under `app/`), including fairness control tests (`lib/fairness.test.ts`, `lib/fairness-p2.test.ts`, `lib/fairness-p4.test.ts`) showing results do not change when only the school name or display name changes, and an end-to-end engine test of the demo path (`lib/demo-mainline.test.ts`).
+
+Engine additions in this round (rules in `CONTRACT.md`, tests in `lib/engine-p4.test.ts` and `lib/fairness-p4.test.ts`): `planRoutes` can add a "Beginner competition" route when it is given the verified catalog and finds a related hackathon or competition that ends before the target's deadline, and every route step now says how it relates to the target, whether it is an official requirement, a team suggestion or the application itself, and what evidence it produces. `findAlternatives` can add evidence-building steps (`stepping_stone`, always worded as "not a prerequisite") and online options (`remote_option`; for a hybrid target it only says to confirm with the organizer), and `analyzeGaps` reads an opportunity's team requirement when one is recorded. On the 13 opportunities and 4 sample profiles as of 2026-11-19 these appear rarely, and we report that as is: 1 competition route (the sample profile Noor preparing for the Rutgers Newark summer research program is offered HackRare 2027, a rare-disease hackathon in the same field that ends before the Rutgers deadline; because HackRare does not state the hours it takes, the route says it cannot tell yet whether it fits before the deadline, and it notes that travel is not counted), 0 evidence-building steps, 0 online options (the Dan Herbatschek Fellowship is recorded with an unknown participation format because its official pages do not state one), and 1 team requirement (HackRare: teams of 2–5). All three kinds are produced in tests with clearly fictional fixtures. The Adventure Map passes the verified catalog to `planRoutes`, so a competition route would be shown as soon as the catalog contains a fitting competition.
 
 ### Simulated or sample
 - **Sample profiles:** `data/profiles.json` holds 4 sample profiles (`is_sample: true`, labelled "Sample"): three high-school students and one first-year undergraduate.
@@ -36,12 +38,16 @@ Behind these pages are pure functions in `lib/`, all with Vitest tests: `checkEl
 - Everything under "Future work" below.
 
 ### Known demo limits
-- Whether a student–opportunity pair can come out "reachable" depends on the opportunity record stating its fee, travel expectations and weekly hours. Of the 12 real records, 4 state a fee, 5 state whether travel must be self-paid and 2 state weekly hours; everything else is `null` (unknown, not guessed).
-- As a result, **none of the 4 sample profiles evaluates to "reachable" on any real opportunity** (checked for all 48 pairs with `analyzeReachability` and no organizer support, evaluated on 2026-11-18): 28 pairs show "Reachability: Unknown" (missing information) and 20 show "Open barriers" (a hard requirement is not met, or there is an unresolved time or transport barrier). The "barrier resolved by approved support → reachable" step is therefore demonstrated with clearly fictional fixtures in tests and on the organizer page, not on real opportunities.
-- All 12 real records list preparation steps, but few steps are marked as reusable materials, so material reuse in the cross-quest plan is mostly exercised by tests with fictional fixtures.
+- Whether a student–opportunity pair can come out "reachable" depends on the opportunity record stating its fee, travel expectations and weekly hours. Of the 13 real records, 6 state a fee, 6 state whether travel must be self-paid and 2 state weekly hours; everything else is `null` (unknown, not guessed).
+- As a result, **none of the 4 sample profiles evaluates to "reachable" on any real opportunity** (checked for all 52 pairs with `analyzeReachability` and no organizer support, evaluated on 2026-11-19): 30 pairs show "Reachability: Unknown" (missing information) and 22 show "Open barriers" (a hard requirement is not met, or there is an unresolved time or transport barrier). The "barrier resolved by approved support → reachable" step is therefore demonstrated with clearly fictional fixtures in tests and on the organizer page, not on real opportunities.
+- All 13 real records list preparation steps, but few steps are marked as reusable materials, so material reuse in the cross-quest plan is mostly exercised by tests with fictional fixtures.
+- The last step of the demo, "approved organizer support makes a student reachable", works on the student side today with the sample scenario opportunity (`placeholder-inperson-event` in `data/scenarios/device-loan.json`) and the sample profile `sample-maya`: `lib/final-act.test.ts` stores that opportunity locally, adds an approved laptop loan through the storage functions and checks that the result changes from not reachable to reachable and back. What is missing is the button on `/organizer` that performs those writes.
 - Pages are covered by the `lib/` tests, a few `app/` view-model tests and manual walk-throughs, not by automated UI tests. The calendar file has not been tested by importing it into real calendar apps.
 
 All capabilities described below are product goals unless stated otherwise above.
+
+## How AI is used
+AI assistants were used while building this project (writing and reviewing code, tests and documents). **The running product does not call any AI model.** Every eligibility result, barrier, route, gap, match reason and organizer plan is produced by the deterministic, tested functions in `lib/`, so the same input always gives the same output, and missing information comes out as "unknown" instead of a guess. Opportunity records are checked by a person against the official page; AI-suggested opportunity details are not used as data.
 
 ## Getting started
 Requires Node.js >= 20.9 and npm.
@@ -122,7 +128,7 @@ lib/                    Pure decision functions, shared types and storage (teste
   tags.ts, format.ts, requirement-timing.ts  shared helpers
 components/rpg/         Shared UI components (navigation, quest cards, buttons, status tags)
 data/profiles.json      Sample student profiles (4, is_sample: true)
-data/opportunities.json Verified opportunity records (12)
+data/opportunities.json Verified opportunity records (13)
 data/scenarios/         Simulated organizer scenarios (is_sample: true)
 data/examples/          Reserved for clearly synthetic fixtures (currently empty)
 tests/                  Reserved for future behavioral tests
@@ -135,8 +141,9 @@ Not built in the four-day competition scope and **not implemented**:
 - Real Quest Creator publishing, a real Talent Board and real consent-based two-way connection. Not even a local sample demo of these has pages yet.
 - Applying an organizer plan back to the student side from the `/organizer` page (the storage functions exist; the UI does not).
 - Integration with real organizer data (all organizer scenarios are sample / simulated).
-- Opportunity Blind Spots.
-- Impact Measurement.
+- AI assistance inside the product (for example organizing opportunity information or wording explanations). It would need a server to hold an API key, which conflicts with the no-backend design, and explanations are currently rule-generated and reproducible.
+- Opportunity Blind Spots. With 13 opportunities and no real regional demand data there is nothing honest to report.
+- Impact Measurement. It needs voluntary data from real users; only the student's own outcome notes in the Quest Journal exist.
 - Baseline D (a fully coordinated separate planner) in the baseline comparison.
 - Automated UI tests for the pages.
 - More complete opportunity records (fees, travel and weekly hours) so real opportunities can be evaluated as reachable.

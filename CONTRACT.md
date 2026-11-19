@@ -12,7 +12,7 @@
 
 | 类型 | 用途 | 关键字段 |
 |---|---|---|
-| `Opportunity` | 一个真实机会 | `id`、`title`、`organizer`、`category`、`fields`、**`official_url`、`verified_on`、`verified_by`**、`deadline`（null=滚动/未写清）、`location`（`format`: online/in_person/hybrid）、`cost.fee_usd`、`time_commitment`（每周小时、周数）、`required_devices`、`requirements`、`preparation`、`is_sample` |
+| `Opportunity` | 一个真实机会 | `id`、`title`、`organizer`、`category`、`fields`、**`official_url`、`verified_on`、`verified_by`**、`deadline`（null=滚动/未写清）、`location`（`format`: online/in_person/hybrid/unknown；unknown = 官网没说清参与形式，不等于 hybrid、也不等于线下）、`cost.fee_usd`、`time_commitment`（每周小时、周数）、`required_devices`、`requirements`、`preparation`、`is_sample` |
 | `Requirement` | 一条官方要求 | `id`、`type`（grade/age/region/citizenship/status/prerequisite_skill/portfolio/manual）、该类型的规则参数（如 `min`/`max`）、`hard`（true=硬性）、`label`、**`source_text`（官网原文）**。`manual` = 机器判定不了，永远 unknown |
 | `PrepItem` | 准备项（路线规划用） | `id`、`title`、`skill`、`evidence_kind`、`estimated_hours`、`estimated_cost_usd`、`depends_on`、`required_for_application` |
 | `StudentProfile` | 学生档案 | `id`、**`is_sample`**、`display_name`、`grade`、`age`、`birth_date?`（第三阶段新增，可选，`ISODate \| null`；敏感信息，只存在学生自己的浏览器，不上传、不出现在任何分享视图里；规则见「`checkEligibility` 的年龄规则」）、`region`、`citizenships`、`statuses`、`school_name`（只展示，**任何判断不得读取**）、`hours_per_week_available`、`budget_usd`、`transport`、`devices`、`skills`、`evidence`、`interests` |
@@ -20,8 +20,8 @@
 | `EligibilityResult` | 资格结果 | `overall`（eligible / not_eligible / unknown）、`items[]`：`status`（**satisfied / not_satisfied / unknown**）、`source_text`、`explanation`、`confirm_with_official`（unknown 时的「请向官方确认」提示） |
 | `ResourceGrant` | 主办方已分配给某学生的资源（针对某机会，或对该学生所有机会有效） | `student_id`、**`opportunity_id`（`string \| null`：字符串 = 只对该机会有效；`null` = 对该学生的所有机会都有效，如借出的笔记本、交通卡；只有 `=== null` 才算，缺该字段的 grant 不生效；`null` 主要用于可重复使用的资源 device / time_support，按金额计的 transport_subsidy / fee_waiver 建议指定具体机会）**、`intervention_id?`（来自哪个措施，若有）、`type`（device / transport_subsidy / fee_waiver / time_support / alternative_access）、`status`（approved / pending）、`amount_usd`、`device`、`hours_per_week`、`is_sample` |
 | `ReachabilityResult` | 可达性 | `eligibility`、`readiness_gaps`、`barriers[]`（`type`: time/cost/transport/device，`resolved`、`resolved_by_grant_ids`）、**`reachable`（true / false / null=信息不足）**、`missing_info`、`summary` |
-| `Route` / `RouteStep` | 一条成长路线 | `type`（learning_first / practice_first / community；第四阶段契约追加 competition，引擎尚未生成）、`steps`（已按依赖排序；`depends_on`、`hours`、`cost_usd`、`skipped`、`skip_reason`；第四阶段契约新增可选 `relation` / `official` / `evidence_needed`，见「第四阶段契约新增」）、`total_hours`、`total_cost_usd`、`feasible_by_deadline`（true/false/null）、`rationale`、`warnings` |
-| `PlanResult` | `planRoutes` 的返回 | `status: 'routes'` → `routes`（2–3 条）；`status: 'blocked'` → `routes: []` + `blocking_requirements`、`reasons`、`alternatives`（下一届 / 同领域替代） |
+| `Route` / `RouteStep` | 一条成长路线 | `type`（learning_first / practice_first / community；第四阶段追加 competition：传了 `options.catalog` 时 `planRoutes` 可能生成，见「第四阶段第 1 层：引擎规则」）、`steps`（已按依赖排序；`depends_on`、`hours`、`cost_usd`、`skipped`、`skip_reason`；第四阶段新增可选 `relation` / `official` / `evidence_needed`（`planRoutes` 每一步都填写）与 `related_opportunity_id`（只有 competition 那一步填写），见「第四阶段契约新增」）、`total_hours`、`total_cost_usd`、`feasible_by_deadline`（true/false/null）、`rationale`、`warnings` |
+| `PlanResult` | `planRoutes` 的返回 | `status: 'routes'` → `routes`（2–3 条；传了 `options.catalog` 时可能在最后多一条 competition，最多 4 条）；`status: 'blocked'` → `routes: []` + `blocking_requirements`、`reasons`、`alternatives`（下一届 / 同领域替代） |
 | `RouteDiff` | 两次规划的变化 | `status_change`、`route_changes[]`（新增 / 移除 / 新跳过 / 取消跳过的步骤，小时与费用变化）、**`reasons`（为什么变）** |
 | `SupportType` | 支持 / 资源类型（grant 与措施共用） | `device`、`transport_subsidy`、`fee_waiver`、`time_support`、**`alternative_access`**（替代参与方式，如线上参与入口、卫星会场，让学生不必前往主会场；与 `transport_subsidy` 同等化解 transport 障碍） |
 | `Scenario` | 主办方 what-if 场景（一律示例/模拟） | `students`、`opportunities`、`interventions`、`budget_usd`、`evaluation_date`、`existing_grants`（`id` 必须唯一；带 `intervention_id` 的已有 grant 不论 status 都占用该措施的容量，按不同学生计；只有 **approved** 的已有 grant 让同一 (措施, 学生) 的分配免成本；`intervention_id` 指向场景内措施的 grant **可被方案撤回**，撤回后不计入 R1、不占容量、不免成本）、`opportunity_time_slots?`（机会 id → 非空字符串时段标签；未列出的机会归入同一个默认时段） |
@@ -37,7 +37,7 @@
 | `JointAlternative` | INFEASIBLE 时只放松软要求后的替代方案 | `JointOutcome` 字段 + `relaxed`（`SoftRequirementKey[]`：放松了 `min_gain` / `fairness_floors` / `required_intervention_ids` 中的哪些）、`note` |
 | `JointConditional` | 条件性结果（「如果这些 pending 措施获批，则……」，未生效） | `JointOutcome` 字段 + `status`、`assumed_approved_intervention_ids`、`note` |
 | `JointResult` | 联合求解结果（`extends JointOutcome`，原有字段不变） | `status`（OPTIMAL / INFEASIBLE / SEARCH_LIMIT_REACHED / UNSUPPORTED_INPUT）、`selected_intervention_ids`、`allocations`、`R0`、`R1`、`G`、`L`、`N`、`cost`（`marginal_usd` = 各 Allocation 的 `cost_usd` 之和）、`notes`；新增可选 `alternative?`、`conditional?`、`verification?` |
-| `EvalOptions` | `checkEligibility` / `analyzeReachability` / `planRoutes` 的可选末位参数 | `today?: ISODate`（评估基准日；不传时不读系统时间，依赖日期的判断按信息不足处理）；`catalog?: Opportunity[]`（第四阶段契约新增：供 `planRoutes` 生成 competition 路线用；不传时行为与现在完全相同，本次引擎尚未读取） |
+| `EvalOptions` | `checkEligibility` / `analyzeReachability` / `planRoutes` 的可选末位参数 | `today?: ISODate`（评估基准日；不传时不读系统时间，依赖日期的判断按信息不足处理）；`catalog?: Opportunity[]`（第四阶段新增：只有 `planRoutes` 读取，用来生成 competition 路线；不传时不生成 competition，其余结果与第四阶段之前相同（只多了步骤的三个说明字段）） |
 | `VerifyOptions` | `verifyPlan` 的可选第三参数（已确认保留） | `mode`、`loss_cap`（均可选，类型同 `SolveOptions`）；复核损失时用，不传按 protect 处理（损失必须为 0）；`mode: 'tradeoff'` 但没给 `loss_cap` 时判为不通过。新增可选 `assume_approved_intervention_ids?`（复核条件性方案时把这些 pending 措施当作已批准）、`required_intervention_ids?`、`min_gain?`、`fairness_floors?`（与 `SolveOptions` 同义，传了才检查） |
 | `VerifyResult` | 独立复核 | `passed`、`checks[]`（`name`、`passed`、`detail`）；`capacity` / `cost_accounting` 按 `Allocation` 的口径复核（按不同 (`intervention_id`, `student_id`) 计）；检查项名称见「联合求解模型」（新增 `revocation`、`fairness`） |
 | `BaselineId` / `BaselineRow` / `BaselineMetrics` / `BaselineComparison` | 基线对比（`compareBaselines` 的返回） | 行 `A_eligibility_only` / `B_student_side` / `C_organizer_side` / `joint`：`label`、`description`、`claimed_reachable`（自称）、`plan`、`verification`（同一验证器复核）、`verified`（可执行时的独立重算指标，否则 null）、`soft_requirements_met`、`repaired`（先到先得截断后的指标）；`notes` |
@@ -58,7 +58,7 @@
 | `GapBasis` | 一条差距的依据（判别联合，判别字段 `kind`） | `{ kind: 'requirement', requirement_id, source_text }` / `{ kind: 'prep_item', prep_item_id, source_text: string \| null }` / `{ kind: 'barrier', barrier_type }` / `{ kind: 'missing_field', field }`（`field` 的写法与 `missing_info` 一致，如 `profile.devices`） |
 | `GapItem` | 一条差距 | `id`（结果内唯一且稳定，形如 `materials:prep-resume`；设备障碍为 `time_and_cost:device:<设备>`；重复时加 `#2`、`#3`）、`category`、`title`、`detail`、`basis`、`improvable`、**`action`（`string \| null`；`improvable` 为 false 时为 null；`unchangeable_eligibility` 一律为 null）**、`estimated_hours?`、`estimated_cost_usd?`（不适用或不知道为 null） |
 | `GapAnalysis` | `analyzeGaps` 的返回 | `profile_id`、`opportunity_id`、`items`（先按 `GAP_CATEGORIES` 分组，组内按机会里的原顺序）、`counts`（`Record<GapCategory, number>`，五个键都有）、`eligibility_overall`、`reachable`（语义同 `ReachabilityResult.reachable`）、`summary` |
-| `AlternativeSuggestion` | `findAlternatives` 返回数组中的一条（学生在原机会上没有受阻时，数组为 `[]`） | `kind`（`next_cycle` = 等下一届，给出条件见「第二阶段新函数」中 `findAlternatives` / `same_field` = 同领域的其他机会）、`opportunity_id`（`string \| null`；same_field 为目录中那个机会，next_cycle 指原机会）、`title`、`reason`、`eligibility_overall`（`OverallEligibility \| null`；same_field 不会是 `not_eligible`；next_cycle 为 null）、`shared_fields`（与原机会共有的领域标签，按 `normalizeTag` 比较，用建议机会原本的写法；next_cycle 为原机会的全部 `fields`，按 `normalizeTag` 去重）。给了 `options.today` 时 same_field 不含截止日期已过的机会。第四阶段契约追加 `stepping_stone` / `remote_option`（含义见「第四阶段契约新增」，引擎尚未生成） |
+| `AlternativeSuggestion` | `findAlternatives` 返回数组中的一条（学生在原机会上没有受阻时，数组为 `[]`） | `kind`（`next_cycle` = 等下一届，给出条件见「第二阶段新函数」中 `findAlternatives` / `same_field` = 同领域的其他机会）、`opportunity_id`（`string \| null`；same_field 为目录中那个机会，next_cycle 指原机会）、`title`、`reason`、`eligibility_overall`（`OverallEligibility \| null`；same_field 不会是 `not_eligible`；next_cycle 为 null）、`shared_fields`（与原机会共有的领域标签，按 `normalizeTag` 比较，用建议机会原本的写法；next_cycle 为原机会的全部 `fields`，按 `normalizeTag` 去重）。给了 `options.today` 时 same_field 不含截止日期已过的机会。第四阶段追加 `stepping_stone` / `remote_option`（已生成，规则见「第四阶段第 1 层：引擎规则」） |
 | `MatchReasonKind` / `MatchReason` | 一条匹配理由 | `kind`：`interest` / `eligibility` / `reachability` / `format` / `time` / `cost` / `device` / `transport`（常量 `MATCH_REASON_KINDS`；`device`、`transport` 为第二阶段第 2 层新增，只追加在末尾。**页面对 `kind` 做映射（图标、标题等）时要有兜底分支**，以后再加种类也不会出错）；`positive`（true = 有利 / false = 不利 / null = 信息不足，不猜）、`text` |
 | `MatchExplanation` | `explainMatch` 的返回 | `profile_id`、`opportunity_id`、`reasons`（按 `MATCH_REASON_KINDS` 顺序，**每个种类最多一条，没有可说的种类不出现（如线上机会没有 `transport`），所以条数不固定；页面不要按下标取理由**，用 `kind` 查找）、`eligibility_overall`、`reachable`、`shared_interests`（`profile.interests ∩ opp.fields`，按 `normalizeTag` 比较，用机会原本的写法、按 `opp.fields` 顺序；兴趣没填时为 `[]`）、`summary`。**没有任何分数、百分比或名次字段** |
 | `MatchOptions` | `explainMatch` 的可选第三参数、`findAlternatives` 的可选第四参数（`extends EvalOptions`） | `today?`；`grants?: ResourceGrant[]`（主办方已分配给该学生、对这个机会生效的资源，与 `analyzeGaps` 的 `grants` 同义；缺省 = `[]`）。同一页面上 `analyzeGaps`、`explainMatch`、`findAlternatives` 传同一组 grants，结论才一致 |
@@ -82,16 +82,56 @@
 
 第二阶段新增常量：`SOURCE_TIERS`、`MATERIAL_KINDS`、`MATERIAL_STATUSES`、`GAP_CATEGORIES`、`MATCH_REASON_KINDS`、`JOURNAL_EVENTS`、`PLAN_TRIGGERS`（都从 `@/lib/types` 导入；`lib/validation.ts` 里有同名的 `SOURCE_TIERS` / `MATERIAL_KINDS` 校验用常量，页面不要从那里导入）。
 
-### 第四阶段契约新增（2026-11-18；全部向后兼容，本次只是契约，引擎尚未生成 / 填写）
+### 第四阶段契约新增（2026-11-18；全部向后兼容。引擎已在第 1 层（2026-11-19）实现，规则见本节末尾「第四阶段第 1 层：引擎规则」）
 
 | 类型 / 字段 | 用途 | 说明 |
 |---|---|---|
-| `RouteType` 追加 `'competition'`（`ROUTE_TYPES` 末尾追加，现为四项） | 新手竞赛路线 | 用户已批准扩大这个已发布的联合类型。`planRoutes` 尚未生成 competition 路线。**对 `RouteType` 做穷尽式映射（如 `Record<RouteType, …>`）的代码需要补 `competition`，并保留不认识类型的通用默认文字**（`app/journal/labels.ts`、`app/map/RecommendationReplay.tsx`、`lib/path/shared.ts` 已补，标题 "Beginner competition"） |
-| `AlternativeSuggestion.kind` 追加 `'stepping_stone'`、`'remote_option'` | 两类新的替代建议 | 用户已批准扩大。`stepping_stone` = 目录里一条该学生现在能参加、能为目标积累证据的已核实机会，**不是官方前置条件**（界面标 "Evidence-building step — not a prerequisite"）；`remote_option` = 交通受阻时的线上参加途径（界面标 "Online option"），目标自身为 hybrid 时 `opportunity_id` 可指向目标自己，此时文字必须是「向官方确认」。`findAlternatives` 尚未生成这两类。`AlternativeHint`（`planRoutes` blocked 时的提示）不变 |
-| `RouteStep.relation?` / `official?` / `evidence_needed?` | 路线步骤的说明 | 全部可选：`relation?: string \| null`（这一步与目标哪条要求 / 准备项有关，规则生成的一句话）；`official?: RouteStepOfficial \| null`（`official_requirement` / `team_suggestion` / `application_step`，常量 `ROUTE_STEP_OFFICIAL_KINDS`）；`evidence_needed?: EvidenceKind \| MaterialKind \| null`（完成后能记下的证据或材料的**种类代码**，取自准备项的 `material_kind`，没有时取证据种类；不是给学生看的句子，页面显示前查标签表；不产出可记录的东西时为 null）。**缺失 = 未记录**（老快照没有）。`diffRoutes` 不比较这三个字段。`planRoutes` 尚未填写 |
-| `TeamRequirement`；`Opportunity.team_requirement?` | 机会的组队要求 | `team_requirement?: TeamRequirement \| null`；`TeamRequirement` = `{ required: boolean \| null; min_size?: number \| null; max_size?: number \| null; source_text: string \| null }`。缺字段、null 或 `required: null` = 未知（不猜）。`validateOpportunity` 校验：`required` 为 boolean 或 null，`min_size` / `max_size` 为非负整数或 null 且 min ≤ max，`source_text` 为 string 或 null。`analyzeGaps` 尚未读取 |
-| `EvalOptions.catalog?` | 机会目录 | 见「① 类型一览」`EvalOptions` 一行。`MatchOptions` / `CrossPlanOptions` 继承 `EvalOptions`，因此也带这个可选字段，但 `findAlternatives` 仍以第三参数 `catalog` 为准，`planAcrossOpportunities` 不读取它 |
+| `RouteType` 追加 `'competition'`（`ROUTE_TYPES` 末尾追加，现为四项） | 新手竞赛路线 | 用户已批准扩大这个已发布的联合类型。`planRoutes` 只在传了 `options.catalog` 且找到合适的已核实竞赛时生成（排在最后，最多一条）。**对 `RouteType` 做穷尽式映射（如 `Record<RouteType, …>`）的代码需要补 `competition`，并保留不认识类型的通用默认文字**（`app/journal/labels.ts`、`app/map/RecommendationReplay.tsx`、`lib/path/shared.ts` 已补，标题 "Beginner competition"） |
+| `AlternativeSuggestion.kind` 追加 `'stepping_stone'`、`'remote_option'` | 两类新的替代建议 | 用户已批准扩大。`stepping_stone` = 目录里一条该学生现在能参加、能为目标积累证据的已核实机会，**不是官方前置条件**（界面标 "Evidence-building step — not a prerequisite"）；`remote_option` = 交通受阻时的线上参加途径（界面标 "Online option"），目标自身为 hybrid 时 `opportunity_id` 可指向目标自己，此时文字必须是「向官方确认」。`findAlternatives` 已生成这两类。`AlternativeHint`（`planRoutes` blocked 时的提示）不变 |
+| `RouteStep.relation?` / `official?` / `evidence_needed?` | 路线步骤的说明 | 全部可选：`relation?: string \| null`（这一步与目标哪条要求 / 准备项有关，规则生成的一句话）；`official?: RouteStepOfficial \| null`（`official_requirement` / `team_suggestion` / `application_step`，常量 `ROUTE_STEP_OFFICIAL_KINDS`）；`evidence_needed?: EvidenceKind \| MaterialKind \| null`（完成后能记下的证据或材料的**种类代码**，取自准备项的 `material_kind`，没有时取证据种类；不是给学生看的句子，页面显示前查标签表；不产出可记录的东西时为 null）。**缺失 = 未记录**（老快照没有）。`diffRoutes` 不比较这三个字段。`planRoutes` 每一步都填写。第 1 层另加可选 `related_opportunity_id?: string \| null`（competition 路线里「参加 <机会>」那一步指向的已核实机会 id，页面可据此链接到 `/quests/[id]`；其他步骤缺失；`diffRoutes` 照常比较它） |
+| `TeamRequirement`；`Opportunity.team_requirement?` | 机会的组队要求 | `team_requirement?: TeamRequirement \| null`；`TeamRequirement` = `{ required: boolean \| null; min_size?: number \| null; max_size?: number \| null; source_text: string \| null }`。缺字段、null 或 `required: null` = 未知（不猜）。`validateOpportunity` 校验：`required` 为 boolean 或 null，`min_size` / `max_size` 为非负整数或 null 且 min ≤ max，`source_text` 为 string 或 null。`analyzeGaps` 读取（规则见本节末尾） |
+| `EvalOptions.catalog?` | 机会目录 | 见「① 类型一览」`EvalOptions` 一行。`MatchOptions` / `CrossPlanOptions` 继承 `EvalOptions`，因此也带这个可选字段，但 `findAlternatives` 仍以第三参数 `catalog` 为准，`planAcrossOpportunities` 不读取它（它调用 `planRoutes` 时只传 `today`，所以联合规划不会选中 competition，有测试） |
 | `ViewPreference`（`VIEW_PREFERENCES`） | 地图页视图偏好 | `'adventure'`（冒险地图，默认）/ `'classic'`（经典表格）。存取见「浏览器存储」一节的 `loadViewPreference` / `saveViewPreference` |
+
+#### 第四阶段第 1 层：引擎规则（2026-11-19 实现）
+
+**共用筛选 `findEvidenceBuildingCandidates(profile, target, catalog, options?)`**（`lib/match/evidence-building.ts`；competition 路线与 stepping_stone 只从这里取候选）
+- 目标「还缺的证据」：① 被 `checkEligibility` 判为 `not_satisfied`、**没有限定 `skill`** 的 `portfolio` 要求（硬性与偏好都算；想要的种类 = 要求的 `evidence_kind`，没限定时任何种类都行）；② 未被证据覆盖、`evidence_kind` 非空或 `material_kind` 为 `portfolio` 的准备项（想要的种类 = `evidence_kind`，`material_kind` 为 portfolio 时加 `portfolio`）。`prerequisite_skill` 不直接对应（说不清一场活动能教会哪项技能）。
+- 候选能产出的证据只按类别（`CATEGORY_PRODUCES`）：`hackathon` → project、portfolio；`competition` → competition_result；`project` → project、portfolio。其他类别（research、scholarship、internship、fellowship、summer_program、public_service、other）一律不是候选。
+- 候选须同时满足：有非空 id、不是目标自身、id 不重复（重复取第一条）；`source_tier ?? 'official'` 不是 `user_posted`；类别在上表；与目标至少一个共同领域标签（`normalizeTag`）**并且**产出种类能对上至少一条「还缺的证据」——缺一不算；给了 `today` 时截止没过（null / 无法解析保留）；`checkEligibility` 不出错且不是 `not_eligible`。
+- 排序：截止日期早的在前（null / 无法解析最后）→ id 字典序。返回每个候选的 `shared_fields`、`eligibility_overall`、`links`（对应目标的哪条要求 / 准备项：先要求、后准备项，各按原顺序）。
+
+**`planRoutes` 的 competition 路线**
+- 只在传了 `options.catalog` 时考虑；`blocked` 时不生成任何路线（含 competition）。排在 learning_first / practice_first / community 之后，最多一条，`id` 为 `<机会 id>:competition`，标题 "Beginner competition"。
+- 生成条件（全部满足）：候选来自共用筛选且类别为 `hackathon` 或 `competition`；`options.today`、目标 `deadline`、候选 `time_commitment.start_date` 与 `end_date` 都可解析，且 **today ≤ start_date ≤ end_date < 目标截止日期**（已开始的候选不算：start = today 可以，start < today 不行；任一日期不清楚就不生成——无法确认还能参加、能在截止前完成时不给）；候选的 `links` 里有目标的一个**未被证据覆盖的实践类准备项**（口径同 practice_first：`evidence_kind` ∈ project / portfolio / competition_result / work_experience / volunteer_experience）。取候选顺序中第一个满足的候选、它对应的第一个这样的准备项；`competition-<候选 id>` 与某个准备项 id 冲突时跳过这个候选、看下一个。
+- 路线 = 其他步骤照旧，被替代的准备项换成「参加 <候选标题>」一步：`id` = `competition-<候选 id>`（与准备项 id 冲突时不生成），`related_opportunity_id` = 候选 id，`prep_item_id` = null，依赖沿用被替代项（原本依赖被替代项的步骤改为依赖这一步），按 practice_first 的方式排序；`hours` = 候选 `hours_per_week × total_weeks`，`cost_usd` = 候选 `cost.fee_usd`；为 null 时按 0 计入并加 warning（"The time needed for <标题> is not stated by its organizer, so this route's total is a minimum." / "The cost of <标题> is not stated by its organizer, so this route's total cost is a minimum."）；候选不是线上且没写明无差旅费时提醒差旅费未计入；候选资格为 unknown、或被替代项是申请必需项时各加一条提醒。
+- 这一步的 `description` 固定包含 `This is one way to build evidence. It is not an official requirement of <目标标题>.`，并写明替代了哪个准备项、起止日期、候选记录里的费用与形式（`candidateFactsText`：费用已知写 `Its listed fee is $X.`，未知写 `Its fee is not stated.`；线上写 `It takes place online.`，线下 / 混合写 `It is in person / hybrid (partly in person) in <地点>; travel time and cost are not included.`，未知写 `Its format is not stated.`；只陈述记录，不另做可达性判断）与官网链接；`official` = `team_suggestion`；`relation` = `Builds <种类> evidence in place of the prep item "<准备项标题>". Suggested by our team; not tied to a requirement stated by the organizer.`；`evidence_needed` = 被替代项的种类。
+- 合计、`estimated_weeks`、`feasible_by_deadline`、预算与截止提醒走现有逻辑；**例外：候选小时未知时合计只是下限**，按下限算出 `feasible_by_deadline: true` 时改报 `null`（无法判断，与其他信息不足一致，并加 "We can't tell yet if you can finish before the deadline: the time needed for <标题> is not stated by its organizer."），下限都放不下时 `false` 保留；`rationale` 的周数同样写成下限（"…it takes at least N weeks; we can't say how long in total."），不说「约 N 周」。费用未知时照常生成，`feasible_by_deadline` 不受影响，只加「合计费用是下限」的 warning。
+- **不传 `options.catalog` 时不生成 competition**，去掉三个说明字段后的结果与 0905b62 逐字相同（`lib/contract-p4.test.ts` 用改动前引擎生成的基线对照；基线按数据指纹记录，**只在记录时的数据快照上运行**，数据变了就跳过、不失败）。任何数据上都成立的性质（传 / 不传 catalog 时非 competition 路线完全相同等）由 `lib/engine-p4.test.ts` 在真实目录上始终检查。
+
+**`RouteStep` 的三个说明字段（`planRoutes` 每一步都填）**
+- 准备项：`official` = `official_requirement` 当且仅当 `required_for_application === true`、`source_text` 是非空字符串、且 `source_text` 不含 "team" 一词或 "not an official"（数据里团队建议写作 "Team suggestion…" / "…not an official application requirement…"）；**其余一律 `team_suggestion`**（判别不了时宁可少标官方）。`relation`：能对上一条官方要求（与 `analyzeGaps` 找「能补上要求的准备项」同口径：技能要求看 `skill`；作品要求看 `skill` 与 `evidence_kind` / `material_kind`）→ `Works toward "<要求标题>", which the organizer lists as a requirement / a plus (not required).`；否则官方准备项 → `Prepares "<准备项标题>", which the organizer lists as needed to apply.`；否则**标为必需且有原文、只因措辞被保守判成 team_suggestion** → `We could not tell whether the organizer requires this. Read the source text and confirm with the organizer.`（不说成团队建议）；否则（`required_for_application` 为 false，或没有原文）→ `Suggested by our team; not tied to a requirement stated by the organizer.`。`description` 的开头与之一致：官方 → `Required to apply.`；标为必需但有原文而无法确认 → `Marked as needed to apply in our records, but the source text does not read as an organizer requirement; confirm with the organizer.`；标为必需而没有原文 → `Marked as needed to apply in our records; no source text is recorded, so confirm with the organizer.`；非必需 → `Recommended; can make your application stronger.`（有测试断言同一步的 description 与 relation 不矛盾）。`evidence_needed` = `material_kind ?? evidence_kind ?? null`。
+- 「提交申请」：`application_step`、`relation` = `The application itself for <机会标题>.`、`evidence_needed` = null。「找到同伴或导师」：`team_suggestion`、上面的团队建议句子、null。competition 那一步见上。
+- 真实目录的全部准备项都是团队建议，所以真实数据上没有 `official_requirement` 的步骤（有测试）。
+
+**`findAlternatives` 的两类新建议**（结果顺序 next_cycle → same_field → stepping_stone → remote_option；**同一机会只出现一次，优先级 stepping_stone > remote_option > same_field**，被归入新类的机会在 same_field 取前 3 条之前就排除；remote_option 指向目标自身时可与 next_cycle 同时出现。没有出现新类的输入上，next_cycle / same_field 与以前完全相同）
+- `stepping_stone`（最多 3 条）：仅当学生受阻、受阻原因里至少有一条「可以改善」——硬性 `prerequisite_skill` / `portfolio` 不满足（fixable）、截止已过、未化解的 `cost` 障碍（费用放不下）——并且**没有任何 permanent 阻断**（高于上限、地区、国籍、身份、档案值缺失等）。只因年级 / 年龄低于下限、时间、交通、设备受阻时不给。候选与顺序来自共用筛选；`eligibility_overall` 不会是 `not_eligible`；`shared_fields` 非空。`reason` = `Taking part in <标题> can give you <种类> evidence for <对应的要求 / 准备项> of <目标标题>. It is also in <共同领域>. <资格一句> This builds evidence; it is not a prerequisite.` **时间规则**：目标截止已过且 `recurring_annually === false` → 不给（不会再办）；目标截止已过、`recurring_annually` 为 true / null / 缺省 → 可以给，`reason` 加 `This round of <目标标题> has closed, so this would be for a future round, not this one.`（null / 缺省再加 `Whether it runs every year is not confirmed — check with the organizer.`），此时不比较候选的结束日期；目标截止未过（或没传 today）且目标截止日期可解析 → 候选 `end_date` 必须可解析且早于目标截止，否则不给；目标没有截止日期时不比较；候选 `start_date` 可解析且早于 today（已经开始）→ 不给，`start_date` 未知时只要它的报名截止没过就可以。`reason` 在资格一句后写出候选的费用与形式（`candidateFactsText`，同 competition）。
+- `remote_option`：仅当目标有**未化解的 `transport` 障碍**（引擎把「需自费差旅」记在 transport 障碍里，所以自费差旅造成的费用问题也由它触发；`cost` 障碍本身不触发；资格 `not_eligible` 时不计算障碍，所以不给）。 注意：障碍类型只在 `analyzeReachability` 判为 `reachable === false` 时收集，所以 `reachable` 为 null（信息不足）时既不会因 cost 给 stepping_stone，也不会给 remote_option（不猜）。
+  - (a) 目标 `location.format === 'hybrid'` 且截止没过 → 一条指向目标自身：`opportunity_id` = 目标 id，`eligibility_overall` = 目标的资格结论，`shared_fields` 同 next_cycle，`reason` = `Confirm with the organizer whether you can take part online. The official listing marks <标题> as hybrid (partly online, partly in person); it does not tell us whether you could take part fully online.`——不断言可以。**目标为 `in_person` 时不给 (a)，也不提示「也许可以远程」。**
+  - (b) 目录里 `location.format === 'online'`、非 `user_posted`、与目标至少一个共同领域标签、给了 `today` 时截止没过、`checkEligibility` 不出错且不是 `not_eligible` 的其他机会（已是 stepping_stone 的除外），最多 3 条，排序 eligible 在 unknown 前 → 共同标签多 → 截止早（null 最后）→ id。(a) 在 (b) 前。
+
+**`analyzeGaps` 的组队要求**
+- `team_requirement` 是对象且 `required === true` → `materials` 组末尾加一条（`id` `materials:team_requirement`；`basis` = `{ kind: 'requirement', requirement_id: 'team_requirement', source_text: <官网原文> }`，**没有官网原文时**改为 `{ kind: 'missing_field', field: 'opportunity.team_requirement' }`（不用空字符串冒充原文）；标题带人数范围，如 "Team needed (2–4 people)" / "(exactly 3 people)" / "(at least 2 people)"；`detail` 附官网原文；`action` 为组队并查看官网组队规则；小时 / 费用为 null）。
+- `required === null` → `unknown_info` 组里、`missing_info` 各条之前加一条（`id` `unknown_info:team_requirement`；`basis` = `{ kind: 'missing_field', field: 'opportunity.team_requirement' }`；行动为向主办方确认是否要组队、几个人）。
+- 条目 `id` 与其他条目冲突时（例如机会里恰好有一条 id 为 `team_requirement` 的要求），沿用 `analyzeGaps` 的去重规则依次加 `#2`、`#3`。
+- `required === false`、字段缺失、`team_requirement: null` 或不是对象 → 不加，结果逐字不变。不新增障碍类型，不影响 `eligibility_overall` / `reachable`。
+
+**`diffRoutes` 与 competition 路线**（没有 competition 路线的输入，结果与以前逐字相同，有测试）
+- competition 路线新出现：`New Beginner competition route: "<竞赛标题>" in the verified catalog fits this plan and takes the place of "<被替代的准备项>". It is one way to build evidence, not an official requirement.`
+- competition 路线消失：被替代的准备项（learning_first 里有、competition 路线里没有的那一项）在新计划里已被证据跳过 → 说明是新证据覆盖了那一步（附跳过原因）；那一项已不在新计划里 → 说明它已不在机会的准备项里；看不出来时用 `The Beginner competition route is gone: no competition in the verified catalog fits this plan any more (the step it replaced may now be covered, or the competition may have started or closed).`——不编原因。
+- 两边都有 competition 路线但竞赛换了一场：竞赛那一步（带 `related_opportunity_id`）的新增 / 移除说成「另一场竞赛现在适用」/「那场竞赛不再适用（可能已开始或关闭，或目录变了）」，不说成「机会的准备项更新了」。
+
+**真实数据上的结果（截至 2026-11-19 的数据，仅供参考；测试不写死这些条数，数据由队友 A 继续更新）**（4 个示例档案 × 12 条机会，today = 2026-11-19）：competition 0 条（唯一的 hackathon `mlh-open-source-week-2026` 领域为 software_development / open_source，与其他 11 条都没有交集）；stepping_stone 0 条（同一原因：目录里没有能对上的候选）；remote_option 2 条——`sample-leo` 与 `sample-noor` 在 `dan-herbatschek-fellowship-2027`（hybrid，二人交通受限）上的 (a)「向官方确认」；没有 (b)。现有 12 条机会都没有 `team_requirement`，`analyzeGaps` 结果不变。这三类在虚构数据上都有测试证明能生成。**2026-11-19 更新**：队友 A 把 `dan-herbatschek-fellowship-2027` 的 `location.format` 由 hybrid 改为 unknown（官网两页都没有写参与形式）之后，remote_option 在真实数据上也是 0 条；可达性为 0 对可达、30 对无法判断、18 对不可达。**同日再更新**：队友 A 新增 `hackrare-2027`（hackathon，领域 biomedical_research / life_sciences，2027-02-27 至 02-28，线下，Cambridge MA）后目录为 13 条：competition 1 条（`sample-noor` × `rutgers-newark-summer-research-2027`，候选的小时数官网未写，`feasible_by_deadline` 为 null 并带提醒）；stepping_stone、remote_option 仍为 0；可达性为 0 / 30 / 22（共 52 对）。
 
 **领域标签的比较**：`Opportunity.fields` 与档案的 `interests` 比较时一律用 `lib/tags.ts` 的 `normalizeTag`（去首尾空格、转小写，连续的空白 / 下划线 / 连字符合并成一个下划线，所以 `Data-Science`、`data science`、`data_science` 视为同一标签）；页面做领域筛选、兴趣匹配时也必须用它（或 `normalizedTagSet` / `sharedTags`），不要自己写 `===`。归一化只用于比较，给学生看的标签保留数据原本的写法。数据里推荐统一写成小写加下划线。
 
@@ -158,7 +198,7 @@
 - **`summary`**：一两句英文——总条数与各类条数；当前不满足的硬性限制（列出名称，说明这一届无法申请）；还需补填 / 确认的未知信息条数；已被生效支持化解的障碍条数；可达时注明「可达 ≠ 录取」，不可达且没有硬性限制时说明目前不可达，`reachable` 为 null 时说明还无法判断。不出现分数，不暗示录取。
 
 **`findAlternatives`**（`lib/match/index.ts`、`lib/match/block.ts`，完整实现）
-- 只从传入的 `catalog` 里找，不编造机会；**不把任何候选说成目标机会的官方前置条件或跳板**，`reason` 不出现分数、名次或录取可能性。
+- 只从传入的 `catalog` 里找，不编造机会；**不把任何候选说成目标机会的官方前置条件或跳板**（第四阶段的 `stepping_stone` 只说「能积累证据」，`reason` 固定写明不是前置条件），`reason` 不出现分数、名次或录取可能性。
 - 第四参数为 `MatchOptions`：`today?` 与 `grants?`（缺省 `[]`，与 `analyzeGaps` / `explainMatch` 的 grants 同义）。grants 只经由 `analyzeReachability` 起作用：用于判断 `not_reachable`，也用于候选机会的可达性（排序与 `reason`）。引擎本身只认与该学生、该机会匹配的 approved grant（pending、别的学生、别的机会、缺 `opportunity_id` 的都不生效）。`too_little_time` 来自 `planRoutes`，与 grants 无关。
 - **先判断学生在 `opp` 上受阻的原因**（可多个；`today` 只取 `options.today`）：
   - `eligibility_block`：`checkEligibility` 总体为 `not_eligible`。每条硬性 `not_satisfied` 的要求按 `lib/match/block.ts` 的 `blockNature` 分为 **improvable**（`grade` / `age` 「低于下限」，口径见下文「年龄 / 年级『低于下限』的共同口径」）、**fixable**（`prerequisite_skill`、`portfolio`：学生可以自己补上，补上后这一届就能申请）、**permanent**（其余：高于 `max`、到参考日会超过 `max`、档案值缺失、区间无效、`region`、`citizenship`、`status` 等）。
@@ -175,7 +215,7 @@
 - **`same_field`**（最多 3 条，仅在学生受阻时给）：候选 = `catalog` 中满足以下全部条件的机会——`id` 非空、不是 `opp.id`、`id` 不重复（重复只取第一条）；与 `opp.fields` 至少一个共同标签（按 `normalizeTag` 比较；`shared_fields` 用候选原本的写法并去重）；给了 `today` 时截止日期没过（`null` = 滚动招生、无法解析的都保留；没给 `today` 时不按截止日期过滤）；`analyzeReachability(profile, 候选, grants, options)` 不出错且资格不是 `not_eligible`（出错 = 数据不完整，跳过）。`opp.fields` 为空时没有 `same_field`。
   - 排序键依次为：`source_tier === 'user_posted'` 的排在所有其他候选之后 → 资格 `eligible` 在 `unknown` 前 → （**仅当受阻原因含 `not_reachable`**）`reachable` true < null < false → 共同标签数多的在前 → 截止日期早的在前（null / 无法解析的最后）→ `id` 字典序。
   - `reason` 的组成：「另一个同属 <共同领域> 的机会」；资格结论（符合可检查的硬性要求 / 列出待向官方确认的硬性要求）；现实条件一句话（看起来走得通但与录取无关 / 信息不足无法判断 / 也有未化解的障碍：列出哪几类）；`user_posted` 注明是示例发布、未经官网核实。
-- 结果顺序：`next_cycle` 在前，其后 `same_field`。
+- 结果顺序：`next_cycle` 在前，其后 `same_field`；第四阶段起再接 `stepping_stone`、`remote_option`（规则与去重见「第四阶段第 1 层：引擎规则」）。
 
 **`checkEligibility` 的年龄规则（第三阶段起含可选的 `birth_date`）**——所有判断年龄要求的地方都从统一入口 `lib/eligibility/age.ts` 取年龄（`exactAgeOnReference`、`ageRangeOn`）
 - 参考日 R = `as_of ?? opp.deadline`；两者都没有时用 `options.today`。
@@ -226,11 +266,11 @@
   - `interest`：`profile.interests ∩ opp.fields`（按 `normalizeTag` 比较；`shared_interests` 保留机会里的原顺序与原写法）。兴趣没填 / 为空数组（提示可在 Skill Passport 补充）或机会没有领域标签 → `positive: null`；有交集 → true；都填了但没交集 → false。
   - `eligibility`：eligible → true；not_eligible → false，列出不满足的硬性要求（最多 3 条，其余写「还有 N 条」），每条按 `lib/match/block.ts` 的 `blockNature` 说明走向：permanent「不是靠准备能改变的」/ improvable「升年级或长大后可能满足」（附「届时按官网要求重新确认」）/ fixable「可以自己补上」；unknown → null，列出待确认的硬性要求（最多 3 条），每条注明「在 Skill Passport 补填某项」还是「向主办方确认」——**以 `checkEligibility` 返回的 `confirm_with_official` 为准**（档案缺该项时引擎给 "Add your <字段> to your profile first."，如档案有国家但缺州 / 省；其余如 `manual`、生日不确定为向主办方确认）。偏好（非硬性）要求不列。
   - `reachability`：`r.reachable` 与 `r.summary`（引擎原文，含「可达 ≠ 录取」）。
-  - `format`：online → true；in_person / hybrid（附地点）按档案交通等级：reliable → true（若引擎仍有未化解的交通障碍，如需自费差旅，文字加半句指向 `transport` 那条）；limited / none → false，交通障碍已被 approved grant 化解时 → true 并写明；交通没填 → null；形式缺失或无法识别 → null。
+  - `format`：online → true；in_person / hybrid（附地点）按档案交通等级：reliable → true（若引擎仍有未化解的交通障碍，如需自费差旅，文字加半句指向 `transport` 那条）；limited / none → false，交通障碍已被 approved grant 化解时 → true 并写明；交通没填 → null；形式缺失或无法识别 → null。**形式为 `unknown` → null**（"The organizer has not said whether this is online or in person. …"），不说成线上 / 混合 / 线下。**线下地点不明确**（in_person / hybrid 且 `city`、`state` 都没有，只有国家不算明确）且交通 reliable → null（"It is in person, but the organizer has not said where …"；有国家时补 "(only the country is given)"，连国家都没有时不补）；交通 limited / none 且障碍未化解时照旧 false（障碍是确定的）；障碍已被 approved 支持化解时 → null（写明支持已批准，但不知道地点、无法确认够不够用）。
   - `time`：已过截止 → false（引擎描述）；未化解的 time 障碍 → false（引擎描述，pending 只说「尚未生效」）；全部已被 `time_support` 化解 → true；缺每周可用小时 / 机会每周小时 / 截止日期 / `today` → null（写出缺什么、去哪补）；否则 true（每周需要与可用小时、截止前剩几天、必需准备小时放得下；没有截止日期时提示可能是滚动截止）。
   - `cost`：未化解的 cost 障碍 → false（引擎描述；官方费用未知时为 `at least $X`，与 `analyzeGaps` 同一口径；官方费用已知且已批准支持只抵一部分时补一句还差多少）；已被 `fee_waiver` 化解 → true；缺官方费用或预算 → null（官方费用未知、预算已填时如实说明必需准备费与预算的关系：放得下但总数可能更多 / 高于预算、加上主办方已批准的有金额减免才放得下且总数可能更高）；否则 true（费用 + 必需准备费，在预算内）。`financial_aid_available` 为 true 时注明「有资助 ≠ 你已获得」。
   - `device`：没有必需设备 → true；档案没填设备 → null；缺的设备逐个说明（被 approved device grant 化解的写明是主办方批准的借用，未化解的用引擎描述 + pending 提示）；有未化解的 → false，否则 true。
-  - `transport`：线上机会不输出；未化解的交通障碍 → false（引擎描述 + pending 提示）；已化解 → true（写明是交通补助 / 替代参与方式）；缺档案交通或「是否自费差旅」→ null；否则 true。
+  - `transport`：线上机会不输出；未化解的交通障碍 → false（引擎描述 + pending 提示）；已化解 → true（写明是交通补助 / 替代参与方式）；缺档案交通或「是否自费差旅」→ null；否则 true。形式为 `unknown` 或地点不明确（`missing_info` 含 `opportunity.location.format` / `opportunity.location`）→ null（不说没问题，也不说有障碍）；交通障碍已被化解但形式未知 / 地点不明确时也是 null（写明支持已批准，但无法确认够不够用，不说 "covers getting there"）。
 - `summary`：一句英文，按「资格 → 现实条件 → 兴趣」：
   - not_eligible：不加任何鼓励申请的话、不提兴趣。不满足的硬性要求**全部可以自己补上**（fixable：`portfolio`、`prerequisite_skill`）时说 `Right now you don't meet the hard requirement "…" — this is something you can work on yourself.`（不说本届不能申请，也不承诺补上后会被录取）；含无法改变或需等待的要求时说本届不能申请及原因。
   - unknown：先说要向主办方确认（或补填档案）哪几条，再说现实条件；eligible：说可达（注明不代表录取）/ 不可达的障碍类别 / 还缺哪些信息；最后一句兴趣。
@@ -472,10 +512,10 @@
 ### 接入学生端函数的提示
 
 - **传入今天的日期**：有截止日期的机会，调用 `checkEligibility` / `analyzeReachability` / `planRoutes`（以及第二阶段的四个函数，见「第二阶段新函数」一节）时要传 `{ today: 'YYYY-MM-DD' }`。不传时依赖日期的结果按设计为 unknown / null：例如 `reachable` 为 `null`、`missing_info` 含 `options.today`，路线的 `feasible_by_deadline` 为 `null`。
-- **`missing_info` 目前可能出现的字段名**：`profile.devices`、`profile.budget_usd`、`profile.transport`、`profile.hours_per_week_available`、`opportunity.cost.fee_usd`、`opportunity.cost.requires_travel_expense`、`opportunity.time_commitment.hours_per_week`、`opportunity.deadline`（格式无法识别）、`options.today`。
+- **`missing_info` 目前可能出现的字段名**：`profile.devices`、`profile.budget_usd`、`profile.transport`、`profile.hours_per_week_available`、`opportunity.cost.fee_usd`、`opportunity.cost.requires_travel_expense`、`opportunity.time_commitment.hours_per_week`、`opportunity.deadline`（格式无法识别）、`options.today`；（2026-11-19 新增）`opportunity.location.format`（参与形式为 unknown）、`opportunity.location`（线下 / 混合但没有州和城市，例如只有国家）。
 - **grant 是否化解障碍**：`applied_grant_ids` 是所有匹配的 approved grant，**不等于「已化解」**；是否化解看每条障碍的 `resolved` / `resolved_by_grant_ids`。
 - **已过截止日期**：表现为一条 `type: 'time'`、`shortfall: null`、任何 grant 都不能化解的障碍。
-- **`planRoutes`**：`status: 'routes'` 时路线 2–3 条；固定步骤 id 为 `submit-application`（提交申请）和 `find-partner`（找到同伴或导师），准备项不要用这两个 id；被证据覆盖的步骤 `skipped: true`，不计入合计；`status: 'blocked'` 时 `routes` 为空。
+- **`planRoutes`**：`status: 'routes'` 时路线 2–3 条（传了 `options.catalog` 时可能多一条 competition，排在最后）；固定步骤 id 为 `submit-application`（提交申请）和 `find-partner`（找到同伴或导师），competition 那一步为 `competition-<机会 id>`，准备项不要用这些 id；被证据覆盖的步骤 `skipped: true`，不计入合计；`status: 'blocked'` 时 `routes` 为空。
 - **地区规则**：州 / 省请统一用代码（如 `CA`），国家与州 / 省代码都大小写不敏感。
 - **证据关联准备项**：证据的 `prep_item_ids` 建议写成 `<opportunity_id>:<prep_id>`，避免跨机会误匹配（裸 `prep_id` 也能匹配，但不同机会的同名准备项会被一起覆盖）。
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
@@ -496,6 +536,8 @@
   - `true`：硬性要求全部 satisfied，且所有障碍不存在或已被化解。
   - 准备差距（`readiness_gaps`）**不直接**决定 `reachable`，只通过「补齐所需小时数 vs 可用时间」体现为 time 障碍。
 - **可达 ≠ 录取**：`reachable = true` 只表示资格不冲突、现实条件走得通，不代表录取概率。界面不得暗示「会被录取」。
+- **参与形式未知与地点不明确**（2026-11-19）：`analyzeReachability` 对 `location.format = 'unknown'` **不按交通等级造障碍（不当作线下），也不当作线上放行**：把 `opportunity.location.format` 记进 `missing_info`，交通没填照常记 `profile.transport`，「是否自费差旅」为 null 照常记 `opportunity.cost.requires_travel_expense`。`requires_travel_expense === true` 是主办方写明的事实，形式未知时照常生成一条「需要自费差旅」的 transport 障碍（文字只说差旅，不推断是线下），按原规则被 approved 的交通补助 / 替代参与方式化解：未化解 → false，化解后仍因形式未知为 null。`location` 不是对象、`format` 缺失或不是 online / in_person / hybrid（只可能来自本地存储 / 备份导入的坏数据）**一律按 `unknown` 处理**，不当作线下。线下 / 混合且「地点不明确」（`city`、`state` 都没有；判定函数 `isLocationUnclear`，`lib/reachability` 导出）、又**没有未化解的交通障碍**时——包括本来就没有障碍（交通 reliable 或没填、无需自费差旅），以及交通障碍（交通 limited / none、需自费差旅）**已被 approved 的交通补助 / 替代参与方式化解**——把 `opportunity.location` 记进 `missing_info`：不知道去哪，就无法确认「附近」能到，也无法确认已批准的支持够不够用。仍有未化解的交通障碍时不记地点，结论照旧是确定的 false。`reachable` 套用同一条缺失信息规则：硬性 not_satisfied 或有其他未化解障碍 → false，否则 → null，**绝不因形式未知 / 地点不明确而为 true**；approved 的支持不会让未知的形式或地点变成已知，所以也不会因此变成 true。结果单调：给同一学生更多支持不会让 null 变成 false。`findAlternatives`、联合求解与 `verifyPlan` 都经由 `analyzeReachability` 得到同一结论，不另判形式。以后实现 `remote_option` 时：`unknown` 不是线上途径，也不是 hybrid。
+- **Quest Board 的「Online or hybrid」筛选**只放行 `online` 与 `hybrid`，`unknown` 与 `in_person` 都排除；不开筛选时 `unknown` 的机会照常出现，卡片标 "Format unknown"。
 - **grants 的作用**：`analyzeReachability` 只用 `status = 'approved'` 且 student_id / opportunity_id 匹配的 grants 去化解对应障碍（设备→device、交通补助或替代参与方式（`alternative_access`）→transport（任一即可）、费用减免→cost、时间支持→time）；`pending` 只产生「若获批」的条件提示。「匹配」= `student_id` 等于该学生，且 `opportunity_id === null`（对该学生的所有机会都有效）或等于该机会 id；缺少 `opportunity_id` 字段的 grant 一律不生效（信息不足不猜）。`lib/store.ts` 的 `grantsFor` 按同一规则筛选，`loadGrants` 读取时逐条丢掉非法条目（含缺 `opportunity_id` 的）、保留合法的。按金额计的资助对每个机会各按全额计算，不在机会之间分摊，因此 `opportunity_id: null` 建议只用于可重复使用的资源（device、time_support）。
 - **硬性不满足不给绕过路线**：`planRoutes` 遇到硬性 not_satisfied 返回 `status: 'blocked'`，只给原因和「下一届 / 同领域替代」提示，`routes` 为空。资格 unknown 时仍给路线，但带提醒。
 - **证据跳过步骤**：学生已有证据覆盖的步骤标 `skipped: true` 并写 `skip_reason`，不计入总小时 / 费用；`diffRoutes` 要说得出变化原因。
@@ -679,6 +721,7 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
 
 - `data/opportunities.json`：每条机会必须**真实**，有 `official_url`（主办方官网）、`verified_on`（核实日期）、`verified_by`，**由人打开官网确认**。AI 给的机会信息不直接采用。
 - 每条官方要求都要有 `source_text`（官网原文）。看不清的要求用 `type: 'manual'`（结果为 unknown，提示向官方确认），不要猜。
+- **团队建议的准备项一律 `required_for_application: false`**，`source_text` 写明是团队建议（如 "Team suggestion — not an official requirement"）。`required_for_application: true` 只留给官网明确要求的准备项，并在 `source_text` 里摘录官网原文（`planRoutes` 据此把步骤标成 `official_requirement`；引擎不会反过来识别「写了 true 的团队建议」）。
 - 示例学生、示例发布者、示例主办方、模拟结果：数据里标 `is_sample: true`。**界面文字统一用英文**：示例数据标 `Sample`，模拟结果标 `Simulated`，占位标 `Placeholder`。
 - 不把模拟结果说成真实影响；可达 ≠ 录取；本地示例 ≠ 真实连接。
 - **来源等级 `source_tier`**：`official`（由人打开主办方官网核实；`data/opportunities.json` 的真实机会都是这一级，缺省即按它处理）/ `trusted_aggregator`（来自可信的机会汇总站，仍需以主办方官网为准）/ `user_posted`（用户发布；本阶段只来自 Connect 的本地示例，发布者是标 `Sample` 的虚构账户）。界面上**用户发布的机会必须与官网核实的机会用不同标记**，不得显示为「已核实」，并且它**一定同时是示例**（`is_sample: true`，界面同时标 `Sample`）。
@@ -688,6 +731,7 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
   - `sample-ana`：12 年级，纽约州郊区；交通可靠、设备齐全；每周 12 小时、预算 200 美元；会 python 与 data_analysis，没有证据。
   - `sample-noor`（第二阶段新增）：`grade: 13` = 本科第 1 年（大一），俄亥俄州郊区；交通有限（公交只在工作日运行）；有笔记本与手机；每周 5 小时、预算 30 美元；有一条自报的 Python 项目证据；身份为本科生、第一代大学生。用于查看面向本科生的机会。
 - **领域标签**：`Opportunity.fields` 与档案的 `interests` 用同一套标签，数据里推荐统一写成小写加下划线（如 `computer_science`）。目前 `data/opportunities.json` 的 `fields` 里还有连字符写法（如 `biomedical-research`）；比较时一律用 `lib/tags.ts` 的 `normalizeTag`（连字符、下划线、空格、大小写视为相同），所以写法不同不影响 `explainMatch` / `findAlternatives` 的结果。页面做领域筛选时也必须用 `normalizeTag`。
+- **参与形式**：官网没写清是线上还是线下，`location.format` 就填 `unknown`，不要填 `hybrid`（「在线申请」不是线上参与的证据）。线下 / 混合项目尽量填到州 / 城市；只有国家时引擎会把地点列为待确认（`missing_info` 含 `opportunity.location`，交通可靠的学生也不会得到「可达」）。
 - 测试用的虚构机会写在测试文件里，链接用 `example.com`，不要混进 `data/opportunities.json`。
 - 学生填写的内容只存浏览器 localStorage，无后端、无数据库。API key 只放 `.env`。
 - 不做排行榜、抽卡、签到；不用游戏进度锁住真实机会。
@@ -809,3 +853,27 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - 备份文件新增可选键 `view_preference`，不算格式变化，`format_version` 仍为 1：旧文件照常导入；新文件在旧版本应用里只会提示忽略了一个未知部分。
   - **引擎尚未**生成 competition 路线、`stepping_stone` / `remote_option` 建议，也尚未填写 RouteStep 的三个字段；`planRoutes` / `findAlternatives` / `analyzeGaps` / `diffRoutes` 的输出与改动前相同（`lib/contract-p4.test.ts` 中标 "contract only" 的测试守住这一点，下一层实现时有意修改）。
   - **`lib/metrics/` 本轮归 Charles**；`package.json` 的 `metrics` 脚本等他确定入口文件后再加。
+- 2026-11-19：**第四阶段第 1 层：引擎实现**（向后兼容；规则见「① 类型一览」末尾「第四阶段第 1 层：引擎规则」）：
+  - 新文件 `lib/match/evidence-building.ts`：共用筛选 `findEvidenceBuildingCandidates`（已核实目录、非 user_posted、非目标自身、截止没过、资格不是 not_eligible、领域标签有交集**并且**类别产出能对上目标还缺的证据）。
+  - `planRoutes`：传了 `options.catalog` 时可能在最后多一条 `competition` 路线（`routes` 现为 2–4 条）；每个步骤都填 `relation` / `official` / `evidence_needed`。**不传 `catalog` 时**去掉这三个字段后与 0905b62 逐字相同（基线钉在 `lib/contract-p4.test.ts`；按数据指纹记录 0905b62 与 3509d8e 两份数据的基线；数据变了这两条对照跳过、不失败，标题注明 "runs only on the data snapshots it was recorded for"）。
+  - `findAlternatives`：新增 `stepping_stone`、`remote_option`；被归入新类的机会不再出现在 `same_field`（同一机会只出现一次）。没有新类出现的输入上旧两类不变。
+  - `analyzeGaps`：读 `team_requirement`（`required` 为 true → materials 一条；null → unknown_info 一条；其余不变）。
+  - `lib/types.ts` 只加了可选字段 `RouteStep.related_opportunity_id?: string | null` 与注释更新；已有字段与联合类型未改。
+  - 页面暂未传 `catalog`，所以 competition 路线在页面上还不会出现；`findAlternatives` 的两类新建议页面已能收到（Quest Details 等已为新 kind 准备了默认文字）。
+  - 真实数据上（截至 2026-11-19 的数据）：competition 0、stepping_stone 0、remote_option 2（`sample-leo` / `sample-noor` × `dan-herbatschek-fellowship-2027`）。测试不写死这些条数。
+  - 竞赛候选小时未知时 `feasible_by_deadline` 不报 true（改报 null）；组队要求没有官网原文时 basis 为 missing_field。
+  - 测试：`lib/engine-p4.test.ts`（三项功能与共用筛选的正向 / 反向 / blocked；真实目录上只断言不随数据变化的性质，并在「真实目录 + 虚构机会」上确认三类都实际出现）、`lib/fairness-p4.test.ts`（只改学校名 / 显示名结果不变）；`lib/contract-p4.test.ts` 中原来两条 "contract only" 测试按新行为改写。
+- 2026-11-19：**第四阶段第 1 层评审修补**（向后兼容；没有 competition / 新建议的输入结果不变，有基线测试）：
+  - `stepping_stone` 看时间：目标截止已过且不再举办不给；截止已过时写明是为以后的轮次；截止未过时候选须在目标截止前结束；已开始的候选不给。
+  - competition 路线要求候选 `start_date` 可解析且不早于 today（已开始的不生成），`end_date` 早于目标截止。
+  - 标为必需、原文措辞含 "team" 的准备项：`official` 仍保守为 `team_suggestion`，但 `relation` 改为中性句子，`description` 开头随之调整，不再自相矛盾。
+  - competition 那一步与 `stepping_stone` 的文字如实写出候选的费用与形式；小时未知时 `rationale` 的周数写成 at least。
+  - `diffRoutes` 对 competition 路线的出现 / 消失 / 换场给出原因。
+  - 数据约定：团队建议的准备项一律 `required_for_application: false`。
+- 2026-11-19：**参与形式未知（`OpportunityFormat` 追加 `'unknown'`）与线下地点不明确**：
+  - ⚠️ **对已发布联合类型的扩展（项目负责人已同意）**：`OpportunityFormat` 现为 `'online' | 'in_person' | 'hybrid' | 'unknown'`，`OPPORTUNITY_FORMATS` 同步为四项。对它做穷尽式映射的代码需要补 `unknown` 分支，且不能显示成别的形式。`validateOpportunity` 接受 `unknown`；`opportunityWarnings` 对它给一条「形式未确认」提醒，不再给「线下但差旅未知」那条；`lib/data.ts` 加载、`lib/backup.ts` 导入用户发布的机会都不因它丢记录。
+  - 引擎规则见「接入学生端函数的提示」中「参与形式未知与地点不明确」，`explainMatch` 的 `format` / `transport` 两条见「第二阶段新函数」；`missing_info` 新增两个字段名 `opportunity.location.format`、`opportunity.location`（`analyzeGaps` 的可读名称：「whether it takes place online or in person」「where exactly it takes place」）。
+  - 结果变化：只有国家的线下 / 混合机会（当前真实数据中的 `doe-suli-summer-2027`、`noaa-hollings-scholarship-2027`、`doe-cci-summer-2027`，以及无地点的 hybrid `dan-herbatschek-fellowship-2027`）对交通可靠的示例学生（`sample-maya`、`sample-ana`）`missing_info` 多一项 `opportunity.location`、`format` 理由由 true 变为 null；`reachable` 不变（这些机会本来就缺「是否自费差旅」等信息）。`data/scenarios/` 的示例机会都有州和城市，演示最后一幕不变。
+  - 规则层面的两处收紧（真实数据与示例场景中目前没有触发的组合）：① 只有国家（或没有地点）的线下 / 混合机会 + 交通 limited / none 或需自费差旅 + **approved** 的交通补助 / 替代参与方式：此前为 `true`，现在为 **`null`**（`missing_info` 含 `opportunity.location`；`explainMatch` 的 `format` / `transport` 理由由 true 变为 null）；交通 reliable、无需差旅的同一机会本来就是 null，两者口径统一。② 形式为 `unknown` 且 `requires_travel_expense === true`：此前不造障碍（null），现在生成「需要自费差旅」障碍，未化解为 false、化解后为 null。另外，`location` 非对象 / `format` 缺失或非法的坏数据此前会被当作线下（可能得到 true），现在按 `unknown` 处理。
+  - 页面跟着改的文件（`app/quests/`，经队友 A 在 issue 中同意由主导统一实现）：`app/quests/board-model.ts`（「Online or hybrid」排除 `unknown`）、`app/quests/page.tsx`（标签 "Format unknown"；形式未知且没有地点时 Location 显示 "Format unknown — confirm with the organizer"）、`app/quests/[id]/quest-details.tsx`（新增 Format 一行，unknown 显示 "Unknown — confirm with the organizer"）。其他页面没有按形式取文字或分支的地方。
+  - 测试：`lib/format-unknown.test.ts`（新增；含只有国家 × 交通 × 差旅 × 支持的结果表、单调性、形式未知 × 自费差旅、坏 `location` 数据）、`app/quests/board-model.test.ts`（新增一条）、`lib/reachability/reachability.test.ts`（两个只测交通规则的虚构机会补上州；一条 `missing_info` 断言加上 `opportunity.location`）。

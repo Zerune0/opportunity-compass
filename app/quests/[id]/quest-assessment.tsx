@@ -87,7 +87,7 @@ export function QuestAssessment({ opportunity, context }: {
      const candidate = context.catalog.find(o => o.id === a.opportunity_id);
      const userPosted = candidate?.source_tier === "user_posted";
      const candidateReachTag = a.kind === "same_field" && profile ? candidateReach(profile, candidate, studentGrants, context.today) : null;
-     return <li key={`${a.kind}-${a.opportunity_id}-${index}`}>{a.opportunity_id ? <Link href={`/quests/${encodeURIComponent(a.opportunity_id)}`}>{a.kind === "next_cycle" ? `Future cycle information: ${a.title}` : a.title}</Link> : <strong>{a.title}</strong>}
+     return <li key={`${a.kind}-${a.opportunity_id}-${index}`}>{candidate && candidate.id !== opportunity.id && !userPosted ? <Link href={`/quests/${encodeURIComponent(candidate.id)}`}>{a.kind === "next_cycle" ? `Future cycle information: ${a.title}` : a.title}</Link> : <strong>{a.title}</strong>}
  {a.kind !== "same_field" && a.kind !== "next_cycle" && <p className="rpg-row"><span className="rpg-tag">{alternativeKindLabel(a.kind)}</span></p>}
  {a.kind === "same_field" && <p className="rpg-row"><span className={eligibilityTones[a.eligibility_overall ?? "unknown"]}>{eligibilityLabels[a.eligibility_overall ?? "unknown"]}</span>{candidateReachTag && <span className={candidateReachTag.tone}>{candidateReachTag.label}</span>}{userPosted && <span className="rpg-tag rpg-tag--warning">User-posted · not verified against an official site · Sample</span>}</p>}
  <p>{a.reason}</p>{a.kind === "next_cycle" && <p>The next cycle dates and eligibility are not confirmed.</p>}

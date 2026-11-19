@@ -171,7 +171,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -215,7 +215,7 @@
     "time_commitment": {
       "hours_per_week": 40,
       "total_weeks": 10,
-      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations"
+      "note": "Approximately 40 hours per week on site. Source: https://science.osti.gov/wdts/suli/Participant-Obligations Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
     },
     "requirements": [
       {
@@ -266,13 +266,13 @@
       }
     ],
     "source_tier": "official",
-    "recurring_annually": null,
+    "recurring_annually": true,
     "is_sample": false,
     "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -297,7 +297,7 @@
       "college_transfer",
       "financial_aid"
     ],
-    "summary": "Scholarship for eligible community college students transferring to a four-year institution.",
+    "summary": "Scholarship for eligible community college students transferring to a four-year institution. There is no application fee; university tuition and other study costs are separate.",
     "official_url": "https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/",
     "deadline": "2026-12-09",
     "location": {
@@ -308,9 +308,9 @@
       "city": null
     },
     "cost": {
-      "fee_usd": null,
+      "fee_usd": 0,
       "requires_travel_expense": null,
-      "note": "The application fee was not confirmed."
+      "note": "No cost or fee for completing and submitting the Cooke Scholarship application. This zero applies only to the scholarship application, not university tuition or other study costs. Source: https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/faqs/ . Human verification: Jiale Li, 2026-11-19."
     },
     "time_commitment": {
       "hours_per_week": null,
@@ -332,7 +332,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -357,7 +357,7 @@
       "environmental_science",
       "ocean_science"
     ],
-    "summary": "An undergraduate scholarship that includes a paid summer internship at a NOAA facility.",
+    "summary": "An annually awarded undergraduate scholarship that includes a paid, full-time 10-week summer internship at a NOAA facility. The 10 weeks describe the internship stage, not the entire scholarship.",
     "official_url": "https://www.noaa.gov/office-education/undergraduate-scholarships",
     "deadline": "2027-01-31",
     "deadline_note": "11:59 PM Eastern Time",
@@ -375,7 +375,8 @@
     },
     "time_commitment": {
       "hours_per_week": null,
-      "total_weeks": null
+      "total_weeks": null,
+      "note": "The scholarship includes a full-time paid 10-week summer internship. This is the internship stage only, not the duration of the entire scholarship; no numeric weekly-hours requirement was verified in this review. The organizer selects scholars each year. Source: https://www.noaa.gov/office-education/hollings-scholarship . Human verification: Jiale Li, 2026-11-19. Future cycle dates and requirements must be checked separately."
     },
     "requirements": [
       {
@@ -394,13 +395,13 @@
       }
     ],
     "source_tier": "official",
-    "recurring_annually": null,
+    "recurring_annually": true,
     "is_sample": false,
     "posted_by": null
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-18",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -444,7 +445,7 @@
     "time_commitment": {
       "hours_per_week": 40,
       "total_weeks": 10,
-      "note": "Approximately 40 hours per week, typically 10 consecutive weeks for the summer term. On-site participation only; remote internships are not available. Confirm the appointment schedule with the host laboratory. Sources: https://science.osti.gov/wdts/cci/Participant-Obligations ; https://science.osti.gov/wdts/cci/Benefits . Human verification: Jiale Li, 2026-11-18."
+      "note": "Approximately 40 hours per week, typically 10 consecutive weeks for the summer term. On-site participation only; remote internships are not available. Confirm the appointment schedule with the host laboratory. Sources: https://science.osti.gov/wdts/cci/Participant-Obligations ; https://science.osti.gov/wdts/cci/Benefits . Human verification: Jiale Li, 2026-11-18. Recurrence: offered three times annually in Fall, Spring, and Summer. Source: https://www.energy.gov/science/articles/discover-science-applications-open-summer-2027-undergraduate-internships. Recurrence verified by Jiale Li on 2026-11-19; future cycle dates and requirements must be checked separately."
     },
     "requirements": [
       {
@@ -456,7 +457,7 @@
       }
     ],
     "source_tier": "official",
-    "recurring_annually": null,
+    "recurring_annually": true,
     "is_sample": false,
     "posted_by": null
   },
@@ -733,7 +734,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-18",
     "required_devices": [],
     "preparation": [
       {
@@ -752,7 +753,8 @@
     ],
     "time_commitment": {
       "hours_per_week": null,
-      "total_weeks": null
+      "total_weeks": null,
+      "note": "The official program description states 12 months, including mentorship, practical projects and a final showcase. This is not converted into an exact number of weeks; weekly hours remain unconfirmed. Human verification: Jiale Li, 2026-11-18. Source: https://www.herbatschekfellowship.org/fellowship"
     },
     "cost": {
       "fee_usd": null,
@@ -773,8 +775,8 @@
     "deadline": "2027-01-15",
     "deadline_note": "2:00 PM Eastern Time",
     "location": {
-      "format": "hybrid",
-      "note": "Online application. The fellowship's required attendance locations and format need confirmation.",
+      "format": "unknown",
+      "note": "Participation format is not stated on the official fellowship or application pages. Online application submission does not establish online or hybrid participation. Human verification: Jiale Li, 2026-11-18. Sources: https://www.herbatschekfellowship.org/fellowship ; https://www.herbatschekfellowship.org/apply",
       "country": null,
       "state": null,
       "city": null
@@ -842,6 +844,87 @@
     "requirements": [],
     "source_tier": "official",
     "recurring_annually": null,
+    "is_sample": false,
+    "posted_by": null
+  },
+  {
+    "id": "hackrare-2027",
+    "title": "HackRare 2027",
+    "organizer": "Harvard Undergraduate Rare Diseases (HURD), in collaboration with NORD",
+    "category": "hackathon",
+    "fields": [
+      "biomedical_research",
+      "life_sciences"
+    ],
+    "summary": "An in-person rare-disease hackathon for undergraduate and graduate students. Projects are developed in teams of 2–5; participants must register with an institutional email. Registration is free, while participants arrange transportation and accommodation themselves.",
+    "official_url": "https://www.hackrare.org/the-hackathon",
+    "verified_on": "2026-11-19",
+    "verified_by": "Jiale Li",
+    "deadline": "2027-02-14",
+    "deadline_note": "Registration closes February 14, 2027 at 11:59 PM EST. Travel-funding applications have a separate deadline; funding is not assumed approved.",
+    "recurring_annually": null,
+    "location": {
+      "format": "in_person",
+      "country": "US",
+      "state": "MA",
+      "city": "Cambridge",
+      "note": "Harvard Student Organization Center at Hilles, 59 Shepard St, Cambridge, MA 02138. In-person participation only; no remote option. Human verification: Jiale Li, 2026-11-19. Sources: https://www.hackrare.org/the-hackathon ; https://www.hackrare.org/faq"
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": true,
+      "note": "Participation is free. Participants arrange their own transportation and accommodation. NORD Scholars travel funding may be requested, but is not guaranteed and is not deducted from costs. Human verification: Jiale Li, 2026-11-19. Source: https://www.hackrare.org/faq"
+    },
+    "time_commitment": {
+      "hours_per_week": null,
+      "total_weeks": null,
+      "start_date": "2027-02-27",
+      "end_date": "2027-02-28",
+      "note": "The February 27–28, 2027 event dates were human-verified by Jiale Li on 2026-11-19. No numeric weekly time commitment was confirmed; the event date span is not converted into weekly hours."
+    },
+    "required_devices": [],
+    "requirements": [
+      {
+        "id": "university-enrollment",
+        "type": "status",
+        "any_of": [
+          "undergraduate",
+          "graduate_student"
+        ],
+        "hard": true,
+        "label": "Currently an undergraduate or graduate student",
+        "source_text": "undergraduate or graduate students"
+      },
+      {
+        "id": "institutional-email",
+        "type": "manual",
+        "hard": true,
+        "label": "Register using a valid institutional email address",
+        "source_text": "with valid @_.edu addresses"
+      }
+    ],
+    "preparation": [
+      {
+        "id": "explore-rare-disease-project",
+        "title": "Explore a rare-disease problem and possible project ideas",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion, not an official application requirement. Time and cost are estimates for this optional preparation task only.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      }
+    ],
+    "team_requirement": {
+      "required": true,
+      "min_size": 2,
+      "max_size": 5,
+      "source_text": "Teams of 2-5"
+    },
+    "source_tier": "official",
     "is_sample": false,
     "posted_by": null
   }
