@@ -618,7 +618,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-17",
+    "verified_on": "2026-11-18",
     "required_devices": [],
     "preparation": [
       {
@@ -640,9 +640,9 @@
       "total_weeks": null
     },
     "cost": {
-      "fee_usd": null,
+      "fee_usd": 0,
       "requires_travel_expense": null,
-      "note": "Fee not confirmed during the human source review."
+      "note": "No program cost for selected students. Personal travel expenses were not confirmed and must be checked separately. Human verification: Jiale Li, 2026-11-18. Source: https://www.nasa.gov/learning-resources/texas-aerospace-scholars/tas-senior-experience/"
     },
     "id": "nasa-texas-aerospace-scholars-senior-2026",
     "title": "NASA Texas Aerospace Scholars · Senior Experience",
@@ -652,8 +652,8 @@
       "aerospace",
       "stem"
     ],
-    "summary": "A STEM experience for eligible Texas high school seniors. The senior application form was accessible during review.",
-    "official_url": "https://www.nasa.gov/learning-resources/texas-aerospace-scholars/",
+    "summary": "A STEM experience for U.S. citizens who are Texas residents enrolled as seniors in a Texas high school. Internet access, STEM interest and commitment to the online course are required.",
+    "official_url": "https://www.nasa.gov/learning-resources/texas-aerospace-scholars/tas-senior-experience/",
     "deadline": "2026-12-04",
     "location": {
       "format": "hybrid",
@@ -669,8 +669,8 @@
         "min": 12,
         "max": 12,
         "hard": true,
-        "label": "High school senior application",
-        "source_text": "2026-2027 Senior Application Window"
+        "label": "High school senior",
+        "source_text": "Enrolled as a senior"
       },
       {
         "id": "texas",
@@ -683,7 +683,7 @@
         ],
         "hard": true,
         "label": "Texas resident",
-        "source_text": "Texas Residents"
+        "source_text": "Texas resident"
       },
       {
         "id": "us-citizen",
@@ -693,13 +693,42 @@
         ],
         "hard": true,
         "label": "U.S. citizen",
-        "source_text": "U.S Citizens"
+        "source_text": "U.S. Citizen"
+      },
+      {
+        "id": "texas-school-enrollment",
+        "type": "manual",
+        "hard": true,
+        "label": "Enrolled as a senior in a Texas high school; confirm school enrollment",
+        "source_text": "Texas high school"
+      },
+      {
+        "id": "internet-access",
+        "type": "manual",
+        "hard": true,
+        "label": "Able to access the internet; home internet is not specifically required",
+        "source_text": "access the internet"
+      },
+      {
+        "id": "stem-interest",
+        "type": "manual",
+        "hard": true,
+        "label": "Interested in science, technology, engineering or mathematics",
+        "source_text": "Interested in science"
+      },
+      {
+        "id": "online-course-commitment",
+        "type": "manual",
+        "hard": true,
+        "label": "Committed to completing the online course",
+        "source_text": "Committed to completing"
       }
     ],
     "source_tier": "official",
     "recurring_annually": null,
     "is_sample": false,
-    "posted_by": null
+    "posted_by": null,
+    "deadline_note": "Application window: November 9–December 4, 2026. Check the official page for current application availability."
   },
   {
     "verified_by": "Jiale Li",
