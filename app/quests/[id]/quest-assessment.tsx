@@ -9,6 +9,7 @@ import { GAP_CATEGORIES, type GapCategory, type GapItem, type Opportunity, type 
 import type { QuestContext } from "../use-quest-context";
 import { JournalButton } from "./journal-button";
 import { MatchExplanationSection } from "./match-and-gaps";
+import { VerificationAge } from "../verification-age-badge";
 const categoryLabels: Record<GapCategory, string> = { knowledge_or_experience: "Knowledge or experience", materials: "Materials", time_and_cost: "Time and cost", unchangeable_eligibility: "Eligibility limits for this round", unknown_info: "Unknown information" };
 const eligibilityLabels = { eligible: "Requirements satisfied", not_eligible: "Hard requirement not met", unknown: "Eligibility unconfirmed" };
 const itemLabels = { satisfied: "Satisfied", not_satisfied: "Not satisfied", unknown: "Unknown" };
@@ -67,6 +68,7 @@ export function QuestAssessment({ opportunity, context }: {
     const plan = profile && eligibility?.overall === "not_eligible" && !alternatives.length ? planRoutes(profile, opportunity, options) : null;
     const planHints = plan?.status === "blocked" ? plan.alternatives : [];
     return <>
+ <VerificationAge opportunity={opportunity} today={context.today} />
  {(profile?.is_sample || grants.some(g => g.is_sample)) && <p className="rpg-row">{profile?.is_sample && <span className="rpg-tag rpg-tag--warning">Sample student profile</span>}{grants.some(g => g.is_sample) && <span className="rpg-tag rpg-tag--warning">Simulated support</span>}</p>}
  {context.loaded && !profile && <p><Link href="/passport">Load or create a profile in Skill Passport</Link> to see your eligibility, fit, gaps and support.</p>}
  <div className="rpg-route-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 19rem), 1fr))" }}>
