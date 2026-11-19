@@ -4,6 +4,7 @@ import { useState } from "react";
 import { fmt } from "@/lib/format";
 import { planAcrossOpportunities } from "@/lib/planner";
 import type { JournalEntry, Material, Opportunity, StudentProfile } from "@/lib/types";
+import { missingInfoLabel } from "./missing-info";
 import { CalendarExport } from "./CalendarExport";
 import { PlanItemsTable, WeeklyLoadTable } from "./PlanTables";
 
@@ -135,7 +136,7 @@ export function CrossPlanSection({ profile, entries, materials, findOpportunity,
 
           <TextList id="journal-conflicts" title="Conflicts" items={plan.conflicts} />
           <TextList id="journal-warnings" title="Warnings" items={plan.warnings} />
-          <TextList id="journal-missing" title="Missing info" items={plan.missing_info} />
+          <TextList id="journal-missing" title="Missing info" items={plan.missing_info.map((field) => missingInfoLabel(field, opps))} />
 
           {order.length > 1 && (
             <section className="rpg-card" aria-labelledby="journal-priority">
