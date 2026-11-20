@@ -264,6 +264,15 @@ body::before {
   .rpg-classic-table th[scope="row"] { overflow-wrap: break-word; }
   /* Short label that opens a centered detail card (components/rpg/DetailDialog). */
   .rpg-link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent); text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; text-align: left; }
+  /* SourceText: organizer words and our note up front, link / verification / estimate note behind a small toggle. */
+  .rpg-source { display: grid; gap: var(--space-2xs, 6px); }
+  .rpg-source__quote { margin: 0; padding-inline-start: var(--space-sm); border-inline-start: 3px solid var(--color-accent-2); }
+  .rpg-source__note { margin: 0; color: var(--color-ink-2); }
+  .rpg-source__who { display: block; font-size: var(--text-sm); font-weight: 700; color: var(--color-muted); }
+  .rpg-source__meta { font-size: var(--text-sm); color: var(--color-muted); }
+  .rpg-source__meta summary { cursor: pointer; width: fit-content; color: var(--color-accent); }
+  .rpg-source__meta ul { margin: var(--space-2xs, 6px) 0 0; padding-inline-start: 1.1em; display: grid; gap: 2px; }
+  .rpg-source__meta a { overflow-wrap: anywhere; }
   .rpg-tag--button { background: none; font-family: inherit; cursor: pointer; text-align: left; }
   .rpg-tag--button::after { content: "›"; margin-inline-start: 0.35em; }
   .rpg-tag--button:hover { background: var(--color-paper-3); }
