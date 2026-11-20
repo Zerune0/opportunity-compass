@@ -70,11 +70,17 @@ describe("Quest Board: Classic table and Adventure cards show the same opportuni
             expect(controls).toContain("button: Unsave Fixture Robotics Camp");
             expect(controls).toContain("button: Save Fixture Club Quest");
             expect(html).toContain(localRecordTag(posted)!);
-            expect(html).toContain("User posted");
-            expect(html).toContain("Official organizer");
-            expect(html).toContain("Sample record date");
-            expect(html).toContain("Verified");
         }
+        // Both views keep only the official link (details on hover in the table and on the details page) and say when
+        // there is no official page.
+        // Neither view spells out who verified it and when (that is on the details page, behind a small toggle).
+        expect(cardHtml).not.toContain("Official organizer");
+        expect(cardHtml).toContain("<dt>Source</dt><dd>User posted</dd>");
+        expect(cardHtml).toContain(">Official application</a>");
+        expect(cardHtml).toContain("No official page");
+        expect(tableHtml).toContain(">Official application</a>");
+        expect(tableHtml).toMatch(/title="Official organizer\. Verified: \d{4}-\d{2}-\d{2}"/);
+        expect(tableHtml).toContain("No official page");
     });
 
     it("keeps the official-link rule: only the official opportunity links out, never example.com", () => {
