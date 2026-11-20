@@ -21,9 +21,13 @@ type Props = {
 export function SavedEvidence({ profile, ctx, view, onChange, onDelete }: Props) {
   const empty = profile !== undefined && !profile?.evidence.length;
   return (
-    <section className="rpg-stack" aria-label="Saved evidence">
+    <section id="saved-evidence" className="rpg-stack" aria-label="Saved evidence">
       <h2>Saved evidence</h2>
-      {empty && <p>No evidence saved yet.</p>}
+      {empty && (
+        <p>
+          No evidence saved yet. The Adventure / Classic view changes how this list looks once you save an item.
+        </p>
+      )}
       {Boolean(profile?.evidence.length) && (
         <ul className={view === "adventure" ? "rpg-inventory" : "rpg-route-grid rpg-plain-list"}>
           {profile?.evidence.map((item) => <li key={item.id}>

@@ -217,6 +217,22 @@ function unclearLead(format: unknown, o: Opportunity): string {
   return `${lead}, but the organizer ${only}`;
 }
 
+/**
+ * The opportunity takes place outside the student's home area: both countries are known and differ ("country"),
+ * or both states / provinces are known and differ in the same (or an unstated) country ("state").
+ * Returns null when it can't tell (either side doesn't say).
+ */
+function outsideHomeArea(p: StudentProfile, o: Opportunity): 'country' | 'state' | null {
+  const norm = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim().toUpperCase() : null);
+  const region = isObject(p.region) ? (p.region as { country?: unknown; state?: unknown }) : null;
+  const loc = isObject(o.location) ? (o.location as { country?: unknown; state?: unknown }) : null;
+  const pc = norm(region?.country), oc = norm(loc?.country);
+  if (pc && oc && pc !== oc) return 'country';
+  const ps = norm(region?.state), os = norm(loc?.state);
+  if (ps && os && ps !== os && (!pc || !oc || pc === oc)) return 'state';
+  return null;
+}
+
 function formatReason(p: StudentProfile, o: Opportunity, transportBarriers: Barrier[]): MatchReason {
   const format = isObject(o.location) ? (o.location as { format?: unknown }).format : undefined;
   if (format === 'online') return reason('format', true, 'It runs online, so you can take part without traveling.');
@@ -238,6 +254,23 @@ function formatReason(p: StudentProfile, o: Opportunity, transportBarriers: Barr
     if (isLocationUnclear(o.location)) {
       // 没有州和城市：地点没定，「附近」无从谈起 → 无法判断。
       return reason('format', null, `${unclearLead(format, o)}, so we can't tell whether you can get there. Confirm the location with the organizer.${travel}`);
+    }
+    const away = outsideHomeArea(p, o);
+    if (away) {
+      // 机会在学生所在州 / 国家以外：「附近交通可靠」不能说明去得了（issue 70）。
+      // 未化解的交通障碍（如需自费差旅）→ false；交通障碍都已被批准的支持化解，或主办方写明不需要自费差旅 → true；
+      // 其余（是否自费差旅未写明等）→ null，不猜。
+      const lead = `${what}, which is outside your ${away}. Reliable local transportation does not show that you can get there`;
+      if (transportBarriers.some((b) => !b.resolved)) {
+        return reason('format', false, `${lead}, and getting there has an unresolved issue (such as paying for your own travel); see the transportation reason.`);
+      }
+      if (allResolved) {
+        return reason('format', true, `${what}, which is outside your ${away}; the transportation support the organizer approved covers getting there.`);
+      }
+      if (o.cost?.requires_travel_expense === false) {
+        return reason('format', true, `${what}, which is outside your ${away}; the organizer says participants do not pay for their own travel. Confirm how travel is arranged.`);
+      }
+      return reason('format', null, `${lead}. Check with the organizer how travel works and who pays for it.`);
     }
     return reason('format', true, `${what}, and your profile says you can reliably get to places nearby. Check how far it is from you.${travel}`);
   }

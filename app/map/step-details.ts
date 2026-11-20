@@ -33,3 +33,15 @@ export function stepFields(step: RouteStep, prep?: PrepItem): [string, string][]
     ["Official requirement?", official],
   ];
 }
+
+/**
+ * Splits an "Official requirement?" value into a short label for a table cell and the longer source text
+ * (organizer excerpt, our note), so the Classic table can tuck the long part behind a disclosure.
+ */
+export function splitOfficial(value: string): { label: string; detail: string | null } {
+  const organizer = "Stated by the organizer — ";
+  if (value.startsWith(organizer)) return { label: "Stated by the organizer", detail: value.slice(organizer.length) };
+  const team = "Suggested by our team — ";
+  if (value.startsWith(team)) return { label: "Our suggestion, not required", detail: null };
+  return { label: value, detail: null };
+}
