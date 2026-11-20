@@ -105,6 +105,7 @@ import { dayNumber, parseISODate } from '../eligibility/dates';
 import { asArray, safeOpportunity, safeProfile } from '../gap/inputs';
 import { normalizedTagSet, sharedTags } from '../tags';
 import { blockNature, type BlockNature } from './block';
+import { sampleOrigin } from '../sample-origin';
 import { candidateFactsText, findEvidenceBuildingCandidates, linkPhrase } from './evidence-building';
 import { BARRIER_TYPES } from '../types';
 import type {
@@ -320,7 +321,11 @@ function sameFieldCandidate(
         : 'It also has unresolved barriers for you right now.';
   }
   const posted = c.source_tier === 'user_posted';
-  const tier = posted ? ' This is a sample posting, not verified on an official site.' : '';
+  const tier = !posted
+    ? ''
+    : sampleOrigin(c) === 'organizer_demo'
+      ? ' This is a sample opportunity from the organizer demo, not a real listing.'
+      : ' This is a sample posting, not verified on an official site.';
   const d = typeof c.deadline === 'string' ? parseISODate(c.deadline) : null;
 
   return {

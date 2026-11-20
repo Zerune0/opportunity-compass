@@ -132,7 +132,7 @@ export const SHARING_LOCKED_REASON =
 
 /** 学生端：受保护时存着的合作说明被清掉后显示的说明。 */
 export const NOTE_REMOVED_NOTICE =
-  'Your collaboration note was removed from sharing because stricter defaults apply to this profile. You can write a new one if these defaults stop applying.';
+  'Your saved collaboration note was deleted from this browser because stricter defaults apply to this profile (under 18, grade 12 or below, or no usable age saved). It cannot be restored. You can write a new one if these defaults stop applying.';
 
 /**
  * 受保护的档案里存着非空（去掉首尾空白后非空）的合作说明时，返回把 `collaboration_note` 设为 null 的新设置

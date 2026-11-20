@@ -394,9 +394,9 @@ describe('受保护时清掉存着的合作说明（保护解除后不自动重�
     expect(cleared).not.toBeNull();
     const view = publisherView(ADULT, cleared, unprotected());
     expect(view?.collaboration_note ?? null).toBeNull();
-    expect(NOTE_REMOVED_NOTICE).toBe(
-      'Your collaboration note was removed from sharing because stricter defaults apply to this profile. You can write a new one if these defaults stop applying.',
-    );
+    // The notice must say plainly that the note was deleted and cannot be restored.
+    expect(NOTE_REMOVED_NOTICE).toContain('was deleted from this browser');
+    expect(NOTE_REMOVED_NOTICE).toContain('It cannot be restored.');
   });
 });
 

@@ -444,7 +444,7 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
   const noteState = choices?.note_shared
     ? "A note is shared."
     : choices && !choices.note_allowed && choices.note !== null
-      ? "Your earlier note is kept in this browser and is not shared now. It will be shared again if stricter defaults stop applying. Remove it if you do not want that."
+      ? "An earlier note is still saved in this browser and is not shared now. It will be deleted the next time this page loads, so it is never shared again without your say. Remove it now if you prefer."
       : "No note is shared.";
   const blocked = invitations ? blockedLine(invitations.blocked_publishers) : null;
 
