@@ -272,6 +272,9 @@ body::before {
   .rpg-button { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
   .rpg-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .rpg-stack:is(dl) { grid-template-columns: minmax(0, 1fr); }
+  /* A dl whose rows are wrapped in <div>s (dt + dd inside each div) is a single column of rows;
+     the two-column dt/dd grid above would otherwise put every other row in a near-zero column. */
+  dl:has(> div) { grid-template-columns: minmax(0, 1fr); }
   .rpg-evidence-form :is(input:not([type="checkbox"], [type="radio"]), select, textarea),
   .rpg-field :is(input, select, textarea) { min-width: 0; max-width: 100%; width: 100%; }
   .shell-main label:has(input[type="checkbox"], input[type="radio"]) {
