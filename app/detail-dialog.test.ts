@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { DetailDialog } from "@/components/rpg/DetailDialog";
 
 describe("DetailDialog", () => {
-  const html = renderToStaticMarkup(React.createElement(DetailDialog, { label: "Read why", title: "Learning first: why this route", children: React.createElement("p", null, "Long reason text") }));
+  const fixture = { label: "Read why", title: "Learning first: why this route", children: React.createElement("p", null, "Long reason text") };
+  const html = renderToStaticMarkup(React.createElement(DetailDialog, fixture));
 
   it("shows only the short label until opened", () => {
     expect(html).toContain('aria-haspopup="dialog"');

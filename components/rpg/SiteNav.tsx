@@ -44,7 +44,7 @@ function ViewToggle({ pathname }: { pathname: string }) {
     setConfirmed({ path: pathname, view: next });
   };
   return (
-    <div className="shell-view">
+    <div className="shell-view view-choice">
       <div className="rpg-row" role="group" aria-label="View preference">
         {(["adventure", "classic"] as const).map((option) => (
           <button key={option} type="button" className="rpg-button rpg-button--secondary" aria-pressed={view === option} onClick={() => choose(option)}>

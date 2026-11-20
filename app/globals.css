@@ -420,3 +420,48 @@ body::before {
   .journal-page p, .journal-page li { orphans: 3; widows: 3; }
   .journal-page .journal-plan-table tr { break-inside: avoid-page; }
 }
+
+/* Local UI preview: clearer reading hierarchy, retaining the arcade identity. */
+:root { --font-body: "Segoe UI", ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+body::before { opacity: .16; }
+@layer base {
+  h1 { text-shadow: none; font-size: clamp(2rem, 4vw, 3rem); }
+  h2, h3 { font-weight: 700; line-height: 1.25; }
+}
+@layer components {
+  .shell-bar { border-bottom-width: 1px; box-shadow: none; }
+  .shell-mark { font-size: 1rem; }
+  .shell-bar__inner { gap: .5rem 1.5rem; }
+  .view-choice { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; width: 100%; padding-top: .5rem; border-top: 1px solid var(--color-rule); }
+  .view-choice .rpg-button { box-shadow: none; padding: .5rem .9rem; font-size: .875rem; }
+  .view-choice p { font-size: .8rem; color: var(--color-muted); margin-left: .5rem; }
+  .view-choice [aria-pressed="true"] { background: var(--color-answer-text); color: var(--color-paper); border-color: var(--color-answer-text); }
+  .home-hero { padding: clamp(1.5rem, 5vw, 4rem); border: 1px solid var(--color-rule); border-top: 3px solid var(--color-accent); background: linear-gradient(120deg, var(--color-paper-3), var(--color-paper-2)); display: grid; gap: 1.5rem; }
+  .home-eyebrow { color: var(--color-accent); font-size: .8rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .home-hero h1 { font-size: clamp(2rem, 5vw, 3.5rem); max-width: 24ch; line-height: 1.15; text-transform: none; }
+  .home-hero h1 span { color: var(--color-answer-text); }
+  .home-description { max-width: 48ch; color: var(--color-ink-2); font-size: 1.125rem; line-height: 1.65; }
+  .home-actions { margin-block: .25rem; gap: 1rem; }
+  .home-journey { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--color-rule); }
+  .home-journey article { display: grid; gap: 1rem; padding: 1.5rem; align-content: start; }
+  .home-journey article + article { border-left: 1px solid var(--color-rule); }
+  .home-journey p { color: var(--color-muted); line-height: 1.65; }
+  .home-journey a { font-size: .875rem; }
+  .home-number { font-family: var(--font-outlier); font-size: .875rem; color: var(--color-accent); }
+  .home-demo, .profile-editor-disclosure { border: 1px solid var(--color-rule); padding: 1rem 1.5rem; background: var(--color-paper-2); }
+  .home-demo summary, .profile-editor-disclosure summary { font-weight: 700; }
+  .home-demo-steps { display: grid; gap: 1.25rem; padding-left: 1.5rem; margin-block: 1.5rem; }
+  .home-footer-note { padding-top: 1.5rem; border-top: 1px solid var(--color-rule); color: var(--color-muted); }
+  .home-footer-note h2 { font-size: 1.125rem; color: var(--color-ink); }
+  .home-footer-note a { font-size: .875rem; }
+  .profile-editor-disclosure > .rpg-card { margin-top: 1rem; border: 0; padding: 0; background: transparent; }
+  body:has(.view-choice [aria-pressed="true"]:last-of-type) .shell-main :is(h1, .rpg-quest-card__head h3) { font-family: var(--font-body); text-transform: none; }
+  body:has(.view-choice [aria-pressed="true"]:last-of-type) .shell-main :is(.rpg-head, .rpg-card, .rpg-button) { box-shadow: none; }
+  body:has(.view-choice [aria-pressed="true"]:last-of-type) .rpg-head h1::after { display: none; }
+  @media (max-width: 40rem) {
+    .home-journey { grid-template-columns: minmax(0, 1fr); }
+    .home-journey article + article { border-left: 0; border-top: 1px solid var(--color-rule); }
+    .view-choice p { width: 100%; margin-left: 0; }
+    .home-actions .rpg-button { width: 100%; }
+  }
+}
