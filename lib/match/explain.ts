@@ -220,16 +220,21 @@ function unclearLead(format: unknown, o: Opportunity): string {
 /**
  * The opportunity takes place outside the student's home area: both countries are known and differ ("country"),
  * or both states / provinces are known and differ in the same (or an unstated) country ("state").
- * Returns null when it can't tell (either side doesn't say).
+ * Returns null when it can't tell (either side doesn't say), and 'unclear' when the states are written differently
+ * and are not both two-letter codes (so they may be the same place).
  */
-function outsideHomeArea(p: StudentProfile, o: Opportunity): 'country' | 'state' | null {
+function outsideHomeArea(p: StudentProfile, o: Opportunity): 'country' | 'state' | 'unclear' | null {
   const norm = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim().toUpperCase() : null);
   const region = isObject(p.region) ? (p.region as { country?: unknown; state?: unknown }) : null;
   const loc = isObject(o.location) ? (o.location as { country?: unknown; state?: unknown }) : null;
   const pc = norm(region?.country), oc = norm(loc?.country);
   if (pc && oc && pc !== oc) return 'country';
   const ps = norm(region?.state), os = norm(loc?.state);
-  if (ps && os && ps !== os && (!pc || !oc || pc === oc)) return 'state';
+  if (ps && os && ps !== os && (!pc || !oc || pc === oc)) {
+    // The profile's state is free text: only two-letter codes can be compared ("California" vs "CA" is not "away").
+    const code = /^[A-Z]{2}$/;
+    return code.test(ps) && code.test(os) ? 'state' : 'unclear';
+  }
   return null;
 }
 
@@ -256,6 +261,9 @@ function formatReason(p: StudentProfile, o: Opportunity, transportBarriers: Barr
       return reason('format', null, `${unclearLead(format, o)}, so we can't tell whether you can get there. Confirm the location with the organizer.${travel}`);
     }
     const away = outsideHomeArea(p, o);
+    if (away === 'unclear') {
+      return reason('format', null, `${what}. We can't tell from your profile whether that is in your state; use the two-letter state code in your Skill Passport, or check with the organizer how travel works.${travel}`);
+    }
     if (away) {
       // 机会在学生所在州 / 国家以外：「附近交通可靠」不能说明去得了（issue 70）。
       // 未化解的交通障碍（如需自费差旅）→ false；交通障碍都已被批准的支持化解，或主办方写明不需要自费差旅 → true；

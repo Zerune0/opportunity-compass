@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PrepItem, RouteStep } from "@/lib/types";
 import { splitOfficial, stepFields } from "./step-details";
+import { UNCLEAR_REQUIRED_RELATION } from "@/lib/path/plan";
 import { resolveViewPreference } from "@/components/rpg/view-preference";
 
 const step: RouteStep = { id: "step", title: "Prepare", hours: 1, cost_usd: 0, depends_on: [], skipped: false, skip_reason: null, satisfied_by_evidence_ids: [] };
@@ -54,5 +55,13 @@ describe("splitOfficial", () => {
     expect(splitOfficial("Stated by the organizer — “Essay” Our note: verified.")).toEqual({ label: "Stated by the organizer", detail: "“Essay” Our note: verified." });
     expect(splitOfficial("Suggested by our team — not required by the organizer")).toEqual({ label: "Our suggestion, not required", detail: null });
     expect(splitOfficial("Application step")).toEqual({ label: "Application step", detail: null });
+  });
+});
+
+describe("unclear steps are never labelled not required", () => {
+  it("uses the unclear label when the engine could not tell whether the organizer requires the step", () => {
+    const unclear = { ...step, official: "team_suggestion", relation: UNCLEAR_REQUIRED_RELATION } as RouteStep;
+    expect(values(unclear)["Official requirement?"]).toBe("Unclear — confirm with the organizer");
+    expect(splitOfficial(values(unclear)["Official requirement?"]).label).toBe("Unclear — confirm with the organizer");
   });
 });

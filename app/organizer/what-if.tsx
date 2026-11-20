@@ -152,14 +152,20 @@ function useOrganizerStep() {
   const [step, setStep] = useState<OrganizerStep>(1);
   useEffect(() => {
     const sync = () => setStep(stepFromSearch(window.location.search));
+    const onPop = () => {
+      sync();
+      window.setTimeout(() => document.getElementById("organizer-step-heading")?.focus());
+    };
     const timer = window.setTimeout(sync);
-    window.addEventListener("popstate", sync);
+    window.addEventListener("popstate", onPop);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener("popstate", sync);
+      window.removeEventListener("popstate", onPop);
     };
   }, []);
   const goTo = useCallback((next: OrganizerStep) => {
+    // Clicking the step you are on adds no history entry, so Back still goes to the previous step.
+    if (stepFromSearch(window.location.search) === next) return;
     const url = new URL(window.location.href);
     if (next === 1) url.searchParams.delete("step");
     else url.searchParams.set("step", String(next));
