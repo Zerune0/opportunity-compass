@@ -13,7 +13,7 @@
  */
 import { DetailDialog } from "@/components/rpg/DetailDialog";
 import Link from "next/link";
-import { useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   defaultWhatIfInput,
   isPlaceholderOpportunity,
@@ -133,11 +133,67 @@ const STATUS_STYLE: Record<JointStatus, string> = {
   UNSUPPORTED_INPUT: "border-gray-700 bg-gray-100 text-gray-900",
 };
 
+/** The page walks through three steps: settings, results, then comparison and applying to the student side. */
+export type OrganizerStep = 1 | 2 | 3;
+export const ORGANIZER_STEPS: { step: OrganizerStep; label: string }[] = [
+  { step: 1, label: "Settings" },
+  { step: 2, label: "Results" },
+  { step: 3, label: "Compare and apply" },
+];
+
+/** Reads ?step= (1 when missing or not 2 / 3). */
+export function stepFromSearch(search: string): OrganizerStep {
+  const v = new URLSearchParams(search).get("step");
+  return v === "2" ? 2 : v === "3" ? 3 : 1;
+}
+
+/** Current step, kept in the URL so the browser Back button returns to the previous step. */
+function useOrganizerStep() {
+  const [step, setStep] = useState<OrganizerStep>(1);
+  useEffect(() => {
+    const sync = () => setStep(stepFromSearch(window.location.search));
+    const timer = window.setTimeout(sync);
+    window.addEventListener("popstate", sync);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("popstate", sync);
+    };
+  }, []);
+  const goTo = useCallback((next: OrganizerStep) => {
+    const url = new URL(window.location.href);
+    if (next === 1) url.searchParams.delete("step");
+    else url.searchParams.set("step", String(next));
+    window.history.pushState(null, "", url);
+    setStep(next);
+    window.scrollTo({ top: 0 });
+    window.setTimeout(() => document.getElementById("organizer-step-heading")?.focus());
+  }, []);
+  return [step, goTo] as const;
+}
+
+function StepNav({ step, onGo }: { step: OrganizerStep; onGo: (s: OrganizerStep) => void }) {
+  return (
+    <nav aria-label="What-if steps" className="org-steps">
+      <ol>
+        {ORGANIZER_STEPS.map((s) => (
+          <li key={s.step}>
+            <button type="button" aria-current={step === s.step ? "step" : undefined} onClick={() => onGo(s.step)}>
+              <span className="org-steps__num" aria-hidden="true">{s.step}</span>
+              <span>{s.label}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) {
   const [scenarioId, setScenarioId] = useState<string>(entries[0]?.id ?? "");
   const selectId = useId();
   const descId = useId();
   const entry = entries.find((e) => e.id === scenarioId) ?? entries[0];
+  const [step, goTo] = useOrganizerStep();
   if (!entry) return <p>No sample scenarios available.</p>;
   return (
     <div className="space-y-6">
@@ -153,7 +209,8 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
             Barrier summary (Sample): counts by barrier type and eligibility
           </Link>
         </p>
-        <div className="space-y-1">
+        <StepNav step={step} onGo={goTo} />
+        {step === 1 && <div className="space-y-1">
           <label htmlFor={selectId} className="block font-medium">
             Demo scenario (Sample)
           </label>
@@ -173,7 +230,7 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
           <p id={descId} className="text-sm text-gray-700">
             {entry.description} Switching scenarios resets the settings below to that scenario&apos;s defaults.
           </p>
-        </div>
+        </div>}
       </header>
       {/* key：切换场景时重新挂载，所有控件回到该场景的默认值。 */}
       <ScenarioWhatIf
@@ -182,6 +239,8 @@ export default function WhatIf({ entries }: { entries: ClientScenarioEntry[] }) 
         floors={entry.floors}
         bridge={entry.bridge}
         realOpportunityNote={entry.realOpportunityNote}
+        step={step}
+        onGo={goTo}
       />
     </div>
   );
@@ -192,11 +251,15 @@ function ScenarioWhatIf({
   floors,
   bridge,
   realOpportunityNote,
+  step,
+  onGo,
 }: {
   scenario: Scenario;
   floors: FairnessFloor[];
   bridge: ClientBridgeInfo;
   realOpportunityNote: string | null;
+  step: OrganizerStep;
+  onGo: (s: OrganizerStep) => void;
 }) {
   const defaults = useMemo(() => defaultWhatIfInput(scenario), [scenario]);
   const [enabled, setEnabled] = useState<string[]>(defaults.enabledIds);
@@ -288,71 +351,115 @@ function ScenarioWhatIf({
     setPercentText(defaultPercents);
   };
 
+  const summary = [
+    `${enabled.length} of ${scenario.interventions.length} support measures`,
+    budget.value != null ? `budget $${budget.value}` : "budget not set",
+    MODE_LABELS[mode],
+    floorOn.length ? `${floorOn.length} fairness floor${floorOn.length === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" · ");
+
   return (
     <div className="space-y-6">
-      <dl className="grid gap-1 text-sm text-gray-700 sm:grid-cols-[auto_1fr] sm:gap-x-3">
-        <dt className="font-medium">Scenario</dt>
-        <dd className="break-words">
-          {scenario.title} ({scenario.students.length} sample students, evaluation date {scenario.evaluation_date})
-        </dd>
-        <dt className="font-medium">Opportunities</dt>
-        <dd className="break-words">
-          {scenario.opportunities.map((o) => (
-            <span key={o.id} className="block">
-              {o.title}
-              {/* 与视图的 is_placeholder、假设说明用同一个判定；场景模板拒绝被它判为占位的目录机会。 */}
-              {isPlaceholderOpportunity(o) && (
-                <span className="ml-2 inline-block rounded border border-gray-500 px-1.5 text-xs text-gray-800">
-                  {WHATIF_LABELS.placeholder_opportunity}
+      {step === 1 && (
+        <section aria-labelledby="organizer-step-heading" className="space-y-6">
+          <h2 id="organizer-step-heading" tabIndex={-1} className="text-xl font-semibold">Step 1 · Settings</h2>
+          <dl className="grid gap-1 text-sm text-gray-700 sm:grid-cols-[auto_1fr] sm:gap-x-3">
+            <dt className="font-medium">Scenario</dt>
+            <dd className="break-words">
+              {scenario.title} ({scenario.students.length} sample students, evaluation date {scenario.evaluation_date})
+            </dd>
+            <dt className="font-medium">Opportunities</dt>
+            <dd className="break-words">
+              {scenario.opportunities.map((o) => (
+                <span key={o.id} className="block">
+                  {o.title}
+                  {/* 与视图的 is_placeholder、假设说明用同一个判定；场景模板拒绝被它判为占位的目录机会。 */}
+                  {isPlaceholderOpportunity(o) && (
+                    <span className="ml-2 inline-block rounded border border-gray-500 px-1.5 text-xs text-gray-800">
+                      {WHATIF_LABELS.placeholder_opportunity}
+                    </span>
+                  )}
                 </span>
+              ))}
+              {/* 真实机会 + 示例学生 + 模拟支持方：说明原样显示，不暗示真实主办方提供任何支持。 */}
+              {realOpportunityNote && (
+                <p role="note" className="mt-1 rounded border border-blue-700 bg-blue-50 p-2 text-blue-950">
+                  {realOpportunityNote}
+                </p>
               )}
-            </span>
-          ))}
-          {/* 真实机会 + 示例学生 + 模拟支持方：说明原样显示，不暗示真实主办方提供任何支持。 */}
-          {realOpportunityNote && (
-            <p role="note" className="mt-1 rounded border border-blue-700 bg-blue-50 p-2 text-blue-950">
-              {realOpportunityNote}
-            </p>
-          )}
-        </dd>
-      </dl>
+            </dd>
+          </dl>
+          <div className="org-settings">
+            <Controls
+              scenario={scenario}
+              floors={floors}
+              view={view}
+              enabled={enabled}
+              required={required}
+              budgetText={budgetText}
+              minGainText={minGainText}
+              budget={budget.value}
+              budgetError={budget.error}
+              minGainError={minGain.error}
+              mode={mode}
+              lossCapText={lossCapText}
+              lossCapError={lossCap.error}
+              floorOn={floorOn}
+              percentText={percentText}
+              percentErrors={Object.fromEntries(floors.map((f) => [f.id, percents[f.id].error]))}
+              onToggleEnabled={toggleEnabled}
+              onToggleRequired={toggleRequired}
+              onAddRequires={addRequires}
+              onBudget={setBudgetText}
+              onMinGain={setMinGainText}
+              onMode={setMode}
+              onLossCap={setLossCapText}
+              onToggleFloor={toggleFloor}
+              onPercent={(id, v) => setPercentText((prev) => ({ ...prev, [id]: v }))}
+              onReset={reset}
+            />
+          </div>
+          <div className="org-step-actions">
+            {!view && <InvalidInput message={inputError} />}
+            <button type="button" className="rpg-button rpg-button--primary" disabled={!view} onClick={() => onGo(2)}>
+              See results <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </section>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        <Controls
-          scenario={scenario}
-          floors={floors}
-          view={view}
-          enabled={enabled}
-          required={required}
-          budgetText={budgetText}
-          minGainText={minGainText}
-          budget={budget.value}
-          budgetError={budget.error}
-          minGainError={minGain.error}
-          mode={mode}
-          lossCapText={lossCapText}
-          lossCapError={lossCap.error}
-          floorOn={floorOn}
-          percentText={percentText}
-          percentErrors={Object.fromEntries(floors.map((f) => [f.id, percents[f.id].error]))}
-          onToggleEnabled={toggleEnabled}
-          onToggleRequired={toggleRequired}
-          onAddRequires={addRequires}
-          onBudget={setBudgetText}
-          onMinGain={setMinGainText}
-          onMode={setMode}
-          onLossCap={setLossCapText}
-          onToggleFloor={toggleFloor}
-          onPercent={(id, v) => setPercentText((prev) => ({ ...prev, [id]: v }))}
-          onReset={reset}
-        />
-        {view ? <Results view={view} /> : <InvalidInput message={inputError} />}
-      </div>
+      {step === 2 && (
+        <section aria-labelledby="organizer-step-heading" className="space-y-6">
+          <h2 id="organizer-step-heading" tabIndex={-1} className="text-xl font-semibold">Step 2 · Results</h2>
+          <div className="org-settings-summary">
+            <p><span className="font-medium">{scenario.title}</span> · {summary}</p>
+            <button type="button" className="rpg-button rpg-button--secondary" onClick={() => onGo(1)}>Edit settings</button>
+          </div>
+          {view ? <Results view={view} /> : <InvalidInput message={inputError} />}
+          <div className="org-step-actions">
+            <button type="button" className="rpg-button rpg-button--secondary" onClick={() => onGo(1)}><span aria-hidden="true">←</span> Settings</button>
+            <button type="button" className="rpg-button rpg-button--primary" onClick={() => onGo(3)}>
+              Compare and apply <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </section>
+      )}
 
-      {view && <ResultsReference view={view} />}
-
-      {/* 全宽，放在设置与结果下方：输入无效时也显示（此时 plan 为 null，仍可撤回之前写入的）。 */}
-      <StudentBridge scenario={scenario} bridge={bridge} plan={plan} />
+      {step === 3 && (
+        <section aria-labelledby="organizer-step-heading" className="space-y-6">
+          <h2 id="organizer-step-heading" tabIndex={-1} className="text-xl font-semibold">Step 3 · Compare and apply</h2>
+          <div className="org-settings-summary">
+            <p><span className="font-medium">{scenario.title}</span> · {summary}</p>
+            <button type="button" className="rpg-button rpg-button--secondary" onClick={() => onGo(1)}>Edit settings</button>
+          </div>
+          {view ? <ResultsReference view={view} /> : <InvalidInput message={inputError} />}
+          {/* 输入无效时也显示（此时 plan 为 null，仍可撤回之前写入的）。 */}
+          <StudentBridge scenario={scenario} bridge={bridge} plan={plan} />
+          <div className="org-step-actions">
+            <button type="button" className="rpg-button rpg-button--secondary" onClick={() => onGo(2)}><span aria-hidden="true">←</span> Results</button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
