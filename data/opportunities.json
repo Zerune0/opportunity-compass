@@ -186,6 +186,45 @@
         "reusable_across_opportunities": true,
         "skill": null,
         "evidence_kind": null
+      },
+      {
+        "id": "official-transcripts",
+        "title": "Prepare the required undergraduate transcript PDFs",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Undergraduate Transcripts (Submitted Online)\" Human-verified application instructions: Official or unofficial PDF transcript. Include name, institution, courses and grades, and cumulative GPA. Obtain the current institution transcript on or after the application opening date; cover the current/most recent institution and other undergraduate institutions attended as a degree-seeking student during the five years before current enrollment, including transfer-credit sources. Redact SSN and full date of birth. Source: https://science.osti.gov/wdts/suli/How-to-Apply Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "transcript",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-essays",
+        "title": "Complete the SULI application essays",
+        "estimated_hours": 3,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Essays\" Human-verified application instructions: Essays are required fields in the online application. Source: https://science.osti.gov/wdts/suli/How-to-Apply Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "essay",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-support-letters",
+        "title": "Request and track two letters of support",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Two Letters of Support\" Human-verified application instructions: At least two support letters submitted directly by referees through the online system. Up to three referees may be invited; only the first two completed letters are used. Source: https://science.osti.gov/wdts/suli/How-to-Apply Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "recommendation_letter",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
       }
     ],
     "id": "doe-suli-summer-2027",
@@ -287,6 +326,45 @@
         "reusable_across_opportunities": false,
         "skill": null,
         "evidence_kind": null
+      },
+      {
+        "id": "official-transcripts",
+        "title": "Prepare transcripts from every college within the stated application period",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Applicants must submit transcripts from all colleges attended since 2011\" Human-verified application instructions: Submit transcripts from all two-year and four-year colleges attended since 2011; the reviewed FAQ describes this as the last 15 years. Source: https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/faqs/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "transcript",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-recommendations",
+        "title": "Arrange the two required academic recommendations",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Two recommendations are required for this application.\" Human-verified application instructions: Two academic recommendations from advisers, instructors or professors at the current or most recent institution, submitted through Common App for Transfer. Source: https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/faqs/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "recommendation_letter",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-financial-information",
+        "title": "Gather the required household financial information, including parental information when applicable",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Financial information\" Human-verified application instructions: Provide three years of adjusted gross income. Applicants under 30 at the deadline must also supply legal parent/guardian financial information even if financially independent. Non-filers provide estimated income and an explanation; a second-parent information waiver may apply in specified circumstances. Initial application does not require essays; later selection stages may request them. Source: https://www.jkcf.org/our-scholarships/undergraduate-transfer-scholarship/faqs/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
       }
     ],
     "id": "cooke-transfer-scholarship-2027",
@@ -344,6 +422,58 @@
         "required_for_application": false,
         "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
         "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-essays",
+        "title": "Answer the Hollings application essay questions",
+        "estimated_hours": 3,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Answers to essay questions\" Human-verified application instructions: Answers to application essay questions are required. Source: https://www.noaa.gov/office-education/hollings-scholarship/prospective/faq Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "essay",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-transcripts",
+        "title": "Prepare a college transcript for each institution attended",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"College transcript(s)\" Human-verified application instructions: Submit one college transcript for each institution attended; unofficial transcripts are accepted at application. Source: https://www.noaa.gov/office-education/hollings-scholarship/prospective/faq Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "transcript",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-graduation-document",
+        "title": "Obtain the required official anticipated-graduation document",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"An official document listing your anticipated graduation date\" Human-verified application instructions: Submit an official document listing the anticipated graduation date. Source: https://www.noaa.gov/office-education/hollings-scholarship/prospective/faq Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": null,
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-references",
+        "title": "Arrange two reference forms, including the required academic reference",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Two references\" Human-verified application instructions: Provide two referees' names, titles and email addresses. The first must be a college instructor or graduate teaching assistant who taught the applicant; the second may be an academic referee or qualifying related mentor. Referees receive email and complete and submit a reference form; the applicant does not upload two recommendation letters. Source: https://www.noaa.gov/office-education/hollings-scholarship/prospective/faq Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": null,
         "reusable_across_opportunities": false,
         "skill": null,
         "evidence_kind": null
@@ -414,6 +544,45 @@
         "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
         "material_kind": "resume",
         "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-transcripts",
+        "title": "Prepare the required undergraduate transcript PDFs",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Undergraduate Transcripts (Submitted Online)\" Human-verified application instructions: Upload official or unofficial PDF transcripts covering the current/most recent institution and other undergraduate institutions attended as a degree-seeking student during the five years before current enrollment, including transfer-credit sources. Screenshots, photos and degree-audit reports are not accepted. Source: https://science.osti.gov/wdts/cci/How-to-Apply/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "transcript",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-essays",
+        "title": "Complete the CCI application essays",
+        "estimated_hours": 3,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Essays\" Human-verified application instructions: Essays are required fields in the online application. Source: https://science.osti.gov/wdts/cci/How-to-Apply/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "essay",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-recommendations",
+        "title": "Request and track two recommendation letters",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Two Letters of Recommendation\" Human-verified application instructions: At least two recommendation letters submitted directly online. Up to three referees may be invited; only the first two completed letters are used. Referees must know the applicant's relevant STEM abilities, such as a STEM instructor, research mentor or internship supervisor. Family, friends and classmates are not eligible referees. Source: https://science.osti.gov/wdts/cci/How-to-Apply/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "recommendation_letter",
+        "reusable_across_opportunities": false,
         "skill": null,
         "evidence_kind": null
       }
@@ -620,7 +789,7 @@
   },
   {
     "verified_by": "Jiale Li",
-    "verified_on": "2026-11-18",
+    "verified_on": "2026-11-19",
     "required_devices": [],
     "preparation": [
       {
@@ -632,6 +801,32 @@
         "required_for_application": false,
         "source_text": "Team suggestion. This is optional preparation, not an official application requirement. Time and cost are team estimates for this task only; they do not describe program fees or weekly participation hours.",
         "material_kind": "personal_statement",
+        "reusable_across_opportunities": false,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-texas-transcript",
+        "title": "Prepare a Texas high-school transcript showing your name and current senior status",
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Upload transcript from a Texas high school.\" Human-verified application instructions: Upload a Texas high-school transcript showing the applicant's name matching the NASA STEM Gateway account and current senior status. Source: https://www.nasa.gov/learning-resources/texas-aerospace-scholars/tas-senior-experience/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "transcript",
+        "reusable_across_opportunities": true,
+        "skill": null,
+        "evidence_kind": null
+      },
+      {
+        "id": "official-expression-of-interest",
+        "title": "Complete the TAS Expression of Interest essay",
+        "estimated_hours": 2,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"Complete the “Expression of Interest” essay to be shared with state legislators.\" Human-verified application instructions: The Expression of Interest essay is required and will be shared with state legislators. Source: https://www.nasa.gov/learning-resources/texas-aerospace-scholars/tas-senior-experience/ Verified by Jiale Li on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.",
+        "material_kind": "essay",
         "reusable_across_opportunities": false,
         "skill": null,
         "evidence_kind": null
