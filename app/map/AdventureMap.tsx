@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PixelLoader } from "@/components/rpg/pixel-loader";
 import { useViewPreference } from "@/components/rpg/view-preference";
 import { alternativeQuestHref } from "./alternative-links";
 import { stepFields } from "./step-details";
@@ -116,7 +117,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
           <Link className="rpg-button rpg-button--secondary" href={`/quests/${encodeURIComponent(opportunity.id)}`}>Details and Quest Journal</Link>
         </div>
       </header>
-      {!context && <p role="status">Loading profile…</p>}
+      {!context && <PixelLoader label="Loading profile…" />}
       {context && !profile && <p><Link href={passport}>Create a profile or load a sample in the Skill Passport</Link> to see routes.</p>}
       {plan?.status === "blocked" && (
         <QuestCard><h2>Routes unavailable</h2>
