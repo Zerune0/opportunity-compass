@@ -114,11 +114,17 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
       {profile && <QuestCard>
         <h2>Current profile</h2>
         <p>{profile.display_name}</p>
-        <p>Grade: {profile.grade ?? "Unknown"} · Age: {profile.age ?? "Unknown"} · Region: {[profile.region?.country, profile.region?.state, profile.region?.locality].filter(Boolean).join(", ") || "Unknown"}</p>
-        <p>Hours per week: {profile.hours_per_week_available ?? "Unknown"} · Budget (USD): {profile.budget_usd ?? "Unknown"}</p>
-        <p>Transport: {profile.transport?.level ?? "Unknown"} · Devices: {profile.devices?.join(", ") ?? "Unknown"}</p>
-        <p>Skills: {profile.skills?.map((skill) => skill.name + " (" + skill.level + ")").join(", ") ?? "Unknown"}</p>
-        <p>Interests: {profile.interests?.join(", ") ?? "Unknown"}</p>
+        <dl className="rpg-facts">
+          <div><dt>Grade</dt><dd>{profile.grade ?? "Unknown"}</dd></div>
+          <div><dt>Age</dt><dd>{profile.age ?? "Unknown"}</dd></div>
+          <div><dt>Region</dt><dd>{[profile.region?.country, profile.region?.state, profile.region?.locality].filter(Boolean).join(", ") || "Unknown"}</dd></div>
+          <div><dt>Hours per week</dt><dd>{profile.hours_per_week_available ?? "Unknown"}</dd></div>
+          <div><dt>Budget (USD)</dt><dd>{profile.budget_usd ?? "Unknown"}</dd></div>
+          <div><dt>Transport</dt><dd>{profile.transport?.level ?? "Unknown"}</dd></div>
+          <div><dt>Devices</dt><dd>{profile.devices?.join(", ") ?? "Unknown"}</dd></div>
+          <div><dt>Skills</dt><dd>{profile.skills?.map((skill) => skill.name + " (" + skill.level + ")").join(", ") ?? "Unknown"}</dd></div>
+          <div><dt>Interests</dt><dd>{profile.interests?.join(", ") ?? "Unknown"}</dd></div>
+        </dl>
       </QuestCard>}
       {profile !== undefined && <details className="profile-editor-disclosure" key={profile?.id ?? "new-profile"} open={profile ? undefined : true}>
         <summary>{profile ? "Edit your profile" : "Create your profile"}<span className="rpg-muted rpg-small"> · optional details for more useful assessments</span></summary>

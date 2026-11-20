@@ -273,6 +273,23 @@ body::before {
   .rpg-source__meta summary { cursor: pointer; width: fit-content; color: var(--color-accent); }
   .rpg-source__meta ul { margin: var(--space-2xs, 6px) 0 0; padding-inline-start: 1.1em; display: grid; gap: 2px; }
   .rpg-source__meta a { overflow-wrap: anywhere; }
+  /* Label/value facts as small boxes side by side instead of one long left-aligned column. */
+  .rpg-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-sm); margin: 0; }
+  .rpg-facts > div { min-width: 0; padding: var(--space-sm); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-3); }
+  .rpg-facts dt { font-size: var(--text-sm); color: var(--color-muted); }
+  .rpg-facts dd { margin: 0; font-weight: 700; color: var(--color-ink); }
+  .rpg-facts--wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+  .rpg-facts--wide dd { font-weight: 400; }
+  /* Quest details: eligibility and reachability side by side, preparation full width below with its items as cards. */
+  .quest-overview { display: grid; gap: var(--space-lg); align-items: start; }
+  @media (min-width: 56rem) { .quest-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); } .quest-overview__wide { grid-column: 1 / -1; order: 3; } }
+  .quest-prep-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-sm); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); align-items: start; }
+  .quest-prep-grid > li { min-width: 0; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-3); }
+  /* Gap categories differ a lot in length: flow them in columns so short ones do not leave empty space. */
+  .quest-gap-grid { columns: 20rem 3; column-gap: var(--space-md); }
+  .quest-gap-grid > * { break-inside: avoid; margin-block-end: var(--space-md); }
+  .quest-reason-grid { list-style: none; margin: 0; padding: 0; columns: 22rem 2; column-gap: var(--space-md); }
+  .quest-reason-grid > li { break-inside: avoid; margin-block-end: var(--space-sm); padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-3); }
   /* Adventure step details: tags, one sentence, three boxed facts side by side, organizer source on the right. */
   .rpg-step-details > summary { cursor: pointer; width: fit-content; color: var(--color-accent); font-size: var(--text-sm); font-weight: 700; }
   .rpg-step-panel { display: grid; gap: var(--space-md); margin-top: var(--space-sm); }

@@ -18,7 +18,7 @@ export function MatchExplanationSection({ match }: { match: MatchExplanation }) 
       <h2 id="match-heading">Why this fits / doesn&apos;t fit</h2>
       <p>{match.summary}</p>
       {match.reasons.length > 0 && (
-        <ul className="rpg-list">
+        <ul className="quest-reason-grid">
           {match.reasons.map((reason, index) => {
             const { tone, label } = reasonTone(reason.positive);
             return (

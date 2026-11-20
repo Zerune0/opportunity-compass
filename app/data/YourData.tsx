@@ -173,16 +173,18 @@ export function YourData() {
         {current === undefined ? (
           <p className="rpg-muted">Reading this browser&apos;s storage…</p>
         ) : (
-          <ul className="rpg-list">
-            <li>
-              Profile: {profileLabel(current)} {current.profile_is_sample && <SampleTag />}
-            </li>
+          <dl className="rpg-facts">
+            <div>
+              <dt>Profile</dt>
+              <dd>{profileLabel(current)} {current.profile_is_sample && <SampleTag />}</dd>
+            </div>
             {ROWS.map((row) => (
-              <li key={row.key}>
-                {row.label}: {current[row.key] as number} {row.sample && <SampleTag />}
-              </li>
+              <div key={row.key}>
+                <dt>{row.label}</dt>
+                <dd>{current[row.key] as number} {row.sample && <SampleTag />}</dd>
+              </div>
             ))}
-          </ul>
+          </dl>
         )}
         <p className="rpg-small rpg-muted">Items marked Sample are local demo data, not real people or real results.</p>
       </QuestCard>
