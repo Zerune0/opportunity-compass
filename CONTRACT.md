@@ -521,7 +521,7 @@
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
   `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。**页面不要这样直接读**：改用带校验的 `lib/data.ts`（见下方「数据加载」一节）；直接导入只留给 `lib/` 里的测试。
 - **主办方 What-if（`solveJoint` / `verifyPlan`）**：
-  - 页面用 `runWhatIf(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（`/organizer` 页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / 联合求解的基线对比表）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，并把结果整理成只含人数和汇总数字的 `WhatIfView`。
+  - `/organizer` 页面用 `runWhatIfWithPlan(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / 联合求解的基线对比表）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，返回 `{ view, plan }`——`view` 是只含人数和汇总数字的 `WhatIfView`；`plan`（`WhatIfPlanDetail`，含匿名学生编号与逐人分配）只交给「回到学生端的桥」（`lib/joint/bridge.ts` 的 `decideBridge`），页面不渲染其中任何内容。同文件的 `runWhatIf(scenario, input, availableFloors?)` 仍在、行为不变，是它只取 `view` 的包装（同一次求解与复核）。
   - 直接用 `solveJoint` 时，展示前**自己再调一次 `verifyPlan`**（相同的 `mode` / `loss_cap` / 软要求；复核 `conditional` 时传 `assume_approved_intervention_ids`），不要只信结果里自带的 `verification`。
   - 所有结果都是**模拟**（示例学生、示例场景），界面标 `Sample` / `Simulated`；可达 ≠ 录取；`SEARCH_LIMIT_REACHED` 不等于最优也不等于无解；`INFEASIBLE` 的主结果是空方案，替代方案要写明放松了什么。
   - 权衡分析模式（tradeoff）只在组织者主动设置 `loss_cap` 时使用；界面要说明受影响的对数（`lost_pairs` 的数量）和撤回条数（其中强制撤回多少条），不列出具体学生。公平底线、基线对比同样只显示人数与比例。
@@ -877,3 +877,9 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - 规则层面的两处收紧（真实数据与示例场景中目前没有触发的组合）：① 只有国家（或没有地点）的线下 / 混合机会 + 交通 limited / none 或需自费差旅 + **approved** 的交通补助 / 替代参与方式：此前为 `true`，现在为 **`null`**（`missing_info` 含 `opportunity.location`；`explainMatch` 的 `format` / `transport` 理由由 true 变为 null）；交通 reliable、无需差旅的同一机会本来就是 null，两者口径统一。② 形式为 `unknown` 且 `requires_travel_expense === true`：此前不造障碍（null），现在生成「需要自费差旅」障碍，未化解为 false、化解后为 null。另外，`location` 非对象 / `format` 缺失或非法的坏数据此前会被当作线下（可能得到 true），现在按 `unknown` 处理。
   - 页面跟着改的文件（`app/quests/`，经队友 A 在 issue 中同意由主导统一实现）：`app/quests/board-model.ts`（「Online or hybrid」排除 `unknown`）、`app/quests/page.tsx`（标签 "Format unknown"；形式未知且没有地点时 Location 显示 "Format unknown — confirm with the organizer"）、`app/quests/[id]/quest-details.tsx`（新增 Format 一行，unknown 显示 "Unknown — confirm with the organizer"）。其他页面没有按形式取文字或分支的地方。
   - 测试：`lib/format-unknown.test.ts`（新增；含只有国家 × 交通 × 差旅 × 支持的结果表、单调性、形式未知 × 自费差旅、坏 `location` 数据）、`app/quests/board-model.test.ts`（新增一条）、`lib/reachability/reachability.test.ts`（两个只测交通规则的虚构机会补上州；一条 `missing_info` 断言加上 `opportunity.location`）。
+- 2026-11-19：**文档补记（只记已有实现，签名与行为都没有变化）**：
+  - `runWhatIfWithPlan`（`lib/joint/whatif.ts`）：与 `runWhatIf` 同一次求解、同一次独立复核，另外返回方案明细 `plan`（`WhatIfPlanDetail`）；`/organizer` 页面现在用它，`runWhatIf` 是它只取 `view` 的包装。见「接入学生端函数的提示」中「主办方 What-if」。
+  - `/organizer` 的本地演示桥：纯函数在 `lib/joint/bridge.ts`（`decideBridge`、`bridgeGrantId` / `isBridgeGrantOf` / `findBridgeGrants` 等，不碰存储），浏览器端读写在 `app/organizer/bridge-store.ts`，界面在 `app/organizer/student-bridge.tsx`。读写只经 `lib/store.ts`：写入用 `addGrants`、找回用 `grantsByIntervention`、撤回用 `removeGrants`（按 id，只删本场景的桥写入的 grant）；学生端目录里没有的机会先用 `addUserPostedOpportunity` 存一份本地示例副本（存储层强制 `user_posted` + `is_sample`）。写入的 grant 都是模拟（`is_sample: true`），只来自已批准措施、OPTIMAL 且通过复核的方案。
+  - `lib/official-link.ts`：`hasOfficialPage`（用户发布 / 示例机会或占位链接 → 不显示「官方页面」链接）、`journalOfficialUrl`（Quest Journal 条目该显示的官方链接，找不到机会时只认非占位的抄录链接）、`isPlaceholderUrl`（非 http(s) 或保留示例域名 example.com / .org / .net 及其子域）。纯函数，不抛异常。
+  - `lib/metrics/`（归 Charles）：联合求解器与基线在示例场景上的可靠性指标，用 `npm run metrics` 运行；只是这些示例输入上的算法正确性证据，不代表真实影响。
+  - Connect 本地示例的保护规则（未成年人 / 年级 ≤ 12 / 年龄不明时更严格的默认设置）写在 `lib/connect/protection.ts` 的文件头。
