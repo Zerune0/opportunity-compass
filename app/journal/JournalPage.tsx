@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PixelLoader } from "@/components/rpg/pixel-loader";
 import { useCallback, useEffect, useState } from "react";
 import { StatusTag } from "@/components/rpg";
 import { renderedView, useViewPreference } from "@/components/rpg/view-preference";
@@ -77,7 +78,7 @@ export function JournalPage() {
         )}
       </header>
 
-      {context === undefined && <p>Loading your Journal…</p>}
+      {context === undefined && <PixelLoader label="Loading your Journal…" />}
 
       {context && !profile && (
         <section className="rpg-card" aria-labelledby="journal-no-profile">
