@@ -11,6 +11,7 @@ type SiteNavProps = {
 export function SiteNav({ items }: SiteNavProps) {
   const [view, chooseView] = useViewPreference();
   const pathname = usePathname() ?? "";
+  const hasViewChoice = ["/map", "/journal", "/passport"].includes(pathname);
   return (
     <>
     <ul className="shell-links">
@@ -25,10 +26,11 @@ export function SiteNav({ items }: SiteNavProps) {
         );
       })}
     </ul>
-    <div className="rpg-row" role="group" aria-label="View preference">
+    {hasViewChoice && <div className="view-choice" role="group" aria-label="View preference" aria-describedby="view-choice-note">
       <button className="rpg-button rpg-button--secondary" aria-pressed={view === "adventure"} onClick={() => chooseView("adventure")}>Adventure View</button>
       <button className="rpg-button rpg-button--secondary" aria-pressed={view === "classic"} onClick={() => chooseView("classic")}>Classic View</button>
-    </div>
+      <p id="view-choice-note">Same information and actions, different layouts.</p>
+    </div>}
     </>
   );
 }

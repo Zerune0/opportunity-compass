@@ -120,7 +120,10 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
         <p>Skills: {profile.skills?.map((skill) => skill.name + " (" + skill.level + ")").join(", ") ?? "Unknown"}</p>
         <p>Interests: {profile.interests?.join(", ") ?? "Unknown"}</p>
       </QuestCard>}
-      {profile !== undefined && <ProfileEditor key={profile?.id ?? "new-profile"} profile={profile} onSave={setProfile} />}
+      {profile !== undefined && <details className="profile-editor-disclosure" key={profile?.id ?? "new-profile"} open={profile ? undefined : true}>
+        <summary>{profile ? "Edit your profile" : "Create your profile"}<span className="rpg-muted rpg-small"> · optional details for more useful assessments</span></summary>
+        <ProfileEditor profile={profile} onSave={setProfile} />
+      </details>}
       <QuestCard>
         <h2>Add evidence</h2>
         <form className="rpg-stack rpg-evidence-form" onSubmit={submit}>
