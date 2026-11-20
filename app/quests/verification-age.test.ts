@@ -61,6 +61,8 @@ describe("verification age display", () => {
         expect(page).not.toContain("href=");
         expect(page).not.toContain("Confirm current details on the official page");
         expect(page).toContain("This is a sample record with no official page.");
+        expect(page).toContain("Sample record written 31 days ago");
+        expect(page).not.toContain("Verified");
     });
     it("hides while the reference date is loading", () => {
         expect(renderToStaticMarkup(React.createElement(VerificationAge, { opportunity, today: "" }))).toBe("");

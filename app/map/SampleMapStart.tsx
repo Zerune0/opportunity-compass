@@ -6,9 +6,12 @@ import { catalogOpportunities, sampleProfiles } from "@/lib/data";
 import { saveProfile } from "@/lib/store";
 import type { StudentProfile } from "@/lib/types";
 
-/** The demo pairing: a sample student whose routes for this real opportunity show several steps on the map. */
+/**
+ * The demo pairing: Maya and the fully specified sample opportunity, so every check has a clear answer in the demo
+ * (real listings leave some details, such as weekly hours, unstated, and those stay unknown).
+ */
 export const demoMapProfileId = "sample-maya";
-export const demoMapOpportunityId = "noaa-hollings-scholarship-2027";
+export const demoMapOpportunityId = "sample-climate-code-club-2027";
 
 export function mapHref(opportunityId: string): string {
   return `/map?opp=${encodeURIComponent(opportunityId)}`;
