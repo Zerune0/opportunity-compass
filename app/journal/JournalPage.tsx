@@ -65,7 +65,7 @@ export function JournalPage() {
   const profile = context?.profile;
 
   return (
-    <div className="rpg-stack rpg-stack--loose print:bg-[#fff] print:shadow-[0_0_0_100vmax_white]">
+    <div className="journal-page rpg-stack rpg-stack--loose print:bg-[#fff] print:shadow-[0_0_0_100vmax_white]">
       <header className="rpg-head crt print:bg-[#fff] print:text-black print:[&_*]:text-black print:[&_*]:[text-shadow:none] print:after:hidden">
         <h1>Quest Journal</h1>
         <p>Everything here is recorded by you and stays in this browser. Nothing is sent to any organizer.</p>

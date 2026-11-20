@@ -43,7 +43,7 @@ describe("Skill Passport evidence: Adventure inventory and Classic grid offer th
   });
 
   it("keeps Classic as the plain card grid", () => {
-    expect(classic).toContain('<div class="rpg-route-grid">');
+    expect(classic).toContain('<ul class="rpg-route-grid rpg-plain-list">');
     expect(classic).not.toContain("rpg-inventory");
     expect(classic).not.toContain("rpg-slot");
   });

@@ -111,7 +111,7 @@ describe("Quest Journal: Adventure and Classic offer the same controls", () => {
 
   it("keeps Classic exactly as the card renders without a view", () => {
     for (const e of entries) expect(card(e, "classic")).toBe(card(e));
-    expect(classic).toContain('<div class="rpg-stack">');
+    expect(classic).toContain('<ul class="rpg-stack rpg-plain-list">');
     expect(classic).not.toContain("rpg-quest");
   });
 

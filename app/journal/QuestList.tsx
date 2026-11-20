@@ -14,19 +14,19 @@ type Props = {
 
 /** The Journal's entries: a plain stack in Classic, a list of quest cards in Adventure. Same cards, same controls. */
 export function QuestList({ entries, findOpportunity, profileId, today, onChange, view }: Props) {
-  const card = (entry: JournalEntry) => (
-    <JournalEntryCard
-      key={entry.id}
-      entry={entry}
-      opportunity={findOpportunity(entry.opportunity_id)}
-      profileId={profileId}
-      today={today}
-      onChange={onChange}
-      view={view}
-    />
+  // Keep the same keyed list and card positions in both views so drafts stay mounted.
+  return (
+    <ul className={view === "adventure" ? "rpg-quest-list" : "rpg-stack rpg-plain-list"}>
+      {entries.map((entry) => <li key={entry.id}>
+        <JournalEntryCard
+          entry={entry}
+          opportunity={findOpportunity(entry.opportunity_id)}
+          profileId={profileId}
+          today={today}
+          onChange={onChange}
+          view={view}
+        />
+      </li>)}
+    </ul>
   );
-  if (view === "adventure") {
-    return <ul className="rpg-quest-list">{entries.map((entry) => <li key={entry.id}>{card(entry)}</li>)}</ul>;
-  }
-  return <div className="rpg-stack">{entries.map(card)}</div>;
 }
