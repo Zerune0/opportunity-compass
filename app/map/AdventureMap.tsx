@@ -6,6 +6,7 @@ import { DetailDialog } from "@/components/rpg/DetailDialog";
 import { useViewPreference } from "@/components/rpg/view-preference";
 import { alternativeQuestHref } from "./alternative-links";
 import { splitOfficial, stepFields } from "./step-details";
+import { relationKind, relationKindLabels, type RelationKind } from "@/lib/path/relation-kind";
 import { useCallback, useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import { catalogOpportunities } from "@/lib/data";
@@ -32,6 +33,12 @@ function competitionLink(step: RouteStep) {
   if (!id || !catalog.some((item) => item.id === id)) return null;
   return <p><Link href={`/quests/${encodeURIComponent(id)}`}>View this competition</Link>{step.description ? <> — {step.description}</> : null}</p>;
 }
+
+/** Tag colour per reason kind: green when the organizer asks for it, amber when unclear, plain otherwise. */
+const relationKindTone: Record<RelationKind, string> = {
+  meets_requirement: "rpg-tag--success", needed_to_apply: "rpg-tag--success", application: "rpg-tag--success",
+  unclear: "rpg-tag--warning", adds_plus: "", builds_evidence: "", team_suggestion: "", other: "",
+};
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -213,7 +220,11 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                       {fields(item).map(([label, value]) => {
                         // Short labels in the cells; the longer text opens in a centered card.
                         if (label === "Why this step") return <td data-label={label} key={label}>
-                          {value === "Not recorded" ? value : <DetailDialog label="Read why" subject={item.step.title} title={`Why this step: ${item.step.title}`}><p>{value}</p></DetailDialog>}
+                          {value === "Not recorded" ? value : (() => {
+                            // A tag for the kind of reason (from the engine's fixed sentences); the tag opens the full text.
+                            const kind = relationKind(item.step.relation);
+                            return <DetailDialog label={relationKindLabels[kind]} subject={item.step.title} title={`Why this step: ${item.step.title}`} triggerClassName={`rpg-tag rpg-tag--button ${relationKindTone[kind]}`}><p>{value}</p></DetailDialog>;
+                          })()}
                         </td>;
                         if (label === "Dependency" && item.dependencyTitles.length > 1) return <td data-label={label} key={label}>
                           <span style={{ display: "block" }}>After {item.dependencyTitles.length} steps</span>

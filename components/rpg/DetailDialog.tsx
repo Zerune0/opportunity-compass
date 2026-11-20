@@ -7,8 +7,10 @@ import { useId, useRef, type ReactNode } from "react";
  * (showModal), so focus moves into the card, Escape closes it and the page behind is inert. Clicking outside
  * the card also closes it.
  */
-export function DetailDialog({ label, title, subject, children }: {
+export function DetailDialog({ label, title, subject, triggerClassName = "rpg-link-button", children }: {
   label: string;
+  /** Class for the trigger button: a text link by default, or a tag (e.g. "rpg-tag rpg-tag--button"). */
+  triggerClassName?: string;
   title: string;
   /** What the label is about (a route or step name), so repeated labels like "Read why" have distinct accessible names. */
   subject?: string;
@@ -18,7 +20,7 @@ export function DetailDialog({ label, title, subject, children }: {
   const titleId = useId();
   return (
     <>
-      <button type="button" className="rpg-link-button" aria-haspopup="dialog" aria-label={subject ? `${label}: ${subject}` : undefined} onClick={() => ref.current?.showModal()}>
+      <button type="button" className={triggerClassName} aria-haspopup="dialog" aria-label={subject ? `${label}: ${subject}` : undefined} onClick={() => ref.current?.showModal()}>
         {label}
       </button>
       <dialog
