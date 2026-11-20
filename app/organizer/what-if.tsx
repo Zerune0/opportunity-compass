@@ -1159,7 +1159,7 @@ function BaselinesTable({ view }: { view: WhatIfView }) {
           role="region"
           aria-label="Baseline comparison table (scrolls horizontally)"
         >
-          <table className="min-w-[52rem] border-collapse text-sm">
+          <table className="min-w-[64rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-gray-400 text-left">
                 <th scope="col" className="py-1 pr-3 font-medium">Approach</th>
