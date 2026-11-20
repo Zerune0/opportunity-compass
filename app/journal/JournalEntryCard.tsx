@@ -5,7 +5,7 @@ import { QuestCard, StatusTag } from "@/components/rpg";
 import { resolveRecordDate } from "@/lib/journal";
 import { recordJournalEvent, removeJournalEntry, toggleJournalTask } from "@/lib/store";
 import { journalOfficialUrl } from "@/lib/official-link";
-import type { JournalEntry, JournalEvent, Opportunity } from "@/lib/types";
+import type { JournalEntry, JournalEvent, Opportunity, ViewPreference } from "@/lib/types";
 import { FeedbackForm } from "./FeedbackForm";
 import { StatusLines } from "./StatusLines";
 import { eventLabels } from "./labels";
@@ -24,9 +24,11 @@ type Props = {
   profileId: string;
   today: string;
   onChange: () => void;
+  /** Classic (default) is the plain card; Adventure is a quest card with the same content and controls. */
+  view?: ViewPreference;
 };
 
-export function JournalEntryCard({ entry, opportunity, profileId, today, onChange }: Props) {
+export function JournalEntryCard({ entry, opportunity, profileId, today, onChange, view = "classic" }: Props) {
   const title = opportunity?.title ?? entry.opportunity_id;
   // Sample / user-posted records and placeholder addresses (example.com) are never shown as an official page.
   const officialUrl = journalOfficialUrl(opportunity, entry.official_url);
@@ -58,41 +60,36 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
     onChange();
   }
 
-  return (
-    <QuestCard aria-labelledby={headingId}>
-      <h3 id={headingId}>
-        {opportunity ? <Link href={`/quests/${encodeURIComponent(entry.opportunity_id)}`}>{title}</Link> : title}
-      </h3>
-      {opportunity?.source_tier === "user_posted" ? (
-        <p className="rpg-row"><StatusTag tone="warning">User-posted · not verified against an official site · Sample</StatusTag></p>
-      ) : opportunity?.is_sample && (
-        <p className="rpg-row"><StatusTag tone="warning">Sample</StatusTag><span>This is a sample opportunity, not a verified one.</span></p>
-      )}
-      {opportunity ? (
-        <p>
-          Deadline: {opportunity.deadline ?? "Unknown, check the official page"}
-          {opportunity.deadline_note ? ` (${opportunity.deadline_note})` : ""}
-        </p>
-      ) : (
-        <p><StatusTag tone="warning">Not in catalog</StatusTag> This opportunity is no longer in the catalog.</p>
-      )}
-      {officialUrl ? (
-        <p>
-          <a href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
-          {" "}· You can apply there directly at any time.
-        </p>
-      ) : (
-        <p className="rpg-muted">
-          {opportunity?.source_tier === "user_posted"
-            ? "This is a sample record posted in this browser. It has no official page."
-            : opportunity
-              ? "This is a sample record. It has no official page."
-              : "No official page is on record for this entry."}
-        </p>
-      )}
+  const titleText = opportunity ? <Link href={`/quests/${encodeURIComponent(entry.opportunity_id)}`}>{title}</Link> : title;
 
-      <StatusLines entry={entry} today={today} onRecord={record} />
+  const sampleNote = opportunity?.source_tier === "user_posted" ? (
+    <p className="rpg-row"><StatusTag tone="warning">User-posted · not verified against an official site · Sample</StatusTag></p>
+  ) : opportunity?.is_sample && (
+    <p className="rpg-row"><StatusTag tone="warning">Sample</StatusTag><span>This is a sample opportunity, not a verified one.</span></p>
+  );
 
+  const deadline = opportunity ? (
+    <p>
+      Deadline: {opportunity.deadline ?? "Unknown, check the official page"}
+      {opportunity.deadline_note ? ` (${opportunity.deadline_note})` : ""}
+    </p>
+  ) : (
+    <p><StatusTag tone="warning">Not in catalog</StatusTag> This opportunity is no longer in the catalog.</p>
+  );
+
+  const noOfficialPage = (
+    <p className="rpg-muted">
+      {opportunity?.source_tier === "user_posted"
+        ? "This is a sample record posted in this browser. It has no official page."
+        : opportunity
+          ? "This is a sample record. It has no official page."
+          : "No official page is on record for this entry."}
+    </p>
+  );
+
+  const statusLines = <StatusLines entry={entry} today={today} onRecord={record} />;
+
+  const rest = <>
       <section aria-labelledby={`${headingId}-tasks`} className="rpg-stack">
         <h4 id={`${headingId}-tasks`}>Tasks</h4>
         <p className="rpg-muted rpg-small">Ticking a task is your own note. It does not add evidence to your Skill Passport.</p>
@@ -132,6 +129,45 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
           Remove from Journal
         </button>
       </div>
+  </>;
+
+  if (view === "adventure") return (
+    // A quest card: the head carries the title and the way to the official page; the four status lines
+    // stay four separate panels (submitting is not eligibility, admission or taking part).
+    <QuestCard aria-labelledby={headingId} className="rpg-quest-card">
+      <header className="rpg-quest-card__head">
+        <h3 id={headingId}>{titleText}</h3>
+        {sampleNote}
+        {deadline}
+        {officialUrl ? (
+          <p className="rpg-row">
+            <a className="rpg-button rpg-button--primary" href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
+            <span>You can apply there directly at any time.</span>
+          </p>
+        ) : noOfficialPage}
+      </header>
+      <div className="rpg-quest-card__status">{statusLines}</div>
+      {rest}
+    </QuestCard>
+  );
+
+  return (
+    <QuestCard aria-labelledby={headingId}>
+      <h3 id={headingId}>
+        {titleText}
+      </h3>
+      {sampleNote}
+      {deadline}
+      {officialUrl ? (
+        <p>
+          <a href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
+          {" "}· You can apply there directly at any time.
+        </p>
+      ) : noOfficialPage}
+
+      {statusLines}
+
+      {rest}
     </QuestCard>
   );
 }
