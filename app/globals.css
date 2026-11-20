@@ -264,6 +264,10 @@ body::before {
   .rpg-classic-table th[scope="row"] { overflow-wrap: break-word; }
   /* Short label that opens a centered detail card (components/rpg/DetailDialog). */
   .rpg-link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent); text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; text-align: left; }
+  .rpg-tag--button { background: none; font-family: inherit; cursor: pointer; text-align: left; }
+  .rpg-tag--button::after { content: "›"; margin-inline-start: 0.35em; }
+  .rpg-tag--button:hover { background: var(--color-paper-3); }
+  .rpg-tag--button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
   .rpg-link-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
   .rpg-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; padding: 0; width: min(34rem, calc(100vw - 2rem)); max-height: min(80vh, 40rem); color: var(--color-ink); background: var(--color-paper-2); border: var(--rule-bar) solid var(--color-accent-2); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow-wrap: break-word; }
   .rpg-dialog::backdrop { background: oklch(8% 0.02 315 / 0.55); backdrop-filter: blur(8px); }
