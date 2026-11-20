@@ -20,9 +20,13 @@ import { CATEGORY_PRODUCES, findEvidenceBuildingCandidates } from './match/evide
 import { diffRoutes, planRoutes } from './path';
 import { TEAM_RELATION, UNCLEAR_REQUIRED_RELATION, competitionDisclaimer, prepOfficial } from './path/plan';
 import { planAcrossOpportunities } from './planner';
+import { parseSourceText } from './source-text';
 import type { Opportunity, PlanResult, PrepItem, Route, StudentProfile, TeamRequirement } from './types';
 
 const TODAY = '2026-11-19';
+/** 数据里官方必需准备项的写法：Official excerpt 前缀 + 我们的核实说明（含 "team estimates"）。 */
+const OFFICIAL_EXCERPT_TEXT =
+  'Official excerpt: "Two Letters of Support" Human-verified application instructions: At least two support letters. Verified on 2026-11-19. Preparation hours and cost are team estimates for this task, not official program commitments or fees.';
 
 function prep(p: Partial<PrepItem> & Pick<PrepItem, 'id' | 'title'>): PrepItem {
   return { skill: null, evidence_kind: null, estimated_hours: 1, estimated_cost_usd: 0, depends_on: [], required_for_application: false, ...p };
@@ -369,6 +373,9 @@ describe('planRoutes：RouteStep 的 relation / official / evidence_needed', () 
     ['必需但没有原文', { required_for_application: true, source_text: null }, 'team_suggestion'],
     ['必需但原文为空', { required_for_application: true, source_text: '  ' }, 'team_suggestion'],
     ['不是必需（即使有原文）', { required_for_application: false, source_text: 'Submit a resume.' }, 'team_suggestion'],
+    ['必需 + Official excerpt 前缀（后面的说明含 team estimates）', { required_for_application: true, source_text: OFFICIAL_EXCERPT_TEXT }, 'official_requirement'],
+    ['不是必需（即使以 Official excerpt 开头）', { required_for_application: false, source_text: OFFICIAL_EXCERPT_TEXT }, 'team_suggestion'],
+    ['必需 + Official excerpt 但引号内为空', { required_for_application: true, source_text: 'Official excerpt: "" Team estimates only.' }, 'team_suggestion'],
   ])('official 判别：%s → %s', (_label, over, expected) => {
     expect(prepOfficial(prep({ id: 'x', title: 'X', ...over }))).toBe(expected);
   });
@@ -707,8 +714,30 @@ describe('修补 3：标为必需、原文含 "team" 时不说成团队建议', 
     expect(s?.description).toBe('Marked as needed to apply in our records; no source text is recorded, so confirm with the organizer.');
   });
 
+  it('必需 + Official excerpt 前缀 → official_requirement；description 只引引号内原文；relation 不说成团队建议', () => {
+    const t = withPrep(TARGET, { 'prep-essay': { source_text: OFFICIAL_EXCERPT_TEXT } });
+    const s = routesOf(planRoutes(STUDENT, t, { today: TODAY }))[0].steps.find((x) => x.id === 'prep-essay');
+    expect(s?.official).toBe('official_requirement');
+    expect(s?.description).toBe('Required to apply. Source: "Two Letters of Support"');
+    expect(s?.relation).not.toBe(UNCLEAR_REQUIRED_RELATION);
+    expect(s?.relation).not.toBe(TEAM_RELATION);
+  });
+
+  it('同样的 Official excerpt 文本但 required_for_application: false → team_suggestion，description 不写 "Required to apply."', () => {
+    const t = withPrep(TARGET, { 'prep-essay': { required_for_application: false, source_text: OFFICIAL_EXCERPT_TEXT } });
+    const s = routesOf(planRoutes(STUDENT, t, { today: TODAY }))[0].steps.find((x) => x.id === 'prep-essay');
+    expect(s?.official).toBe('team_suggestion');
+    expect(s?.relation).toBe(TEAM_RELATION);
+    expect(s?.description?.startsWith('Required to apply.')).toBe(false);
+  });
+
   it('同一步的 description 与 relation / official 不互相矛盾（多种准备项写法）', () => {
-    const variants = [target, TARGET, withPrep(TARGET, { 'prep-app': { required_for_application: true, source_text: 'Build an app (team suggestion).' } })];
+    const variants = [
+      target,
+      TARGET,
+      withPrep(TARGET, { 'prep-app': { required_for_application: true, source_text: 'Build an app (team suggestion).' } }),
+      withPrep(TARGET, { 'prep-essay': { source_text: OFFICIAL_EXCERPT_TEXT }, 'prep-app': { required_for_application: false, source_text: OFFICIAL_EXCERPT_TEXT } }),
+    ];
     for (const t of variants) {
       for (const r of routesOf(planRoutes(STUDENT, t, { today: TODAY }))) {
         for (const s of r.steps) {
@@ -815,13 +844,19 @@ function checkInvariants(profiles: StudentProfile[], catalog: Opportunity[], tod
 
       for (const r of routesOf(withCat)) {
         for (const st of r.steps) {
-          // official_requirement 只可能来自满足三条判别条件的准备项。
+          const pr = st.prep_item_id == null ? undefined : o.preparation.find((x) => x.id === st.prep_item_id);
+          const parsed = parseSourceText(pr?.source_text);
+          // official_requirement 只可能来自满足判别条件的准备项：必需，且（以 Official excerpt: 开头、引号内原文非空，
+          // 或者原文非空且不含 "team" / "not an official"）。
           if (st.official === 'official_requirement') {
-            const pr = o.preparation.find((x) => x.id === st.prep_item_id);
             expect(pr).toBeDefined();
             expect(pr?.required_for_application).toBe(true);
             expect(typeof pr?.source_text === 'string' && pr.source_text.trim() !== '').toBe(true);
-            expect(pr?.source_text ?? '').not.toMatch(/\bteam\b|not an official/i);
+            if (!(parsed.marked_official && parsed.excerpt != null)) expect(pr?.source_text ?? '').not.toMatch(/\bteam\b|not an official/i);
+          }
+          // 反过来：必需且以 Official excerpt: 开头的准备项，对应步骤一定是 official_requirement（不写死数量）。
+          if (pr && pr.required_for_application === true && parsed.marked_official) {
+            expect(st.official).toBe('official_requirement');
           }
         }
         if (r.type !== 'competition') continue;
@@ -896,6 +931,25 @@ describe('真实目录：不随数据变化的性质', () => {
     expect(profiles.length).toBeGreaterThan(0);
     expect(catalog.length).toBeGreaterThan(0);
     checkInvariants(profiles, catalog, today);
+  });
+
+  it('真实目录：必需且以 Official excerpt: 开头的准备项，在包含它的路线里都是 official_requirement（检查不是空转）', () => {
+    let checked = 0;
+    for (const p of profiles) {
+      for (const o of catalog) {
+        const marked = new Set(
+          o.preparation.filter((x) => x.required_for_application === true && parseSourceText(x.source_text).marked_official).map((x) => x.id),
+        );
+        for (const r of routesOf(planRoutes(p, o, { today: TODAY, catalog }))) {
+          for (const st of r.steps) {
+            if (st.prep_item_id == null || !marked.has(st.prep_item_id)) continue;
+            expect(st.official).toBe('official_requirement');
+            checked++;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('同一组性质在「真实目录 + 虚构机会」上也成立，且三类新结果都确实出现（检查不是空转）', () => {

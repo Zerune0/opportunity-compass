@@ -50,6 +50,7 @@
  */
 import { EVIDENCE_KIND_ZH, checkEligibility } from '../eligibility';
 import { plural } from '../format';
+import { parseSourceText } from '../source-text';
 import { dayNumber, daysBetween, parseISODate } from '../eligibility/dates';
 import { exactAgeOnReference } from '../eligibility/age';
 import { belowMinimumLater } from '../requirement-timing';
@@ -191,12 +192,18 @@ export const TEAM_RELATION = 'Suggested by our team; not tied to a requirement s
 const TEAM_SOURCE_RE = /\bteam\b|not an official/i;
 
 /**
- * 准备项的性质：required_for_application === true、source_text 是非空字符串、且 source_text 不含团队建议的写法
- * （"team" 一词或 "not an official"）→ official_requirement；其余一律 team_suggestion（判别不了时宁可少标官方）。
+ * 准备项的性质（按顺序判，判别不了时宁可少标官方）：
+ * 1. required_for_application !== true → team_suggestion（即使 source_text 以 `Official excerpt:` 开头）。
+ * 2. source_text 以 `Official excerpt:` 开头且引号内的官网原文非空（见 lib/source-text.ts）→ official_requirement：
+ *    数据作者明确标了官网原文，后面我们自己的核实说明里出现 "team" 等字样不影响。
+ * 3. 否则 source_text 是非空字符串、且不含团队建议的写法（"team" 一词或 "not an official"）→ official_requirement；
+ *    其余（没有原文、原文为空、原文含团队建议写法）→ team_suggestion。
  */
 export function prepOfficial(prep: PrepItem): Exclude<RouteStepOfficial, 'application_step'> {
   if (prep.required_for_application !== true) return 'team_suggestion';
   const src = prep.source_text;
+  const parsed = parseSourceText(src);
+  if (parsed.marked_official && parsed.excerpt != null) return 'official_requirement';
   if (typeof src !== 'string' || src.trim() === '') return 'team_suggestion';
   return TEAM_SOURCE_RE.test(src) ? 'team_suggestion' : 'official_requirement';
 }
@@ -262,7 +269,12 @@ function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem,
   const skipped = covering.length > 0;
   const official = prepOfficial(prep);
   const descParts = [prepDescriptionLead(prep, official)];
-  if (prep.source_text) descParts.push(` Source: ${prep.source_text}`);
+  if (prep.source_text) {
+    // 官方要求且用 `Official excerpt:` 标了原文：只引引号内的官网原文，不把我们的核实说明一起当原文引。
+    const parsed = parseSourceText(prep.source_text);
+    const quoted = official === 'official_requirement' && parsed.marked_official && parsed.excerpt != null;
+    descParts.push(quoted ? ` Source: "${parsed.excerpt}"` : ` Source: ${prep.source_text}`);
+  }
   return {
     id: prep.id,
     title: prep.title,
