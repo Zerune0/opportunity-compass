@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { PixelLoader } from "@/components/rpg/pixel-loader";
+import { DetailDialog } from "@/components/rpg/DetailDialog";
 import { useViewPreference } from "@/components/rpg/view-preference";
 import { alternativeQuestHref } from "./alternative-links";
-import { stepFields } from "./step-details";
+import { splitOfficial, stepFields } from "./step-details";
 import { useCallback, useEffect, useState } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
 import { catalogOpportunities } from "@/lib/data";
@@ -137,14 +138,20 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
           {classic ? (
             <table className="rpg-classic-table">
               <caption>Route comparison</caption>
-              <thead><tr><th scope="col">Route</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Weeks</th><th scope="col">Deadline</th><th scope="col">Reason</th></tr></thead>
+              <thead><tr><th scope="col">Route</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Weeks</th><th scope="col">Deadline</th><th scope="col">Why this route</th></tr></thead>
               <tbody>{plan.routes.map((item) => <tr key={item.id}>
                 <th scope="row"><RpgButton aria-pressed={route?.id === item.id} onClick={() => setSelected(item.id)}>{item.title}{route?.id === item.id ? " (selected)" : ""}</RpgButton></th>
                 <td data-label="Time">{item.total_hours} h</td>
                 <td data-label="Cost">{money.format(item.total_cost_usd)}</td>
                 <td data-label="Weeks">{item.estimated_weeks ?? "Unknown"}</td>
                 <td data-label="Deadline">{item.feasible_by_deadline === null ? "Unknown" : item.feasible_by_deadline ? "Fits deadline" : "Exceeds deadline"}</td>
-                <td data-label="Reason">{item.type === "competition" && <p>Not an official requirement of this opportunity.</p>}{item.rationale}{item.warnings.map((warning) => <p key={warning}>{warning}</p>)}</td>
+                <td data-label="Why this route">
+                  <DetailDialog label="Read why" subject={item.title} title={`${item.title}: why this route`}>
+                    {item.type === "competition" && <p>Not an official requirement of this opportunity.</p>}
+                    <p>{item.rationale}</p>
+                    {item.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                  </DetailDialog>
+                </td>
               </tr>)}</tbody>
             </table>
           ) : <div className="rpg-route-grid">
@@ -202,7 +209,18 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                     <thead><tr><th scope="col">Step</th>{["Why this step", "Time and cost", "Evidence you can record", "Official requirement?", "Dependency"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
                     <tbody>{steps.map((item) => <tr key={item.step.id}>
                       <th scope="row">{item.step.title}{competitionLink(item.step)}{item.step.skipped && <p>Skipped, excluded from totals. {item.step.skip_reason}</p>}</th>
-                      {fields(item).map(([label, value]) => <td data-label={label} key={label}>{value}</td>)}
+                      {fields(item).map(([label, value]) => {
+                        // Short labels in the cells; the longer text opens in a centered card.
+                        if (label === "Why this step") return <td data-label={label} key={label}>
+                          {value === "Not recorded" ? value : <DetailDialog label="Read why" subject={item.step.title} title={`Why this step: ${item.step.title}`}><p>{value}</p></DetailDialog>}
+                        </td>;
+                        if (label !== "Official requirement?") return <td data-label={label} key={label}>{value}</td>;
+                        const official = splitOfficial(value);
+                        return <td data-label={label} key={label}>
+                          <span style={{ display: "block" }}>{official.label}</span>
+                          {official.detail && <DetailDialog label="View source" subject={item.step.title} title={`Organizer source: ${item.step.title}`}><p>{official.detail}</p></DetailDialog>}
+                        </td>;
+                      })}
                     </tr>)}</tbody>
                   </table> : <ol className="rpg-stack rpg-steps rpg-trail">{steps.map((item) => <li key={item.step.id}>
                     <QuestCard className={item.step.skipped ? "rpg-card--skipped" : ""}>
