@@ -164,6 +164,18 @@ export function SampleProfiles({ profile, onChange }: {
           <QuestCard key={sample.id} className="rpg-stack">
             <h3>{sample.display_name}</h3>
             <p><StatusTag tone="warning">Sample</StatusTag></p>
+            {sample.id === "sample-maya" && (
+              <details>
+                <summary>About Maya · background and goals</summary>
+                <div className="rpg-stack">
+                  <p>Maya is a fictional 16-year-old student in grade 11 at Example Bay High School in urban California. She is a US citizen from a low-income family and is a first-generation student.</p>
+                  <p>She is interested in computer science and climate. She has started learning Python through introductory exercises on her phone. This is self-reported learning; no project portfolio or independently verified evidence is recorded.</p>
+                  <p>She works after school and studies in short sessions. Her recorded availability is four hours per week, with a budget of $20. She has a smartphone, but no laptop is recorded.</p>
+                  <p>She takes the bus and can travel up to 45 minutes each way. Opportunities need to fit her time, budget, transport and device access as well as her academic eligibility.</p>
+                  <p>Use this sample to explore a practical next step in her interests and see how organizer support can change what is reachable. This background is fictional demo context, not an assessment of a real student.</p>
+                </div>
+              </details>
+            )}
             <dl>
               <dt>Grade</dt><dd>{sample.grade ?? notProvided}</dd>
               <dt>Location</dt><dd>{location(sample)}</dd>
