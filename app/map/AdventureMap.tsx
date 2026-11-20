@@ -248,9 +248,33 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                       <h3>{item.step.title}</h3>
                       {competitionLink(item.step)}
                       {item.step.skipped && <p><StatusTag tone="success">Skipped, excluded from totals</StatusTag> {item.step.skip_reason}</p>}
-                      <details><summary>Step details: {item.step.title}</summary><dl>{fields(item).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Official requirement?" && item.step.official === "official_requirement"
-                        ? <>Stated by the organizer<SourceText text={item.prep?.source_text} /></>
-                        : value}</dd></div>)}</dl></details>
+                      <details className="rpg-step-details"><summary>Step details<span className="sr-only">: {item.step.title}</span></summary>
+                        {(() => {
+                          // Tags first (what kind of step), then one sentence, then three boxed facts side by side;
+                          // the organizer's words sit in their own box on the right when there are any.
+                          const value = (label: string) => item.fields.find(([name]) => name === label)?.[1] ?? "Not recorded";
+                          const kind = relationKind(item.step.relation);
+                          const why = value("Why this step");
+                          const hasSource = item.step.official === "official_requirement" && Boolean(item.prep?.source_text);
+                          return <div className={hasSource ? "rpg-step-panel rpg-step-panel--with-source" : "rpg-step-panel"}>
+                            <div className="rpg-stack">
+                              <p className="rpg-row rpg-step-panel__tags">
+                                {why !== "Not recorded" && <span className={`rpg-tag ${relationKindTone[kind]}`}>{relationKindLabels[kind]}</span>}
+                                <span className="rpg-tag">{splitOfficial(value("Official requirement?")).label}</span>
+                              </p>
+                              {why !== "Not recorded" && <p className="rpg-step-panel__why">{why}</p>}
+                              <dl className="rpg-step-panel__facts">
+                                <div><dt>Time and cost</dt><dd>{value("Time and cost")}</dd></div>
+                                <div><dt>Evidence you can record</dt><dd>{value("Evidence you can record")}</dd></div>
+                                <div><dt>Depends on</dt><dd>{item.dependencyTitles.length === 0 ? "None"
+                                  : item.dependencyTitles.length === 1 ? item.dependencyTitles[0]
+                                  : <>{item.dependencyTitles.length} earlier steps<ul className="rpg-step-panel__deps">{item.dependencyTitles.map((title) => <li key={title}>{title}</li>)}</ul></>}</dd></div>
+                              </dl>
+                            </div>
+                            {hasSource && <div className="rpg-step-panel__source"><SourceText text={item.prep?.source_text} /></div>}
+                          </div>;
+                        })()}
+                      </details>
                     </QuestCard>
                   </li>)}</ol>}
                   <h3>Weekly timeline</h3>

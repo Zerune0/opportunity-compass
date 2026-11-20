@@ -273,6 +273,19 @@ body::before {
   .rpg-source__meta summary { cursor: pointer; width: fit-content; color: var(--color-accent); }
   .rpg-source__meta ul { margin: var(--space-2xs, 6px) 0 0; padding-inline-start: 1.1em; display: grid; gap: 2px; }
   .rpg-source__meta a { overflow-wrap: anywhere; }
+  /* Adventure step details: tags, one sentence, three boxed facts side by side, organizer source on the right. */
+  .rpg-step-details > summary { cursor: pointer; width: fit-content; color: var(--color-accent); font-size: var(--text-sm); font-weight: 700; }
+  .rpg-step-panel { display: grid; gap: var(--space-md); margin-top: var(--space-sm); }
+  @media (min-width: 48rem) { .rpg-step-panel--with-source { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; } }
+  .rpg-step-panel__tags { gap: var(--space-xs); margin: 0; }
+  .rpg-step-panel__why { margin: 0; color: var(--color-ink-2); }
+  .rpg-step-panel__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: var(--space-sm); margin: 0; }
+  .rpg-step-panel__facts > div { padding: var(--space-sm); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-3); min-width: 0; }
+  .rpg-step-panel__facts dt { font-size: var(--text-sm); color: var(--color-muted); }
+  .rpg-step-panel__facts dd { margin: 0; font-weight: 700; color: var(--color-ink); }
+  .rpg-step-panel__deps { margin: var(--space-2xs) 0 0; padding-inline-start: 1.1em; font-weight: 400; font-size: var(--text-sm); color: var(--color-ink-2); }
+  .rpg-step-panel__source { padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-rule); border-inline-start: 3px solid var(--color-accent-2); border-radius: var(--radius-card); background: var(--color-paper-2); }
+  .rpg-step-panel__source .rpg-source__quote { border: 0; padding: 0; }
   .rpg-tag--button { background: none; font-family: inherit; cursor: pointer; text-align: left; }
   .rpg-tag--button::after { content: "›"; margin-inline-start: 0.35em; }
   .rpg-tag--button:hover { background: var(--color-paper-3); }
