@@ -26,5 +26,45 @@ Screenshots in the parent project folder: p4-four-routes-375.jpg (fictional Samp
 - Actual Chrome reduced-motion emulation on home/map/Journal remains unverified.
 - Actual Windows screen-reader path remains unverified. Accessible DOM and keyboard checks are not a screen-reader pass.
 - Corrected two-opportunity Chrome print/PDF pagination remains unverified. PR #35's labelled print fields are already merged; the earlier user print.pdf is not acceptance of the corrected layout.
-- Passport backpack / Journal adventure-card presentation is optional work and has not been added. Existing operations retain their current presentation.
+- Adventure Journal quest cards and Passport inventory are now present in main. Both presentations have been reviewed in this follow-up; the original optional-work note is superseded.
 - Video work remains excluded by the user's instruction.
+
+
+## Follow-up against main 0748f72 (2026-11-20)
+
+Source: GitHub main ZIP downloaded after the repository showed merge PR #65 at 0748f72. The original local Git checkout is still at 0154b55 with its three uncommitted print changes intact. CLI fetch fails in the Git credential helper and the minimized GitHub Desktop window could not be restored by the desktop tool. This review copy is NOT a pulled Git branch; do not push it as a replacement history. Apply the accompanying patch to a new branch after fetching current main, then rerun checks if main has changed.
+
+### Changes
+
+- QuestList and SavedEvidence retain the same keyed ul/li/card structure in Adventure and Classic; only classes change. Classic keeps a plain stack/grid with list markers removed.
+- JournalEntryCard keeps its header, status wrapper and feedback subtree in stable positions. View changes no longer remount the feedback form or status date controls.
+- Existing Adventure presentation, controls, official-page safeguards and view-preference hook are retained. No store, engine, catalog, dependency or configuration changes.
+- Carried forward the pending journal-page print-only block-flow/pagination adjustment on top of main's added Adventure styles. This still needs human print acceptance.
+
+### Validation on this patched copy
+
+- npm test: 73 files passed; 2988 tests passed, 3 skipped (2991 total).
+- npm run lint: passed.
+- npx tsc --noEmit --incremental false: passed.
+- npm run build: passed, including all 14 static pages. No permission/security setting or build configuration changed.
+- Actual production server on localhost:3204. Fresh port uses separate browser storage; Sample Maya was loaded there without replacing the user's deployed-site profile.
+- Passport: opened the existing sample evidence editor; typed an unsaved title; Adventure to Classic to Adventure retained the open editor and actual typed value. Canceled afterward; no edited evidence was saved.
+- Journal: added DOE SULI and NASA TAS, opened optional feedback and typed an unsaved note. Both directions retained the expanded feedback and typed note. A status date changed with keyboard input from 2026-11-20 to 2025-11-20 also survived switching from Classic to Adventure. No feedback or historical status event was saved. The browser fill helper did not update React's date state reliably, so only the subsequent keyboard check is counted as date acceptance.
+- At 375x812, Journal in both modes and Passport Adventure with its editor open had document width 360px, viewport 375px, with no horizontal overflow; the card, editor and visible controls were visually inspected. Viewport restored afterward.
+- Current localhost:3204/journal retains two Sample Maya quest entries for manual print acceptance. This is separate from the deployed site's browser data.
+
+### Still not accepted
+
+Human Chrome print preview/PDF with two quests; actual OS reduced-motion setting on home/map/Journal and the new Adventure pages; actual screen reader through Home -> Quest Board -> Quest Details -> Map Classic -> Journal. DOM/keyboard checks are not screen-reader acceptance. The code has not been pushed and no PR has been opened for this follow-up.
+
+### Notes to relay to the lead
+
+The unsaved-input view-switch limitation has a tested local fix and can be removed from README after the patch is merged and retested. Keep the three manual accessibility checks marked pending. Current demo facts from the lead: Noor/Rutgers can show HackRare as a fourth route; Noor/DOE SULI has three organizer-stated steps; Maya's organizer demo requires the third scenario and no pre-added laptop. Baseline D ties on the sample cases; do not claim the joint solver beats every baseline. No recording or editing was performed.
+
+
+## Git integration follow-up (2026-11-20)
+
+GitHub Desktop was restored and fetched origin/main successfully at 0748f72. The prior print work is preserved in a named Git stash on fix/journal-print-pagination. The reviewed patch has been applied to the real Git branch fix/preserve-view-drafts based directly on origin/main; all tracked source files were compared with the validated review copy with CRLF/LF normalized; only this integration documentation differs. No engine, catalog or shared hook change was added. The earlier ZIP-only/push-blocked note describes the preceding stage and is superseded by this integration note. Human print/reduced-motion/screen-reader acceptance remains pending.
+
+
+The integrated checkout's additional build attempt compiled and type-checked, then failed to create .next/server/app/connect.segments/connect with EPERM. The identical normalized source already passed the full production build in the review copy (all 14 pages), along with tests, full lint and standalone tsc; only this Markdown record differs. No security setting, ACL, generated-directory workaround or build configuration was changed. Report both results rather than claiming a successful build in the original path. Publication status should be checked on the follow-up PR.

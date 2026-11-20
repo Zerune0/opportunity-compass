@@ -364,3 +364,28 @@ body::before {
   .rpg-quest-card__status dl > div { padding: 0; border: 0; background: none !important; }
   .rpg-slot__kind { font-family: var(--font-body); text-transform: none; }
 }
+
+/* Stable list wrappers keep edit forms mounted across view changes. */
+@layer components {
+  .rpg-plain-list { margin: 0; padding: 0; list-style: none; }
+  .rpg-plain-list > li { display: flex; min-width: 0; }
+  .rpg-plain-list > li > .rpg-card { flex: 1 1 auto; }
+}
+
+@media print {
+  /* Normal block flow avoids Chrome grid/flex fragmentation at page edges.
+     Keep all existing print:hidden sections hidden. */
+  .journal-page { display: block; font-size: 10pt; line-height: 1.45; }
+  .journal-page :is(.rpg-stack, .rpg-card, .rpg-head):not([class~="print:hidden"]) { display: block; }
+  .journal-page .rpg-card, .journal-page .rpg-head {
+    margin-block: 10pt; padding: 10pt; break-inside: avoid-page;
+  }
+  .journal-page .rpg-card > *, .journal-page .rpg-head > * { margin-block: 5pt; }
+  .journal-page h1 { font-size: 22pt; }
+  .journal-page h2 { font-size: 15pt; }
+  .journal-page h3 { font-size: 12pt; }
+  .journal-page h4 { font-size: 10pt; }
+  .journal-page dl > div { margin-block: 6pt; break-inside: avoid; }
+  .journal-page p, .journal-page li { orphans: 3; widows: 3; }
+  .journal-page .journal-plan-table tr { break-inside: avoid-page; }
+}
