@@ -254,6 +254,13 @@ body::before {
   .rpg-classic-table { width: 100%; table-layout: fixed; border-collapse: collapse; overflow-wrap: anywhere; }
   .rpg-classic-table caption { text-align: left; font-weight: bold; margin-bottom: 0.5rem; }
   .rpg-classic-table__first { width: 22%; }
+  /* The cross-quest plan has ten columns: size them by content (the wrapper scrolls) so titles are not squeezed to a few words per line. */
+  @media screen and (min-width: 55.01rem) {
+    .journal-plan-table { table-layout: auto; min-width: 60rem; overflow-wrap: normal; }
+    .journal-plan-table :is(th, td) { overflow-wrap: normal; }
+    .journal-plan-table th[scope="row"] { min-width: 14rem; }
+    .journal-plan-table td[data-label="Deadline"], .journal-plan-table .rpg-tag { white-space: nowrap; }
+  }
   .rpg-classic-table th[scope="row"] { overflow-wrap: break-word; }
   /* Short label that opens a centered detail card (components/rpg/DetailDialog). */
   .rpg-link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent); text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; text-align: left; }

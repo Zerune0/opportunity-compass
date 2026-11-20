@@ -1,4 +1,5 @@
 import { StatusTag } from "@/components/rpg";
+import { DetailDialog } from "@/components/rpg/DetailDialog";
 import { fmt } from "@/lib/format";
 import type { CrossPlanItem, WeeklyLoad } from "@/lib/types";
 import { planStatusLabels, planStatusTones, routeLabel, yesNoUnknown } from "./labels";
@@ -44,7 +45,13 @@ export function PlanItemsTable({ items }: { items: CrossPlanItem[] }) {
               <td data-label="Hours without reuse">{hoursCell(item, item.hours_before_reuse)}</td>
               <td data-label="Hours saved by reuse">{hoursCell(item, item.hours_saved_by_reuse)}</td>
               <td data-label="Doable alone">{doableCell(item)}</td>
-              <td data-label="Note">{item.note}</td>
+              <td data-label="Note">
+                {/* On screen the long note opens in a card; printed plans show it in full. */}
+                <span className="print:hidden">
+                  <DetailDialog label="Read note" subject={item.title} title={`Note: ${item.title}`}><p>{item.note}</p></DetailDialog>
+                </span>
+                <span className="hidden print:inline">{item.note}</span>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -94,7 +101,19 @@ export function WeeklyLoadTable({ weeks, titleOf }: { weeks: WeeklyLoad[]; title
                     {week.over === false && <StatusTag tone="success">Within</StatusTag>}
                     {week.over === null && <span>Unknown, add your weekly hours in your Skill Passport</span>}
                   </td>
-                  <td data-label="Quests">{week.opportunity_ids.map(titleOf).join("; ")}</td>
+                  <td data-label="Quests">
+                    {week.opportunity_ids.length <= 1 ? week.opportunity_ids.map(titleOf).join("; ") : (
+                      <>
+                        <span className="print:hidden">
+                          {week.opportunity_ids.length} quests{" "}
+                          <DetailDialog label="See which" subject={`week of ${week.week_start}`} title={`Quests in the week of ${week.week_start}`}>
+                            <ul className="rpg-list">{week.opportunity_ids.map((id) => <li key={id}>{titleOf(id)}</li>)}</ul>
+                          </DetailDialog>
+                        </span>
+                        <span className="hidden print:inline">{week.opportunity_ids.map(titleOf).join("; ")}</span>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
