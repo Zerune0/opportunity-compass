@@ -150,6 +150,18 @@ describe('route checker accepts real engine output', () => {
     expect(comp.steps.some((s) => s.prep_item_id === 'prep-project')).toBe(false);
   });
 
+  it('deadline is today: the engine reports null and the checker agrees (no deadline_claim)', () => {
+    // 只剩一个 0.5 小时的步骤：旧引擎按 max(天数, 1) 会报 true，而检查器按 0 天会否决；现在两者一致。
+    const tiny: Opportunity = { ...OPP, preparation: [{ ...OPP.preparation[0], id: 'prep-tiny', estimated_hours: 0.5, depends_on: [] }] };
+    const options = { today: OPP.deadline as string };
+    const p = plan(STUDENT, tiny, options);
+    for (const r of routesOf(p)) {
+      expect(r.feasible_by_deadline).toBeNull();
+      expect(checkRoute(STUDENT, tiny, r, options)).toEqual({ ok: true, problems: [] });
+    }
+    expect(checkPlan(STUDENT, tiny, p, options)).toEqual({ ok: true, problems: [] });
+  });
+
   it('a blocked plan passes', () => {
     const young = { ...STUDENT, grade: 7 };
     const p = plan(young, OPP);

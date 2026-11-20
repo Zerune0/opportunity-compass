@@ -580,6 +580,50 @@ function reverseKeys<T>(v: T): T {
   return v;
 }
 
+const DEADLINE_TODAY =
+  "The deadline is today. We can't tell whether there is still time: check the exact closing time and time zone on the official page.";
+
+describe('截止日就是今天：feasible_by_deadline 为 null', () => {
+  // 只有 0.5 小时的准备：按旧写法（max(天数, 1)）在截止当天容量 5 / 7 ≈ 0.71 小时，会报 true。
+  const TINY_OPP: Opportunity = { ...OPP, preparation: [prep({ id: 'prep-tiny', title: 'Tiny step', estimated_hours: 0.5 })] };
+
+  it('today = 截止日、工作量很小 → 每条路线都是 null，并有截止当天的提醒', () => {
+    for (const x of routesOf(planRoutes(STUDENT, TINY_OPP, { today: '2027-03-01' }))) {
+      expect(x.feasible_by_deadline).toBeNull();
+      expect(x.warnings).toContain(DEADLINE_TODAY);
+      expect(x.warnings.some((w) => w.includes("We can't tell yet"))).toBe(false);
+    }
+  });
+
+  it('today = 截止日前一天 → 与改动前相同（按 1 天算：0.5 小时 → true；社区协作多 2 小时 → false；61 小时 → false）', () => {
+    const tiny = planRoutes(STUDENT, TINY_OPP, { today: '2027-02-28' });
+    expect(route(tiny, 'learning_first').feasible_by_deadline).toBe(true);
+    expect(route(tiny, 'community').feasible_by_deadline).toBe(false);
+    for (const x of routesOf(tiny)) expect(x.warnings).not.toContain(DEADLINE_TODAY);
+    const lf = route(planRoutes(STUDENT, OPP, { today: '2027-02-28' }), 'learning_first');
+    expect(lf.feasible_by_deadline).toBe(false);
+    expect(lf.warnings.some((w) => w.includes('1 day left'))).toBe(true);
+  });
+
+  it('截止已过（today = 截止日后一天）→ false，不出截止当天的提醒', () => {
+    for (const x of routesOf(planRoutes(STUDENT, TINY_OPP, { today: '2027-03-02' }))) {
+      expect(x.feasible_by_deadline).toBe(false);
+      expect(x.warnings.some((w) => w.includes('has passed'))).toBe(true);
+      expect(x.warnings).not.toContain(DEADLINE_TODAY);
+    }
+  });
+
+  it('diffRoutes：前一天 true → 截止当天 null，原因说明截止就是今天', () => {
+    const before = planRoutes(STUDENT, TINY_OPP, { today: '2027-02-28' });
+    const after = planRoutes(STUDENT, TINY_OPP, { today: '2027-03-01' });
+    const d = diffRoutes(before, after);
+    expect(d.route_changes[0]).toMatchObject({ change: 'changed', feasible_before: true, feasible_after: null });
+    expect(
+      d.reasons.some((r) => r.includes('finishing before the deadline changed from "on time" to "can\'t tell"') && r.includes('the deadline is now today')),
+    ).toBe(true);
+  });
+});
+
 describe('M-a：截止日已过时与每周可用小时无关', () => {
   it.each([null, 0])('hours_per_week_available = %s、截止日已过 → false 并提示已过', (hpw) => {
     const r = planRoutes({ ...STUDENT, hours_per_week_available: hpw }, OPP, { today: '2027-04-01' });
@@ -590,11 +634,12 @@ describe('M-a：截止日已过时与每周可用小时无关', () => {
     }
   });
 
-  it('截止日当天（还剩 0 天）：按现有实现按 1 天的容量算，61 小时 → false，不算「已过」', () => {
+  it('截止日当天（还剩 0 天）：截止时刻和时区未知 → null 并提醒，不算「已过」（61 小时也一样）', () => {
     const lf = route(planRoutes(STUDENT, OPP, { today: '2027-03-01' }), 'learning_first');
-    expect(lf.feasible_by_deadline).toBe(false);
-    expect(lf.warnings.some((w) => w.includes('0 days left'))).toBe(true);
+    expect(lf.feasible_by_deadline).toBeNull();
+    expect(lf.warnings).toContain(DEADLINE_TODAY);
     expect(lf.warnings.some((w) => w.includes('has passed'))).toBe(false);
+    expect(lf.warnings.some((w) => w.includes('may not make it'))).toBe(false);
   });
 
   it('deadline 或 today 格式无法识别 → null 并说明原因', () => {

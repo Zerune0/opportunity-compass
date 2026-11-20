@@ -228,3 +228,30 @@ describe("organizer-facing wording after review", () => {
         expect(draft.questions[1]).not.toContain("what evidence applicants should provide");
     });
 });
+
+describe("organizer question wording for listings without an official page", () => {
+    const verified: Opportunity = { ...baseOpportunity, official_url: "https://research.fixture-university.edu/program" };
+    it("a verified opportunity with a real link quotes 'Your official page states'", () => {
+        const draft = buildOrganizerQuestions(verified, { items: [item] }, [], fullProfile);
+        expect(draft.message).toContain(`Your official page states: “${item.source_text}”`);
+    });
+    it("a user-posted opportunity never says 'official page' and quotes 'The listing states'", () => {
+        const posted: Opportunity = { ...verified, source_tier: "user_posted" };
+        const draft = buildOrganizerQuestions(posted, { items: [item] }, ["opportunity.unlisted_field"], fullProfile);
+        expect(draft.message).toContain(`The listing states: “${item.source_text}”`);
+        expect(draft.message).toContain("not specified on the listing?");
+        expect(draft.message.toLowerCase()).not.toContain("official page");
+    });
+    it("a sample opportunity also quotes 'The listing states'", () => {
+        const draft = buildOrganizerQuestions({ ...verified, is_sample: true }, { items: [item] }, [], fullProfile);
+        expect(draft.message).toContain("The listing states:");
+        expect(draft.message).not.toContain("Your official page states");
+    });
+    it("a damaged item without source_text does not throw and adds no quote", () => {
+        const damaged = { ...item, source_text: undefined } as unknown as EligibilityItem;
+        const numeric = { ...item, requirement_id: "n", label: "Other rule", source_text: 42 } as unknown as EligibilityItem;
+        const draft = buildOrganizerQuestions(verified, { items: [damaged, numeric] }, [], fullProfile);
+        expect(draft.questions).toHaveLength(2);
+        expect(draft.message).not.toContain("states:");
+    });
+});

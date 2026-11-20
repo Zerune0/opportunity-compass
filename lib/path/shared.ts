@@ -31,6 +31,13 @@ export const RESERVED_STEP_IDS: readonly string[] = [SUBMIT_STEP_ID, PARTNER_STE
 export const FEE_UNKNOWN_WARNING = 'The application fee is not clear on the official site and is not counted in the cost. Confirm with the organizer.';
 
 /**
+ * today 等于截止日（天数差 0）时路线上的提醒：截止的具体时刻和时区不知道，feasible_by_deadline 报 null；
+ * diff 用它说明「来得及 → 无法判断」的原因。
+ */
+export const DEADLINE_TODAY_WARNING =
+  "The deadline is today. We can't tell whether there is still time: check the exact closing time and time zone on the official page.";
+
+/**
  * 结构化深比较（只处理 JSON 类数据：原始值、数组、普通对象），对对象键顺序不敏感。
  * 值为 undefined 的键视同不存在，与 JSON 序列化一致。
  */

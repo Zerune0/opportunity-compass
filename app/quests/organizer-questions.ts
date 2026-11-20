@@ -1,3 +1,4 @@
+import { hasOfficialPage, type OfficialLinkSource } from "../../lib/official-link";
 import type { EligibilityResult, Opportunity, StudentProfile } from "../../lib/types";
 
 const participationQuestions: Record<string, string> = {
@@ -52,9 +53,11 @@ const hasFieldPath = (value: string) => /\b(?:opportunity|profile)\.[a-z_]/i.tes
  * An unknown requirement that uses any profile field the student has not filled in goes to the
  * Skill Passport list, not to the organizer message (the engine's hint for it is written to the student).
  * Without a profile, every requirement that uses a profile field is treated as a profile gap.
+ * Quoted requirement text is introduced as "Your official page states" only when `hasOfficialPage`
+ * is true; user-posted / sample listings (or callers that pass no link fields) get "The listing states".
  */
 export function buildOrganizerQuestions(
-    opportunity: Pick<Opportunity, "title">,
+    opportunity: Pick<Opportunity, "title"> & Partial<OfficialLinkSource>,
     eligibility: Pick<EligibilityResult, "items"> | null,
     missingInfo: readonly string[],
     profile: StudentProfile | null,
@@ -68,6 +71,8 @@ export function buildOrganizerQuestions(
     });
     missingProfileFields.push(...missingInfo.filter(field => field.trim().startsWith("profile.")).map(stripProfilePrefix));
     const profileUpdates = unique(unique(missingProfileFields).map(profileLabel));
+    const officialPage = hasOfficialPage(opportunity as OfficialLinkSource);
+    const quoteLead = officialPage ? "Your official page states" : "The listing states";
     const questions = unique([
         ...organizerItems.map(item => {
             const label = hasFieldPath(item.label) ? "this eligibility requirement" : item.label;
@@ -75,12 +80,13 @@ export function buildOrganizerQuestions(
             const question = item.hard
                 ? "Could you please clarify this requirement and what evidence applicants should provide?"
                 : "Could you please clarify how this preference is considered in selection?";
-            const source = item.source_text.trim();
-            const wording = source && !hasFieldPath(source) ? ` Your official page states: “${source}”` : "";
+            // Damaged records may lack source_text: never throw on a non-string.
+            const source = typeof item.source_text === "string" ? item.source_text.trim() : "";
+            const wording = source && !hasFieldPath(source) ? ` ${quoteLead}: “${source}”` : "";
             return `Regarding ${label}: ${priority}. ${question}${wording}`;
         }),
         ...missingInfo.filter(field => field.startsWith("opportunity.")).map(field =>
-            (Object.hasOwn(participationQuestions, field) ? participationQuestions[field] : undefined) ?? "Could you please clarify the remaining participation details that are not specified on the official page?",
+            (Object.hasOwn(participationQuestions, field) ? participationQuestions[field] : undefined) ?? `Could you please clarify the remaining participation details that are not specified on the ${officialPage ? "official page" : "listing"}?`,
         ),
     ]);
     const message = questions.length ? [

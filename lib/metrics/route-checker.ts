@@ -42,8 +42,9 @@
  *                         注释）。另外 competition 路线：竞赛步骤对应的候选在 options.catalog 里、而它的
  *                         hours_per_week × total_weeks 算不出（小时未知）时，true 必须改报 null（CONTRACT
  *                         「第四阶段第 1 层：引擎规则」·competition 路线「候选小时未知时 … 改报 null」）。
- *                         说明：截止日就是 today 时天数为 0、容量为 0，按规则文字照算（引擎实现里取 max(天数, 1)，
- *                         规则没有写这一点，所以这种情况下引擎的 true 会被本检查报出——如实报告，不迁就）。
+ *                         说明：截止日就是 today 时天数为 0、容量为 0，按规则文字照算。以前的「已知差异」（引擎取
+ *                         max(天数, 1)、可能在截止当天报 true）已消除：引擎现在在截止当天一律报 null（CONTRACT planRoutes
+ *                         规则「截止日就是今天」），与本检查一致；本检查的独立实现不变。
  *  - budget_claim         **未实现**：Route 上没有「预算放得下」的结构化字段，只有 warnings 文本（"Over budget by …"）；
  *                         按任务要求不解析自然语言，所以这一项不检查。
  *  - blocked_has_no_routes（计划级，checkPlan）：status === 'blocked' 时 routes 为空；checkEligibility 判 not_eligible 时
