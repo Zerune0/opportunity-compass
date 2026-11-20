@@ -10,11 +10,11 @@ describe("Adventure Map demo entry", () => {
     expect(profile?.is_sample).toBe(true);
   });
 
-  it("pairs it with a real catalog opportunity that has routes to show", () => {
+  it("pairs it with the labelled sample opportunity that has routes to show", () => {
     const catalog = catalogOpportunities();
     const opportunity = catalog.find((o) => o.id === demoMapOpportunityId);
     expect(opportunity).toBeDefined();
-    expect(opportunity?.is_sample).not.toBe(true);
+    expect(opportunity?.is_sample).toBe(true);
     const plan = planRoutes(demoMapProfile()!, opportunity!, { today: "2026-11-20", catalog });
     expect(plan.status).toBe("routes");
     if (plan.status === "routes") expect(plan.routes.length).toBeGreaterThanOrEqual(2);

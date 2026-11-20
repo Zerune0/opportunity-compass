@@ -44,14 +44,15 @@ describe("Quest Details review follow-ups", () => {
         const page = renderToStaticMarkup(React.createElement(QuestAssessment, {
             opportunity: fixture, context: contextFor(fixture, student),
         }));
-        expect(page).toContain("<h2>Official eligibility</h2><p>Unconfirmed — no official requirements recorded</p>");
+        // The fixture is a sample record (is_sample), so the heading says so; the status line is what this test is about.
+        expect(page).toContain("<h2>Eligibility in this sample opportunity</h2><p class=\"rpg-muted\">This is a fictional opportunity written for the demo. Its requirements show how the checks work; they are not from an official site.</p><p>Unconfirmed — no official requirements recorded</p>");
     });
     it("retains a satisfied status when an entered official rule is actually satisfied", () => {
         const opportunity = { ...fixture, requirements: [gradeRule] };
         const page = renderToStaticMarkup(React.createElement(QuestAssessment, {
             opportunity, context: contextFor(opportunity, profile),
         }));
-        expect(page).toContain("<h2>Official eligibility</h2><p>Requirements satisfied</p>");
+        expect(page).toContain("<h2>Eligibility in this sample opportunity</h2><p class=\"rpg-muted\">This is a fictional opportunity written for the demo. Its requirements show how the checks work; they are not from an official site.</p><p>Requirements satisfied</p>");
     });
     it("keeps an alternative without recorded requirements unconfirmed too", () => {
         const opportunity = { ...fixture, requirements: [gradeRule] };

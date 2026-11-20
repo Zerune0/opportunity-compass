@@ -16,7 +16,7 @@ import type { Opportunity } from './types';
 
 export type SampleOrigin = 'catalog' | 'connect_post' | 'organizer_demo';
 
-export type SampleOriginSource = Partial<Pick<Opportunity, 'source_tier' | 'posted_by'>>;
+export type SampleOriginSource = Partial<Pick<Opportunity, 'source_tier' | 'posted_by' | 'is_sample'>>;
 
 export function sampleOrigin(opportunity: SampleOriginSource | null | undefined): SampleOrigin {
   if (opportunity == null || typeof opportunity !== 'object') return 'catalog';
@@ -49,7 +49,20 @@ export function localRecordTag(opportunity: SampleOriginSource | null | undefine
   return origin === 'organizer_demo' ? ORGANIZER_DEMO_TAG : origin === 'connect_post' ? postedText : null;
 }
 
-/** 「Source」一栏：organizer_demo → ORGANIZER_DEMO_SOURCE_LABEL；其余用调用方按 source_tier 给的文字（不变）。 */
+/** 目录里的示例机会（is_sample，非本地发布）：「Source」一栏不能写成官方主办方。 */
+export const CATALOG_SAMPLE_SOURCE_LABEL = 'Sample record (fictional, for the demo)';
+/** 目录里的示例机会：Quest Details 资格区块的标题和说明。 */
+export const CATALOG_SAMPLE_ELIGIBILITY_TITLE = 'Eligibility in this sample opportunity';
+export const CATALOG_SAMPLE_ELIGIBILITY_NOTE =
+  'This is a fictional opportunity written for the demo. Its requirements show how the checks work; they are not from an official site.';
+
+/**
+ * 「Source」一栏：organizer_demo → ORGANIZER_DEMO_SOURCE_LABEL；目录里的示例机会 → CATALOG_SAMPLE_SOURCE_LABEL；
+ * 其余用调用方按 source_tier 给的文字（不变）。
+ */
 export function sourceLabelFor(opportunity: SampleOriginSource | null | undefined, tierLabel: string): string {
-  return sampleOrigin(opportunity) === 'organizer_demo' ? ORGANIZER_DEMO_SOURCE_LABEL : tierLabel;
+  const origin = sampleOrigin(opportunity);
+  if (origin === 'organizer_demo') return ORGANIZER_DEMO_SOURCE_LABEL;
+  if (origin === 'catalog' && opportunity?.is_sample === true) return CATALOG_SAMPLE_SOURCE_LABEL;
+  return tierLabel;
 }

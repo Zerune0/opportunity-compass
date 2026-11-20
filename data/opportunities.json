@@ -1122,5 +1122,118 @@
     "source_tier": "official",
     "is_sample": false,
     "posted_by": null
+  },
+  {
+    "id": "sample-climate-code-club-2027",
+    "title": "Climate Code Club (sample)",
+    "organizer": "Example Climate Code Club (fictional)",
+    "category": "other",
+    "fields": [
+      "computer_science",
+      "climate"
+    ],
+    "summary": "A fictional six-week online club where high school students learn Python by exploring public climate data. Sample record for the demo; not a real listing.",
+    "official_url": "https://example.com/sample-climate-code-club",
+    "verified_on": "2026-11-20",
+    "verified_by": "Sample record (fictional, written by the team for the demo)",
+    "deadline": "2027-01-15",
+    "deadline_note": null,
+    "recurring_annually": true,
+    "location": {
+      "format": "online",
+      "country": null,
+      "state": null,
+      "city": null
+    },
+    "cost": {
+      "fee_usd": 0,
+      "requires_travel_expense": false,
+      "note": "Sample record: free, fully online."
+    },
+    "time_commitment": {
+      "hours_per_week": 3,
+      "total_weeks": 6,
+      "note": "Sample record: one 90-minute online session and about 90 minutes of practice each week.",
+      "start_date": "2027-02-01",
+      "end_date": "2027-03-14"
+    },
+    "required_devices": [],
+    "requirements": [
+      {
+        "id": "req-grade",
+        "type": "grade",
+        "min": 9,
+        "max": 12,
+        "label": "Grades 9–12",
+        "hard": true,
+        "source_text": "Sample record: open to students in grades 9 through 12."
+      },
+      {
+        "id": "req-region",
+        "type": "region",
+        "countries": [
+          "US"
+        ],
+        "label": "Lives in the US",
+        "hard": true,
+        "source_text": "Sample record: open to students living in the United States."
+      },
+      {
+        "id": "req-status",
+        "type": "status",
+        "any_of": [
+          "high_school_student"
+        ],
+        "label": "High school student",
+        "hard": true,
+        "source_text": "Sample record: participants must be enrolled in high school."
+      }
+    ],
+    "preparation": [
+      {
+        "id": "prep-python-basics",
+        "title": "Finish an intro Python exercise set",
+        "skill": "python",
+        "evidence_kind": "course",
+        "estimated_hours": 3,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": false,
+        "source_text": "Team suggestion — not an official requirement. Time and cost are team estimates for this task only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      },
+      {
+        "id": "prep-climate-notebook",
+        "title": "Explore one public climate dataset in a short notebook",
+        "skill": "python",
+        "evidence_kind": "project",
+        "estimated_hours": 4,
+        "estimated_cost_usd": 0,
+        "depends_on": [
+          "prep-python-basics"
+        ],
+        "required_for_application": false,
+        "source_text": "Team suggestion — not an official requirement. Time and cost are team estimates for this task only.",
+        "material_kind": null,
+        "reusable_across_opportunities": null
+      },
+      {
+        "id": "prep-statement",
+        "title": "Write a short statement of interest",
+        "skill": null,
+        "evidence_kind": null,
+        "estimated_hours": 1,
+        "estimated_cost_usd": 0,
+        "depends_on": [],
+        "required_for_application": true,
+        "source_text": "Official excerpt: \"A short statement of interest (150 words)\" Sample record: the fictional club asks every applicant for this statement. Time and cost are team estimates for this task only.",
+        "material_kind": "personal_statement",
+        "reusable_across_opportunities": true
+      }
+    ],
+    "source_tier": "official",
+    "is_sample": true,
+    "posted_by": null
   }
 ]
