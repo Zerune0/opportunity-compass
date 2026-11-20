@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PrepItem, RouteStep } from "@/lib/types";
-import { stepFields } from "./step-details";
+import { splitOfficial, stepFields } from "./step-details";
 import { resolveViewPreference } from "@/components/rpg/view-preference";
 
 const step: RouteStep = { id: "step", title: "Prepare", hours: 1, cost_usd: 0, depends_on: [], skipped: false, skip_reason: null, satisfied_by_evidence_ids: [] };
@@ -46,5 +46,13 @@ describe("map view precedence", () => {
   it("ignores malformed overrides and leaves other pages on the saved preference", () => {
     expect(resolveViewPreference("/map", "?view=garbage", "classic")).toBe("classic");
     expect(resolveViewPreference("/passport", "?view=classic", "adventure")).toBe("adventure");
+  });
+});
+
+describe("splitOfficial", () => {
+  it("keeps a short label for the table cell and moves the source text to the detail", () => {
+    expect(splitOfficial("Stated by the organizer — “Essay” Our note: verified.")).toEqual({ label: "Stated by the organizer", detail: "“Essay” Our note: verified." });
+    expect(splitOfficial("Suggested by our team — not required by the organizer")).toEqual({ label: "Our suggestion, not required", detail: null });
+    expect(splitOfficial("Application step")).toEqual({ label: "Application step", detail: null });
   });
 });

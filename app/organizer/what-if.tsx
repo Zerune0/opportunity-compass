@@ -11,6 +11,7 @@
  * 结果区下方的「回到学生端的桥」（./student-bridge）是明确标注的本地演示操作：拿同一次计算的方案明细
  * （runWhatIfWithPlan 的 plan，不再求解一次），只渲染关于载入档案的一句话，不渲染方案明细里的任何学生信息。
  */
+import { DetailDialog } from "@/components/rpg/DetailDialog";
 import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import {
@@ -1139,13 +1140,25 @@ function BaselineRowView({ r }: { r: WhatIfBaselineRow }) {
         </>
       ) : (
         <td colSpan={5} className="py-1 pr-3 font-medium text-red-900">
-          Not executable (failed: {r.failed_checks.join(", ")}); the original plan&apos;s numbers are not shown
+          Not executable{" "}
+          <DetailDialog label="Read why" subject={r.label} title={`${r.label}: why it is not executable`}>
+            <p>The independent verifier rejected this plan. Failed checks: {r.failed_checks.join(", ")}.</p>
+            <p>The original plan&apos;s numbers are not shown, because they could not actually be carried out.</p>
+          </DetailDialog>
         </td>
       )}
       <td className="py-1 pr-3 tabular-nums">
-        {r.repaired
-          ? `reachable ${r.repaired.R1_count} / new ${r.repaired.G} / lost ${r.repaired.L} / net ${signed(r.repaired.N)} / ${usd(r.repaired.total_usd)}`
-          : "—"}
+        {r.repaired ? (
+          <>
+            net {signed(r.repaired.N)}{" "}
+            <DetailDialog label="Details" subject={r.label} title={`${r.label}: after first-come-first-served truncation`}>
+              <p>When this plan is cut back to what actually fits, first come first served:</p>
+              <p>Reachable {r.repaired.R1_count} · new {r.repaired.G} · lost {r.repaired.L} · net {signed(r.repaired.N)} · cost {usd(r.repaired.total_usd)}</p>
+            </DetailDialog>
+          </>
+        ) : (
+          "—"
+        )}
       </td>
       <td className="py-1">{r.soft_label}</td>
     </tr>
@@ -1180,7 +1193,7 @@ function BaselinesTable({ view }: { view: WhatIfView }) {
                 <th scope="col" className="py-1 pr-3 text-right font-medium">Lost L</th>
                 <th scope="col" className="py-1 pr-3 text-right font-medium">Net change N</th>
                 <th scope="col" className="py-1 pr-3 text-right font-medium">Cost</th>
-                <th scope="col" className="py-1 pr-3 font-medium">After first-come-first-served truncation (reachable / new / lost / net / cost)</th>
+                <th scope="col" className="py-1 pr-3 font-medium">After first-come-first-served truncation</th>
                 <th scope="col" className="py-1 font-medium">Meets organizer requirements</th>
               </tr>
             </thead>

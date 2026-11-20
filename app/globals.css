@@ -255,6 +255,15 @@ body::before {
   .rpg-classic-table caption { text-align: left; font-weight: bold; margin-bottom: 0.5rem; }
   .rpg-classic-table__first { width: 22%; }
   .rpg-classic-table th[scope="row"] { overflow-wrap: break-word; }
+  /* Short label that opens a centered detail card (components/rpg/DetailDialog). */
+  .rpg-link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent); text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; text-align: left; }
+  .rpg-link-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+  .rpg-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; padding: 0; width: min(34rem, calc(100vw - 2rem)); max-height: min(80vh, 40rem); color: var(--color-ink); background: var(--color-paper-2); border: var(--rule-bar) solid var(--color-accent-2); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow-wrap: break-word; }
+  .rpg-dialog::backdrop { background: oklch(8% 0.02 315 / 0.55); backdrop-filter: blur(8px); }
+  .rpg-dialog__card { display: grid; gap: var(--space-md); padding: var(--space-lg); justify-items: start; }
+  .rpg-dialog__title { font-size: var(--text-lg); color: var(--color-accent); max-width: none; }
+  .rpg-dialog__body { display: grid; gap: var(--space-sm); line-height: 1.55; }
+  .rpg-dialog__body p { margin: 0; }
   .rpg-classic-table :is(th, td) { padding: 0.5rem; text-align: left; vertical-align: top; border-bottom: 1px solid currentColor; }
 
   @media (max-width: 55rem) {

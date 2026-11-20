@@ -1,3 +1,4 @@
+import { DetailDialog } from "@/components/rpg/DetailDialog";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SCENARIOS } from "@/lib/joint/scenarios";
@@ -73,7 +74,15 @@ function EligibilityTable({ title, summary }: { title: string; summary: BarrierS
                 <td className={TD_NUM}>{e.with_unresolved_barrier}</td>
                 <td className={TD_NUM}>{e.could_become_reachable}</td>
                 <td className={TD_NUM}>{e.not_removable}</td>
-                <td className="py-1 text-xs text-gray-700">{e.not_removable > 0 ? e.not_removable_reason : "—"}</td>
+                <td className="py-1">
+                  {e.not_removable > 0 ? (
+                    <DetailDialog label="Read why" subject={e.label} title={`${e.label}: why approved measures cannot help`}>
+                      <p>{e.not_removable_reason}</p>
+                    </DetailDialog>
+                  ) : (
+                    "—"
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
