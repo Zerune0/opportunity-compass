@@ -221,6 +221,8 @@
   .home { box-shadow: var(--shadow-card); min-height: min(70vh, 34rem); }
   .home h1 { font-size: clamp(1.9rem, 4.3vw, 3.4rem); max-width: none; }
   .home__lead { font-size: var(--text-lg); line-height: 1.5; max-width: 34ch; color: var(--color-ink-2); }
+  .home__key { color: var(--color-accent); font-weight: 700; }
+  .home__card-title { color: var(--color-accent); }
   @media (min-width: 56rem) { .home { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); padding: var(--space-2xl) var(--space-xl); } }
 
   /* Cards in a grid lift off the screen like a pressed key in reverse */
@@ -271,6 +273,8 @@ body::before {
 @layer components {
   .rpg-stack, .rpg-stack > *, .rpg-row > *, .home > * { min-width: 0; }
   .shell-main { overflow-wrap: anywhere; }
+  /* Wide tables sit in horizontal scroll regions: size columns by whole words so headers do not split mid-word. */
+  .shell-main .overflow-x-auto > table { overflow-wrap: break-word; }
   .rpg-button { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
   .rpg-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .rpg-stack:is(dl) { grid-template-columns: minmax(0, 1fr); }

@@ -106,6 +106,9 @@ export function JournalPage() {
                   Your Journal is empty. Pick an opportunity on the <Link href="/quests">Quest Board</Link> and use
                   {" "}&quot;Add to my Quest Journal&quot; on its details page.
                 </p>
+                <p className="rpg-small rpg-muted">
+                  The Adventure / Classic view changes how this list looks once it has a quest.
+                </p>
               </div>
             ) : (
               <QuestList

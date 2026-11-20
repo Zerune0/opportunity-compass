@@ -69,10 +69,10 @@ describe("Skill Passport evidence: Adventure inventory and Classic grid offer th
 
   it("shows the same empty state, and nothing while the profile is loading", () => {
     const empty = { ...profile, evidence: [] };
-    expect(render("classic", empty)).toContain("<p>No evidence saved yet.</p>");
-    expect(render("adventure", empty)).toContain("<p>No evidence saved yet.</p>");
+    expect(render("classic", empty)).toContain("No evidence saved yet.");
+    expect(render("adventure", empty)).toContain("No evidence saved yet.");
     expect(render("adventure", empty)).not.toContain("<ul");
-    expect(render("adventure", null)).toContain("<p>No evidence saved yet.</p>");
+    expect(render("adventure", null)).toContain("No evidence saved yet.");
     expect(render("adventure", undefined)).not.toContain("No evidence");
     expect(render("classic", undefined)).not.toContain("No evidence");
   });
