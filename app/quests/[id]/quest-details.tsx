@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { PixelLoader } from "@/components/rpg/pixel-loader";
 import { localRecordTag, sourceLabelFor } from "../../../lib/sample-origin";
 import { sourceLabels, useQuestContext } from "../use-quest-context";
 import { QuestAssessment } from "./quest-assessment";
@@ -12,7 +13,7 @@ export function QuestDetails({ id }: {
     const context = useQuestContext();
     const opportunity = context.catalog.find(o => o.id === id);
     if (!opportunity)
-        return <div className="rpg-stack"><h1>{context.loaded ? "Opportunity not found" : "Loading opportunity"}</h1><p>{context.loaded ? "This opportunity may have been removed or may only exist in another browser's local demo." : "Checking this browser's local opportunities."}</p><Link href="/quests">Back to Quest Board</Link></div>;
+        return <div className="rpg-stack">{context.loaded ? <h1>Opportunity not found</h1> : <PixelLoader label="Loading opportunity…" />}<p>{context.loaded ? "This opportunity may have been removed or may only exist in another browser's local demo." : "Checking this browser's local opportunities."}</p><Link href="/quests">Back to Quest Board</Link></div>;
     const posted = opportunity.source_tier === "user_posted";
     return <div className="rpg-stack rpg-stack--loose" style={{ minWidth: 0, overflowWrap: "anywhere" }}><p><Link href="/quests">Back to Quest Board</Link></p><header className="rpg-head crt">
  {posted ? <p className="rpg-tag rpg-tag--warning">{localRecordTag(opportunity)}</p> : opportunity.is_sample && <p className="rpg-tag rpg-tag--warning">Sample opportunity</p>}
