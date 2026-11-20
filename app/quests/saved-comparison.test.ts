@@ -66,11 +66,20 @@ describe("saved comparison rendering", () => {
         expect(page).toContain("Barrier types");
     });
     it("keeps user-posted entries labelled and avoids unavailable detail links", () => {
-        const posted: Opportunity = { ...first, id: "sample-user-post", source_tier: "user_posted" };
+        // A Quest Creator post always has posted_by (a sample publisher).
+        const posted: Opportunity = { ...first, id: "sample-user-post", source_tier: "user_posted", posted_by: "sample-publisher-fixture" };
         const page = render({ catalog: [posted, second], saved: [posted.id, second.id] });
-        expect(page).toContain("User-posted");
+        expect(page).toContain("<p>User-posted · unverified · Sample</p>");
         expect(page).toContain("Sample");
         expect(page).not.toContain('href="/quests/sample-user-post"');
+    });
+    it("labels the organizer demo's sample copy as a sample, not as user-posted", () => {
+        const demo: Opportunity = { ...first, id: "sample-organizer-demo", source_tier: "user_posted", posted_by: null, is_sample: true };
+        const page = render({ catalog: [demo, second], saved: [demo.id, second.id] });
+        expect(page).toContain("<p>Sample opportunity from the organizer demo · not a real listing</p>");
+        expect(page).not.toContain("User-posted");
+        expect(page).not.toContain("User posted");
+        expect(page).not.toContain('href="/quests/sample-organizer-demo"');
     });
     it("uses shared-engine barriers and keeps pending support unresolved", () => {
         const grant: ResourceGrant = { id: "pending-fee", student_id: profile.id, opportunity_id: first.id, type: "fee_waiver", status: "pending", amount_usd: 10, provider: "Sample provider", is_sample: true };

@@ -2,6 +2,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { analyzeReachability } from "../../lib/reachability";
+import { localRecordTag } from "../../lib/sample-origin";
 import type { BarrierType, OverallEligibility } from "../../lib/types";
 import type { QuestContext } from "./use-quest-context";
 import { comparisonFacts, savedComparisonOpportunities } from "./saved-comparison-model";
@@ -45,7 +46,7 @@ export function SavedComparison({ context, enabled }: {
                 </tr></thead>
                 <tbody>{rows.map(({ opportunity, facts, reach }) => <tr key={opportunity.id}>
                     <th scope="row">{opportunity.source_tier === "user_posted" ? opportunity.title : <Link href={`/quests/${encodeURIComponent(opportunity.id)}`}>{opportunity.title}</Link>}
-                        {opportunity.source_tier === "user_posted" ? <p>User-posted · unverified · Sample</p> : opportunity.is_sample && <p>Sample opportunity</p>}
+                        {opportunity.source_tier === "user_posted" ? <p>{localRecordTag(opportunity, "User-posted · unverified · Sample")}</p> : opportunity.is_sample && <p>Sample opportunity</p>}
                     </th>
                     <td>{facts.deadline}{opportunity.deadline_note && <p>{opportunity.deadline_note}</p>}</td>
                     <td>{facts.format}</td><td>{facts.location}</td>
