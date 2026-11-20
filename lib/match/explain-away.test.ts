@@ -107,3 +107,19 @@ describe('format reason when the opportunity is outside the student’s home are
     expect(b).toEqual(a);
   });
 });
+
+describe('state written as a full name in the profile (free text)', () => {
+  const fullName = { ...STUDENT, region: { country: 'US', state: 'California' } } as unknown as StudentProfile;
+
+  it('"California" vs an opportunity in CA is not called "outside your state"; it is unknown, never negative', () => {
+    const r = format(fullName, opp({ location: { format: 'hybrid', country: 'US', state: 'CA', city: 'Example City' } }));
+    expect(r.text).not.toContain('outside your state');
+    expect(r.positive).toBeNull();
+    expect(r.text).toContain("can't tell from your profile whether that is in your state");
+  });
+
+  it('"California" vs TX is also unknown rather than guessed', () => {
+    const r = format(fullName, opp({ cost: { fee_usd: 0, requires_travel_expense: true } }));
+    expect(r.positive).toBeNull();
+  });
+});

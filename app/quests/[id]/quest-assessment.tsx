@@ -14,6 +14,7 @@ import { MatchExplanationSection } from "./match-and-gaps";
 import { buildOrganizerQuestions } from "../organizer-questions";
 import { OrganizerQuestions } from "../organizer-questions-panel";
 import { VerificationAge } from "../verification-age-badge";
+import { QuestTabs } from "./quest-tabs";
 const categoryLabels: Record<GapCategory, string> = { knowledge_or_experience: "Knowledge or experience", materials: "Materials", time_and_cost: "Time and cost", unchangeable_eligibility: "Eligibility limits for this round", unknown_info: "Unknown information" };
 const eligibilityLabels = { eligible: "Requirements satisfied", not_eligible: "Hard requirement not met", unknown: "Eligibility unconfirmed" };
 const itemLabels = { satisfied: "Satisfied", not_satisfied: "Not satisfied", unknown: "Unknown" };
@@ -80,6 +81,14 @@ export function QuestAssessment({ opportunity, context }: {
  <VerificationAge opportunity={opportunity} today={context.today} />
  {(profile?.is_sample || grants.some(g => g.is_sample)) && <p className="rpg-row">{profile?.is_sample && <span className="rpg-tag rpg-tag--warning">Sample student profile</span>}{grants.some(g => g.is_sample) && <span className="rpg-tag rpg-tag--warning">Simulated support</span>}</p>}
  {context.loaded && !profile && <p><Link href="/passport">Load or create a profile in Skill Passport</Link> to see your eligibility, fit, gaps and support.</p>}
+ <div className="rpg-row quest-actions">
+ {eligibility?.overall !== "not_eligible" && (posted
+     ? <p className="rpg-muted">Growth routes are available for verified catalog opportunities only.</p>
+     : <Link className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunity.id)}`}>View growth routes</Link>)}
+ {context.loaded && <JournalButton opportunity={opportunity} profile={profile} today={context.today || null} />}
+ </div>
+ <QuestTabs tabs={[
+  { id: "eligibility", label: "Eligibility & reach", badge: eligibility ? eligibilityLabels[eligibility.overall] : undefined, content: <>
  <div className="quest-overview">
  <section className="rpg-card" style={{ minWidth: 0 }}><h2>{organizerDemo ? ORGANIZER_DEMO_ELIGIBILITY_TITLE : posted ? "Eligibility stated by the poster" : "Official eligibility"}</h2>{posted && <p className="rpg-muted">{organizerDemo ? ORGANIZER_DEMO_ELIGIBILITY_NOTE : "These requirements were entered by a sample publisher in this browser. They are not from an official site."}</p>}<p>{!opportunity.requirements.length ? (posted ? "Unconfirmed — no requirements recorded" : "Unconfirmed — no official requirements recorded") : eligibility ? eligibilityLabels[eligibility.overall] : "Eligibility unconfirmed. No student profile is loaded."}</p>
  {!opportunity.requirements.length && <p>{posted ? "No requirements were entered." : "No official requirements have been entered."} Confirm with the organizer.</p>}
@@ -89,13 +98,19 @@ export function QuestAssessment({ opportunity, context }: {
  <section className="rpg-card" style={{ minWidth: 0 }}><h2>Practical reachability</h2><p>{reach?.summary ?? "Load a student profile to assess participation constraints."}</p>
  {reach?.barriers.map((barrier, index) => <div key={`${barrier.type}-${index}`}><h3>{barrierLabels[barrier.type]}</h3><p>{barrier.resolved ? "Support applied" : "Open barrier"}</p><p>{barrier.description}</p>{!!barrier.pending_grant_ids?.length && !barrier.resolved && <p>Support is pending approval and has not been applied.</p>}</div>)}
  <p className="rpg-muted">Reachability does not guarantee admission.</p></section></div>
- <OrganizerQuestions key={`${opportunity.id}-${questionDraft.message}`} opportunity={opportunity} draft={questionDraft} />
+ </> },
+  { id: "fit", label: "Fit & gaps", badge: analysis ? `${analysis.items.length} gap${analysis.items.length === 1 ? "" : "s"}` : undefined, content: <>
  {match && <MatchExplanationSection match={match} />}
  <section className="rpg-stack"><h2>Your gaps in five categories</h2>{!analysis && <p>Load a profile to identify your gaps. Unknown information will not be treated as satisfied.</p>}{analysis && <p>{analysis.summary}</p>}
  <div className="quest-gap-grid">{GAP_CATEGORIES.map(category => <section key={category} className="rpg-card"><h3>{categoryLabels[category]}{analysis && <> <span className="rpg-tag">{analysis.counts[category]} {analysis.counts[category] === 1 ? "item" : "items"}</span></>}</h3>{analysis && !analysis.counts[category] && <p>No recorded gaps in this category.</p>}<ul className="rpg-list">{analysis?.items.filter(item => item.category === category).map(item => <li key={item.id}><strong>{item.title}</strong><p>{item.detail}</p>{item.basis.kind === "requirement" && <SourceText text={item.basis.source_text} quotePlain />}<GapNotes item={item} />{category === "unchangeable_eligibility" ? <p>There is no workaround for this round, and none is suggested.</p> : item.improvable && item.action && <p>What you can do: {item.action}</p>}{item.basis.kind === "missing_field" && item.basis.field.startsWith("profile.") && <Link href="/passport">Update this field in Skill Passport</Link>}</li>)}</ul></section>)}</div></section>
  <section className="rpg-card"><h2>Support received</h2><p>Only approved support can resolve a barrier. Simulated resources are labelled separately.</p>{!grants.some(g => g.status === "approved") && <p>No approved support recorded for this student and opportunity.</p>}
  <ul className="rpg-list">{grants.filter(g => g.status === "approved").map(grant => { const resolved = reach?.barriers.filter(b => b.resolved && b.resolved_by_grant_ids?.includes(grant.id)) ?? []; return <li key={grant.id}><strong>{grant.provider}: {grant.type.replaceAll("_", " ")}</strong>{grant.is_sample && <span className="rpg-tag rpg-tag--warning">Simulated</span>}<p>{resolved.length ? `Resolves: ${resolved.map(b => barrierLabels[b.type]).join(", ")}.` : "Approved resource recorded; no current barrier is confirmed as resolved by this resource."}</p>{grant.note && <p>{grant.note}</p>}</li>; })}</ul></section>
- {(blocked || alternatives.length > 0) && <section className="rpg-card"><h2>Other opportunities and future cycles</h2><p>These suggestions do not bypass the current opportunity requirements. Check each organizer&apos;s terms.</p>{!alternatives.length && !planHints.length && <p>No suitable alternative was found in the current catalog.</p>}{!alternatives.length && planHints.length > 0 && <ul className="rpg-list">{planHints.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul>}<ul className="rpg-list">{alternatives.map((a, index) => {
+ </> },
+  { id: "ask", label: "Ask the organizer", badge: questionDraft.questions.length ? `${questionDraft.questions.length}` : undefined, content: <>
+ <OrganizerQuestions key={`${opportunity.id}-${questionDraft.message}`} opportunity={opportunity} draft={questionDraft} />
+ </> },
+  ...((blocked || alternatives.length > 0) ? [{ id: "other", label: "Other options", badge: alternatives.length ? `${alternatives.length}` : undefined, content: <>
+ <section className="rpg-card"><h2>Other opportunities and future cycles</h2><p>These suggestions do not bypass the current opportunity requirements. Check each organizer&apos;s terms.</p>{!alternatives.length && !planHints.length && <p>No suitable alternative was found in the current catalog.</p>}{!alternatives.length && planHints.length > 0 && <ul className="rpg-list">{planHints.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul>}<ul className="rpg-list">{alternatives.map((a, index) => {
      const candidate = context.catalog.find(o => o.id === a.opportunity_id);
      const userPosted = candidate?.source_tier === "user_posted";
      const candidateEligibility = !candidate?.requirements.length ? "unknown" : a.eligibility_overall ?? "unknown";
@@ -106,10 +121,8 @@ export function QuestAssessment({ opportunity, context }: {
  <p>{a.reason}</p>{a.kind === "next_cycle" && <p>The next cycle dates and eligibility are not confirmed.</p>}
  {a.kind === "same_field" && a.eligibility_overall !== "eligible" && <p className="rpg-muted">Some requirements are unconfirmed. Confirm with the organizer.</p>}
  {candidateReachTag?.reachable === true && <p className="rpg-muted">Reachable describes participation constraints only. Admission decisions are made by the organizer.</p>}</li>;
- })}</ul></section>}
- {eligibility?.overall !== "not_eligible" && (posted
-     ? <p className="rpg-muted">Growth routes are available for verified catalog opportunities only.</p>
-     : <Link className="rpg-button rpg-button--secondary" href={`/map?opp=${encodeURIComponent(opportunity.id)}`}>View growth routes</Link>)}
- {context.loaded && <JournalButton opportunity={opportunity} profile={profile} today={context.today || null} />}
+ })}</ul></section>
+ </> }] : []),
+ ]} />
  </>;
 }

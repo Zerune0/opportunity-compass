@@ -1,5 +1,6 @@
 import type { EvidenceKind, MaterialKind, PrepItem, RouteStep } from "@/lib/types";
 import { parseSourceText } from "@/lib/source-text";
+import { relationKind } from "@/lib/path/relation-kind";
 
 const evidenceLabels: Record<EvidenceKind | MaterialKind, string> = {
   project: "Project", portfolio: "Portfolio", certificate: "Certificate",
@@ -24,7 +25,12 @@ function organizerSource(prep?: PrepItem): string {
 export function stepFields(step: RouteStep, prep?: PrepItem): [string, string][] {
   let official = "Not recorded";
   if (step.official === "official_requirement") official = organizerSource(prep);
-  if (step.official === "team_suggestion") official = "Suggested by our team — not required by the organizer";
+  if (step.official === "team_suggestion") {
+    // The engine marks steps it cannot classify as team_suggestion with an "unclear" sentence: never say "not required".
+    official = relationKind(step.relation) === "unclear"
+      ? "Unclear — confirm with the organizer"
+      : "Suggested by our team — not required by the organizer";
+  }
   if (step.official === "application_step") official = "Application step";
   return [
     ["Why this step", step.relation?.trim() ? step.relation : "Not recorded"],

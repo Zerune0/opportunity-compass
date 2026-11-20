@@ -48,7 +48,7 @@ export function PlanItemsTable({ items }: { items: CrossPlanItem[] }) {
               <td data-label="Note">
                 {/* On screen the long note opens in a card; printed plans show it in full. */}
                 <span className="print:hidden">
-                  <DetailDialog label="Read note" subject={item.title} title={`Note: ${item.title}`}><p>{item.note}</p></DetailDialog>
+                  <DetailDialog printCopy={false} label="Read note" subject={item.title} title={`Note: ${item.title}`}><p>{item.note}</p></DetailDialog>
                 </span>
                 <span className="hidden print:inline">{item.note}</span>
               </td>
@@ -106,7 +106,7 @@ export function WeeklyLoadTable({ weeks, titleOf }: { weeks: WeeklyLoad[]; title
                       <>
                         <span className="print:hidden">
                           {week.opportunity_ids.length} quests{" "}
-                          <DetailDialog label="See which" subject={`week of ${week.week_start}`} title={`Quests in the week of ${week.week_start}`}>
+                          <DetailDialog printCopy={false} label="See which" subject={`week of ${week.week_start}`} title={`Quests in the week of ${week.week_start}`}>
                             <ul className="rpg-list">{week.opportunity_ids.map((id) => <li key={id}>{titleOf(id)}</li>)}</ul>
                           </DetailDialog>
                         </span>

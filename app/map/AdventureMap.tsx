@@ -218,7 +218,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                     <caption>Preparation checklist</caption>
                     <thead><tr><th scope="col">Step</th>{["Why this step", "Time and cost", "Evidence you can record", "Official requirement?", "Dependency"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
                     <tbody>{steps.map((item) => <tr key={item.step.id}>
-                      <th scope="row">{item.step.title}{competitionLink(item.step)}{item.step.skipped && <p className="rpg-small" style={{ fontWeight: "normal" }}>Skipped, excluded from totals.{item.step.skip_reason && <> <DetailDialog label="Read why" subject={`skipped: ${item.step.title}`} title={`Skipped: ${item.step.title}`}><p>{item.step.skip_reason}</p></DetailDialog></>}</p>}</th>
+                      <th scope="row">{item.step.title}{competitionLink(item.step)}{item.step.skipped && <div className="rpg-small" style={{ fontWeight: "normal" }}>Skipped, excluded from totals.{item.step.skip_reason && <> <DetailDialog label="Read why" subject={`skipped: ${item.step.title}`} title={`Skipped: ${item.step.title}`}><p>{item.step.skip_reason}</p></DetailDialog></>}</div>}</th>
                       {fields(item).map(([label, value]) => {
                         // Short labels in the cells; the longer text opens in a centered card.
                         if (label === "Why this step") return <td data-label={label} key={label}>
