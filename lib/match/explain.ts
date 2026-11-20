@@ -63,6 +63,7 @@ const FIELD_LABEL: Record<string, string> = {
   'opportunity.location.format': 'whether it takes place online or in person',
   'opportunity.location': 'where exactly it takes place',
   'options.today': "today's date",
+  'opportunity.deadline.closing_time': 'the exact closing time and time zone on the deadline day',
 };
 
 function fieldLabel(field: string): string {
@@ -264,6 +265,7 @@ const TIME_FIELDS = [
   'profile.hours_per_week_available',
   'opportunity.time_commitment.hours_per_week',
   'opportunity.deadline',
+  'opportunity.deadline.closing_time',
   'options.today',
 ];
 
@@ -295,8 +297,13 @@ function timeReason(r: ReachabilityResult, p: StudentProfile, o: Opportunity, op
     const days = daysBetween(today, deadline);
     const prepHours = requiredPrepClosure(p, o).reduce((s, x) => s + nonNegOrZero(x.estimated_hours), 0);
     const left = days === 0 ? `The deadline (${o.deadline}) is today` : `${plural(days, 'day')} ${pluralNoun(days, 'is', 'are')} left before the deadline (${o.deadline})`;
+    // 截止当天不说「放得下」：截止的具体时刻未知（引擎记 opportunity.deadline.closing_time，下面给 null）。
     const prep =
-      prepHours > 0
+      days === 0
+        ? prepHours > 0
+          ? `; your required prep is about ${plural(prepHours, 'hour')}`
+          : '; no required prep is left'
+        : prepHours > 0
         ? resolved.length > 0
           ? `; your required prep (about ${plural(prepHours, 'hour')}) fits with that support`
           : `; your required prep (about ${plural(prepHours, 'hour')}) fits in that time at your weekly hours`

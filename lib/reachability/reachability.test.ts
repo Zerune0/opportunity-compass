@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeReachability } from './index';
+import { analyzeReachability, DEADLINE_CLOSING_TIME_FIELD } from './index';
+import { DEADLINE_TODAY_WARNING } from '../path/shared';
 import { findCoveringEvidence } from './coverage';
 import profilesJson from '@/data/profiles.json';
 import {
@@ -505,8 +506,93 @@ describe('analyzeReachability — time', () => {
     expect(t[0].description).not.toContain('days left');
     expect(t[0].description).not.toContain('short about');
     expect(r.reachable).toBe(false);
-    // 今天截止但没有准备差距 → 仍然可达（还没过期）
-    expect(analyzeReachability(GOOD, makeOpp({ deadline: '2026-11-17' }), [], TODAY).reachable).toBe(true);
+    // 今天截止且「今天做不完」的障碍未化解 → 结论已是 false，不再记截止时刻
+    expect(r.missing_info).not.toContain(DEADLINE_CLOSING_TIME_FIELD);
+    // 今天截止但没有准备差距 → 截止时刻未知，reachable null（2026-11-19 起；原来是 true）
+    expect(analyzeReachability(GOOD, makeOpp({ deadline: '2026-11-17' }), [], TODAY).reachable).toBeNull();
+  });
+});
+
+describe('analyzeReachability — 截止当天（截止的具体时刻和时区未知）', () => {
+  const DL_TODAY = '2026-11-17';
+
+  it('截止当天、无其他障碍 → reachable null，missing_info 含 closing_time，summary 是那句提醒', () => {
+    const r = analyzeReachability(GOOD, makeOpp({ deadline: DL_TODAY }), [], TODAY);
+    expect(r.reachable).toBeNull();
+    expect(r.barriers).toEqual([]);
+    expect(r.missing_info).toEqual([DEADLINE_CLOSING_TIME_FIELD]);
+    expect(DEADLINE_CLOSING_TIME_FIELD).toBe('opportunity.deadline.closing_time');
+    expect(r.summary).toBe(DEADLINE_TODAY_WARNING);
+    expect(r.summary).toBe("The deadline is today. We can't tell whether there is still time: check the exact closing time and time zone on the official page.");
+  });
+
+  it('截止当天、必需准备 ≤ 每周小时 / 7（今天做得完）→ 仍是 null，不是 true', () => {
+    const opp = makeOpp({
+      deadline: DL_TODAY,
+      preparation: [{ id: 'prep-a', title: '必需准备 A', estimated_hours: 1, estimated_cost_usd: 0, depends_on: [], required_for_application: true }],
+    });
+    const r = analyzeReachability(GOOD, opp, [], TODAY);
+    expect(r.barriers.filter((b) => b.type === 'time')).toEqual([]);
+    expect(r.reachable).toBeNull();
+    expect(r.missing_info).toContain(DEADLINE_CLOSING_TIME_FIELD);
+  });
+
+  it('截止当天、有未化解的设备障碍 → 仍是 false', () => {
+    const opp = makeOpp({ deadline: DL_TODAY, required_devices: ['webcam'] });
+    const r = analyzeReachability(GOOD, opp, [], TODAY);
+    expect(r.reachable).toBe(false);
+    expect(r.barriers.some((b) => b.type === 'device' && !b.resolved)).toBe(true);
+  });
+
+  it('approved grant 化解了全部障碍、但今天截止 → 仍是 null（grant 不能把未知变成可达）', () => {
+    const opp = makeOpp({ deadline: DL_TODAY, required_devices: ['webcam'] });
+    const r = analyzeReachability(GOOD, opp, [grant({ id: 'g-cam', type: 'device', device: 'webcam' })], TODAY);
+    expect(r.barriers.every((b) => b.resolved)).toBe(true);
+    expect(r.reachable).toBeNull();
+    expect(r.missing_info).toEqual([DEADLINE_CLOSING_TIME_FIELD]);
+    expect(r.summary).toBe(DEADLINE_TODAY_WARNING);
+    // 「今天做不完」的时间障碍被 time_support 化解 → 也只能是 null
+    const heavy = makeOpp({
+      deadline: DL_TODAY,
+      preparation: [{ id: 'prep-a', title: '必需准备 A', estimated_hours: 30, estimated_cost_usd: 0, depends_on: [], required_for_application: true }],
+    });
+    const before = analyzeReachability(GOOD, heavy, [], TODAY);
+    expect(before.reachable).toBe(false);
+    const withTime = analyzeReachability(GOOD, heavy, [grant({ id: 't', type: 'time_support', hours_per_week: 1000 })], TODAY);
+    expect(withTime.barriers.every((b) => b.resolved)).toBe(true);
+    expect(withTime.reachable).toBeNull();
+    expect(withTime.missing_info).toContain(DEADLINE_CLOSING_TIME_FIELD);
+  });
+
+  it('截止当天还有其他缺失信息 → summary 先说截止当天，再列其他缺的信息', () => {
+    const r = analyzeReachability({ ...GOOD, budget_usd: undefined }, makeOpp({ deadline: DL_TODAY, cost: { fee_usd: 20, requires_travel_expense: false } }), [], TODAY);
+    expect(r.reachable).toBeNull();
+    expect(r.missing_info).toEqual(expect.arrayContaining(['profile.budget_usd', DEADLINE_CLOSING_TIME_FIELD]));
+    expect(r.summary.startsWith(DEADLINE_TODAY_WARNING)).toBe(true);
+    expect(r.summary).toContain('how much you can pay yourself');
+    expect(r.summary).not.toContain(DEADLINE_CLOSING_TIME_FIELD);
+  });
+
+  it('截止前一天 → 与原规则相同（无准备差距 → true；按 1 天算的准备时间障碍不变）', () => {
+    const r = analyzeReachability(GOOD, makeOpp({ deadline: '2026-11-18' }), [], TODAY);
+    expect(r.reachable).toBe(true);
+    expect(r.missing_info).toEqual([]);
+    const opp = makeOpp({
+      deadline: '2026-11-18',
+      preparation: [{ id: 'prep-a', title: '必需准备 A', estimated_hours: 3, estimated_cost_usd: 0, depends_on: [], required_for_application: true }],
+    });
+    // 3h > 10h × 1/7 → 障碍，shortfall = 3 / (1/7) − 10 = 11
+    const t = analyzeReachability(GOOD, opp, [], TODAY);
+    expect(t.reachable).toBe(false);
+    expect(t.barriers.find((b) => b.type === 'time')?.shortfall).toBe(11);
+    expect(t.missing_info).toEqual([]);
+  });
+
+  it('截止已过 → 与原规则相同（不可化解的时间障碍，不记 closing_time）', () => {
+    const r = analyzeReachability(GOOD, makeOpp({ deadline: '2026-11-16' }), [grant({ id: 't', type: 'time_support', hours_per_week: 100 })], TODAY);
+    expect(r.reachable).toBe(false);
+    expect(r.missing_info).toEqual([]);
+    expect(r.barriers.find((b) => b.type === 'time')?.resolved).toBe(false);
   });
 });
 

@@ -5,6 +5,7 @@ import { QuestCard, StatusTag } from "@/components/rpg";
 import { resolveRecordDate } from "@/lib/journal";
 import { recordJournalEvent, removeJournalEntry, toggleJournalTask } from "@/lib/store";
 import { journalOfficialUrl } from "@/lib/official-link";
+import { CONNECT_POST_TAG, ORGANIZER_DEMO_JOURNAL_NOTE, ORGANIZER_DEMO_TAG, sampleOrigin } from "@/lib/sample-origin";
 import type { JournalEntry, JournalEvent, Opportunity, ViewPreference } from "@/lib/types";
 import { FeedbackForm } from "./FeedbackForm";
 import { StatusLines } from "./StatusLines";
@@ -63,7 +64,7 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
   const titleText = opportunity ? <Link href={`/quests/${encodeURIComponent(entry.opportunity_id)}`}>{title}</Link> : title;
 
   const sampleNote = opportunity?.source_tier === "user_posted" ? (
-    <p className="rpg-row"><StatusTag tone="warning">User-posted · not verified against an official site · Sample</StatusTag></p>
+    <p className="rpg-row"><StatusTag tone="warning">{sampleOrigin(opportunity) === "organizer_demo" ? ORGANIZER_DEMO_TAG : CONNECT_POST_TAG}</StatusTag></p>
   ) : opportunity?.is_sample && (
     <p className="rpg-row"><StatusTag tone="warning">Sample</StatusTag><span>This is a sample opportunity, not a verified one.</span></p>
   );
@@ -80,7 +81,9 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
   const noOfficialPage = (
     <p className="rpg-muted">
       {opportunity?.source_tier === "user_posted"
-        ? "This is a sample record posted in this browser. It has no official page."
+        ? sampleOrigin(opportunity) === "organizer_demo"
+          ? ORGANIZER_DEMO_JOURNAL_NOTE
+          : "This is a sample record posted in this browser. It has no official page."
         : opportunity
           ? "This is a sample record. It has no official page."
           : "No official page is on record for this entry."}

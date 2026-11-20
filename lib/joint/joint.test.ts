@@ -14,6 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { solveJoint, verifyPlan } from './index';
+import { isPlaceholderOpportunity } from './scenario-utils';
 import {
   DEVICE_LOAN_IDS as IDS,
   deviceLoanScenario,
@@ -72,7 +73,9 @@ describe('演示场景数据', () => {
     const opp = deviceLoanScenario.opportunities[0];
     expect(opp.is_sample).toBe(true);
     expect(opp.id).toBe('placeholder-inperson-event');
-    expect(opp.title).toContain('Placeholder');
+    expect(opp.title).toBe('[Sample] In-person coding workshop');
+    // 占位判定靠 is_sample（不靠标题里的 Placeholder 字样），主办方页面的 Placeholder 标注不变
+    expect(isPlaceholderOpportunity(opp)).toBe(true);
     expect(opp.official_url).toContain('example.com');
   });
 

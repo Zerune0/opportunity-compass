@@ -309,6 +309,8 @@ function missingInfoText(field: string, opp: Opportunity, evaluationDate: string
       return 'Whether participants must pay for their own travel (cost.requires_travel_expense) is null. The demo student has no transport barrier, so the engine treats it as missing information and cannot judge the demo student reachable.';
     case 'opportunity.deadline':
       return `The deadline "${String(opp.deadline)}" cannot be read as a YYYY-MM-DD date, so no student can be judged reachable.`;
+    case 'opportunity.deadline.closing_time':
+      return `The deadline (${String(opp.deadline)}) is the evaluation date. The exact closing time is unknown, so the engine cannot judge anyone reachable on the deadline day.`;
     case 'options.today':
       return `The evaluation date "${evaluationDate}" cannot be read as a YYYY-MM-DD date.`;
     default:
@@ -410,10 +412,11 @@ export function scenarioReadinessProblems(scenario: Scenario, demoStudentId: str
       const failing = later.filter((d) => d.with.reachable !== true).map((d) => d.date);
       if (failing.length > 0) {
         const deadline = opp.deadline ?? null;
-        const inWindow = deadline !== null && parseISODate(deadline) !== null && first <= deadline && deadline < last;
+        // 截止当天学生端已不是「可达」（截止时刻未知 → null），所以截止日落在窗口最后一天也算在窗口里。
+        const inWindow = deadline !== null && parseISODate(deadline) !== null && first <= deadline && deadline <= last;
         add(
           inWindow
-            ? `The deadline (${deadline}) falls inside ${windowText}, so from ${failing[0]} the student side would show it as passed.`
+            ? `The deadline (${deadline}) falls inside ${windowText}, so from ${failing[0]} the student side would no longer show it as reachable (on the deadline day the exact closing time is unknown; after it, the deadline has passed).`
             : `With every approved measure the demo student is reachable on ${first} but not on ${failing.join(', ')}, inside ${windowText}.`,
         );
       }

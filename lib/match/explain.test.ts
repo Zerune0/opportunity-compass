@@ -154,6 +154,26 @@ describe('time 理由', () => {
     expect(r.positive).toBeNull();
     expect(r.text).toContain("today's date");
   });
+  it('截止当天（无其他障碍）→ null（信息不足，不是「没问题」），说明截止时刻和时区要确认，不露内部路径', () => {
+    const r = get(explainMatch(STUDENT, opp('t-dl-today', { deadline: '2026-11-17' }), TODAY), 'time');
+    expect(r.positive).toBeNull();
+    expect(r.text).toContain('The deadline (2026-11-17) is today');
+    expect(r.text).toContain('the exact closing time and time zone on the deadline day');
+    expect(r.text).toContain('confirm the exact closing time and time zone on the deadline day with the organizer');
+    expect(r.text).not.toContain('fits in that time');
+    expect(r.text).not.toContain('opportunity.deadline.closing_time');
+    // 有必需准备（今天做得完）也不说「放得下」
+    const withPrep = opp('t-dl-today-prep', {
+      deadline: '2026-11-17',
+      preparation: [{ id: 'p1', title: 'Short prep', estimated_hours: 0.5, estimated_cost_usd: 0, depends_on: [], required_for_application: true }],
+    });
+    const r2 = get(explainMatch(STUDENT, withPrep, TODAY), 'time');
+    expect(r2.positive).toBeNull();
+    expect(r2.text).not.toContain('fits');
+    expect(r2.text).toContain('your required prep is about 0.5 hours');
+    // 截止前一天：仍是 true
+    expect(get(explainMatch(STUDENT, opp('t-dl-tomorrow', { deadline: '2026-11-18' }), TODAY), 'time').positive).toBe(true);
+  });
   it('approved time_support 化解 → true；pending 不化解且写明尚未生效', () => {
     const o = opp('t-weekly', { time_commitment: { hours_per_week: 10, total_weeks: 4 } });
     const ok = get(explainMatch(STUDENT, o, { ...TODAY, grants: [grant({ id: 'g-h', type: 'time_support', hours_per_week: 5 })] }), 'time');

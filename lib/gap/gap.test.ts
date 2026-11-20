@@ -407,6 +407,27 @@ describe('analyzeGaps — unknown_info', () => {
     expect(byId(r, 'unknown_info:profile.devices').action).toBe('Fill in which devices you have in your Skill Passport.');
   });
 
+  it('截止当天：一条 unknown_info，行动是确认截止的具体时刻和时区；reachable null，不露内部路径', () => {
+    const o: Opportunity = {
+      ...OPP,
+      id: 'fictional-gap-today',
+      deadline: '2026-11-17',
+      requirements: [],
+      location: { format: 'online' },
+      cost: { fee_usd: 0, requires_travel_expense: false },
+      required_devices: [],
+      preparation: [],
+    };
+    const r = analyzeGaps(OK_STUDENT, o, [], TODAY);
+    expect(r.reachable).toBeNull();
+    const it0 = byId(r, 'unknown_info:opportunity.deadline.closing_time');
+    expect(it0.category).toBe('unknown_info');
+    expect(it0.basis).toEqual({ kind: 'missing_field', field: 'opportunity.deadline.closing_time' });
+    expect(it0.title).toBe('The deadline is today: closing time not known');
+    expect(it0.action).toContain('exact closing time and time zone');
+    for (const text of [it0.title, it0.detail, it0.action ?? '', r.summary]) expect(text).not.toContain('opportunity.deadline.closing_time');
+  });
+
   it('机会缺字段：行动是向主办方确认，并说明影响哪一项判断', () => {
     const o: Opportunity = { ...OPP, cost: { fee_usd: null, requires_travel_expense: null }, time_commitment: { hours_per_week: null, total_weeks: 6 } };
     const r = analyzeGaps(OK_STUDENT, o, [], TODAY);

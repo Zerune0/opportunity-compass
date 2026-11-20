@@ -4,6 +4,7 @@ import { checkEligibility } from "../../../lib/eligibility";
 import { analyzeReachability } from "../../../lib/reachability";
 import { planRoutes } from "../../../lib/path";
 import { analyzeGaps } from "../../../lib/gap";
+import { ORGANIZER_DEMO_ELIGIBILITY_NOTE, ORGANIZER_DEMO_ELIGIBILITY_TITLE, localRecordTag, sampleOrigin } from "../../../lib/sample-origin";
 import { explainMatch, findAlternatives } from "../../../lib/match";
 import { GAP_CATEGORIES, type GapCategory, type GapItem, type Opportunity, type ResourceGrant, type StudentProfile } from "../../../lib/types";
 import type { QuestContext } from "../use-quest-context";
@@ -72,13 +73,14 @@ export function QuestAssessment({ opportunity, context }: {
     // User-posted opportunities (local Quest Creator samples or /organizer bridge copies) are not official
     // information, and the Adventure Map only opens verified catalog opportunities.
     const posted = opportunity.source_tier === "user_posted";
+    const organizerDemo = sampleOrigin(opportunity) === "organizer_demo";
     const questionDraft = buildOrganizerQuestions(opportunity, eligibility, reach?.missing_info ?? [], profile ?? null);
     return <>
  <VerificationAge opportunity={opportunity} today={context.today} />
  {(profile?.is_sample || grants.some(g => g.is_sample)) && <p className="rpg-row">{profile?.is_sample && <span className="rpg-tag rpg-tag--warning">Sample student profile</span>}{grants.some(g => g.is_sample) && <span className="rpg-tag rpg-tag--warning">Simulated support</span>}</p>}
  {context.loaded && !profile && <p><Link href="/passport">Load or create a profile in Skill Passport</Link> to see your eligibility, fit, gaps and support.</p>}
  <div className="rpg-route-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 19rem), 1fr))" }}>
- <section className="rpg-card" style={{ minWidth: 0 }}><h2>{posted ? "Eligibility stated by the poster" : "Official eligibility"}</h2>{posted && <p className="rpg-muted">These requirements were entered by a sample publisher in this browser. They are not from an official site.</p>}<p>{!opportunity.requirements.length ? (posted ? "Unconfirmed — no requirements recorded" : "Unconfirmed — no official requirements recorded") : eligibility ? eligibilityLabels[eligibility.overall] : "Eligibility unconfirmed. No student profile is loaded."}</p>
+ <section className="rpg-card" style={{ minWidth: 0 }}><h2>{organizerDemo ? ORGANIZER_DEMO_ELIGIBILITY_TITLE : posted ? "Eligibility stated by the poster" : "Official eligibility"}</h2>{posted && <p className="rpg-muted">{organizerDemo ? ORGANIZER_DEMO_ELIGIBILITY_NOTE : "These requirements were entered by a sample publisher in this browser. They are not from an official site."}</p>}<p>{!opportunity.requirements.length ? (posted ? "Unconfirmed — no requirements recorded" : "Unconfirmed — no official requirements recorded") : eligibility ? eligibilityLabels[eligibility.overall] : "Eligibility unconfirmed. No student profile is loaded."}</p>
  {!opportunity.requirements.length && <p>{posted ? "No requirements were entered." : "No official requirements have been entered."} Confirm with the organizer.</p>}
  <ul className="rpg-list">{opportunity.requirements.map(rule => { const item = eligibility?.items.find(i => i.requirement_id === rule.id); return <li key={rule.id}><details><summary><strong>{rule.label}</strong> <span className="rpg-tag">{rule.hard ? "Required" : posted ? "Preference" : "Official preference"}</span> <span className={tones[item?.status ?? "unknown"]}>{itemLabels[item?.status ?? "unknown"]}</span></summary><blockquote>{rule.source_text}</blockquote>{item && <p>{item.explanation}</p>}{(!item || item.status === "unknown") && <p>{item?.confirm_with_official ?? "Confirm with the organizer."}</p>}</details></li>; })}</ul></section>
  <section className="rpg-card" style={{ minWidth: 0 }}><h2>Preparation readiness</h2><p>Team suggestions are optional. Estimates cover preparation tasks only, not program fees or participation hours.</p>
@@ -99,7 +101,7 @@ export function QuestAssessment({ opportunity, context }: {
      const candidateReachTag = a.kind === "same_field" && profile ? candidateReach(profile, candidate, studentGrants, context.today) : null;
      return <li key={`${a.kind}-${a.opportunity_id}-${index}`}>{candidate && candidate.id !== opportunity.id && !userPosted ? <Link href={`/quests/${encodeURIComponent(candidate.id)}`}>{a.kind === "next_cycle" ? `Future cycle information: ${a.title}` : a.title}</Link> : <strong>{a.title}</strong>}
  {a.kind !== "same_field" && a.kind !== "next_cycle" && <p className="rpg-row"><span className="rpg-tag">{alternativeKindLabel(a.kind)}</span></p>}
- {a.kind === "same_field" && <p className="rpg-row"><span className={eligibilityTones[candidateEligibility]}>{candidate && !candidate.requirements.length ? (userPosted ? "Unconfirmed — no requirements recorded" : "Unconfirmed — no official requirements recorded") : eligibilityLabels[candidateEligibility]}</span>{candidateReachTag && <span className={candidateReachTag.tone}>{candidateReachTag.label}</span>}{userPosted && <span className="rpg-tag rpg-tag--warning">User-posted · not verified against an official site · Sample</span>}</p>}
+ {a.kind === "same_field" && <p className="rpg-row"><span className={eligibilityTones[candidateEligibility]}>{candidate && !candidate.requirements.length ? (userPosted ? "Unconfirmed — no requirements recorded" : "Unconfirmed — no official requirements recorded") : eligibilityLabels[candidateEligibility]}</span>{candidateReachTag && <span className={candidateReachTag.tone}>{candidateReachTag.label}</span>}{userPosted && candidate && <span className="rpg-tag rpg-tag--warning">{localRecordTag(candidate)}</span>}</p>}
  <p>{a.reason}</p>{a.kind === "next_cycle" && <p>The next cycle dates and eligibility are not confirmed.</p>}
  {a.kind === "same_field" && a.eligibility_overall !== "eligible" && <p className="rpg-muted">Some requirements are unconfirmed. Confirm with the organizer.</p>}
  {candidateReachTag?.reachable === true && <p className="rpg-muted">Reachable describes participation constraints only. Admission decisions are made by the organizer.</p>}</li>;

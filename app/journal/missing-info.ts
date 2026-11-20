@@ -8,6 +8,7 @@ const fields: Record<string, string> = {
   location: "Location and participation format",
   time_commitment: "Program dates and time commitment",
   "time_commitment.hours_per_week": "Weekly program hours",
+  "deadline.closing_time": "Exact closing time on the deadline day",
 };
 
 /** Presentation only: never changes which information the planner considers missing. */
@@ -15,6 +16,7 @@ export function missingInfoLabel(path: string, opportunities: readonly Pick<Oppo
   if (path === "options.today") return "Planning date — reload this page to try again";
   if (path === "profile.hours_per_week_available") return "Your available hours per week — add them in Skill Passport";
   if (path.startsWith("profile.")) return "Your profile needs more information — check Skill Passport";
+  if (path === "opportunity.deadline.closing_time") return "Exact closing time on the deadline day — check the official page";
   if (path.startsWith("opportunity.")) {
     const opportunity = [...opportunities].sort((a, b) => b.id.length - a.id.length)
       .find((opp) => path === `opportunity.${opp.id}` || path.startsWith(`opportunity.${opp.id}.`));

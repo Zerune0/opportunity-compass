@@ -17,6 +17,7 @@ const participationQuestions: Record<string, string> = {
     "opportunity.team_requirement.min_size": "What is the minimum team size?",
     "opportunity.team_requirement.max_size": "What is the maximum team size?",
     "opportunity.deadline": "What is the current application deadline, including the time zone?",
+    "opportunity.deadline.closing_time": "What is the exact closing time and time zone on the deadline day?",
 };
 /**
  * Profile field names exactly as the engines emit them: `used_profile_fields` in

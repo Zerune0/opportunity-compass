@@ -90,7 +90,10 @@ function changeLine(change: RouteChange): string {
   }
   const costDelta = finiteNumber(change.cost_delta_usd);
   if (costDelta) parts.push(`cost ${costDelta > 0 ? "+" : "−"}${money.format(Math.abs(costDelta))}`);
-  if (change.feasible_before !== change.feasible_after) {
+  // A route that was removed or added has no "before" or "after" of its own: say "none", not "Unknown".
+  if (change.change === "removed") parts.push(`fits deadline ${yesNo(change.feasible_before)} → none`);
+  else if (change.change === "added") parts.push(`fits deadline none → ${yesNo(change.feasible_after)}`);
+  else if (change.feasible_before !== change.feasible_after) {
     parts.push(`fits deadline ${yesNo(change.feasible_before)} → ${yesNo(change.feasible_after)}`);
   }
   return parts.join(", ");

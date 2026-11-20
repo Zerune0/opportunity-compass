@@ -20,7 +20,7 @@
  *    - hours_before_reuse = 所选路线的必需小时；feasible_alone 用与 weekly_load 相同的按天公式（不抄 feasible_by_deadline）。
  * 3. 依赖链：在所选路线的必需步骤里求最长依赖链（按步骤数组顺序做最长路径；依赖环上指向后面的边忽略）。
  *    链上至少两个有小时的步骤、且链的小时数 > H × D / 7（与 feasible_alone 同一口径）时，在 note 与 warnings 里说明。
- *    注意：学生一个人顺序完成，链的小时 ≤ 必需小时总和，所以这条提醒只会和 feasible_alone === false 同时出现；
+ *    注意：学生一个人顺序完成，链的小时 ≤ 必需小时总和，所以这条提醒只会和 feasible_alone === false（截止当天为 null）同时出现；
  *    它多说明的是「光是这条必须按顺序做的链就放不下」。不逐步排日程。
  * 4. 已有材料（options.materials，缺省 = 不考虑）：只有 status 'ready' 且 profile_id 与档案相同（或没写）的材料生效，
  *    kind 与步骤准备项的 material_kind 相同，并且满足其一：
@@ -41,7 +41,9 @@
  *      落在某周的天数 × 每天分摊 = 它在该周的小时；按周一对齐汇总成 hours_needed。
  *    - 计划窗口 = today 到计入负荷的机会中最晚的截止日（都含）；days = 该周落在窗口里的天数（1–7）；
  *      hours_available = H × days / 7；over = hours_needed > hours_available。
- *    - feasible_alone = hours_before_reuse ≤ H × D / 7。
+ *    - feasible_alone = hours_before_reuse ≤ H × D / 7。截止日就是 today（D = 1）时为 null：截止的具体时刻和时区不知道，
+ *      无法判断是否还来得及；note 与 warnings 里加 DEADLINE_TODAY_WARNING（与 planRoutes、analyzeReachability 同一口径）。
+ *      weekly_load 照常按 1 天摊开，over 可能为 true，此时 feasible_alone 仍为 null（不再与 over 一一对应）。
  *    没有截止日期（或无法解析）的机会不进 weekly_load，并写进 missing_info（`opportunity.<id>.deadline`）。
  *    H 没填时 hours_available / over 为 null，并写进 missing_info。超出的周生成一条 conflicts 文字；若学生给了
  *    options.priorities，再说明「只保留这一周涉及的前几个优先项时那一周需要多少小时」：直接点出机会标题（不说
@@ -70,6 +72,7 @@ import { dayNumber, parseISODate } from '../eligibility/dates';
 import { fmt, joinAnd, plural } from '../format';
 import { asArray, finiteOrNull, round2, safeOpportunity, safeProfile } from '../gap/inputs';
 import { planRoutes } from '../path';
+import { DEADLINE_TODAY_WARNING } from '../path/shared';
 import {
   MATERIAL_KINDS,
   type CrossPlan,
@@ -495,12 +498,15 @@ export function planAcrossOpportunities(
       note = `The deadline (${deadline}) has passed, so this is not counted in the plan.`;
       feasible_alone = false;
     } else {
-      if (w.deadlineDay != null && todayDay != null && hpw != null) {
+      const deadlineToday = w.deadlineDay != null && todayDay != null && w.deadlineDay === todayDay;
+      if (w.deadlineDay != null && todayDay != null && hpw != null && !deadlineToday) {
         const days = w.deadlineDay - todayDay + 1;
         feasible_alone = w.hoursBefore <= (hpw * days) / 7 + EPS;
       }
       const when = deadline ? `deadline ${deadline}` : 'no deadline listed';
       const parts = [`Order ${i + 1} by deadline (${when}).`];
+      // 截止当天：截止的具体时刻和时区不知道 → feasible_alone 为 null（与 planRoutes / analyzeReachability 同一口径）。
+      if (deadlineToday) parts.push(DEADLINE_TODAY_WARNING);
       if (w.chosen) {
         parts.push(
           `Hours are from the "${w.chosen.route.title}" route and count only the required steps (and the steps they depend on), skipping steps your evidence already covers.`,
@@ -551,6 +557,7 @@ export function planAcrossOpportunities(
       }
       if (overall === 'unknown') warnings.push(`${nameOf(w)}: eligibility is not confirmed yet. Confirm with the organizer before putting in time.`);
       const item = items.find((x) => x.opportunity_id === w.opp.id);
+      if (w.deadlineDay != null && todayDay != null && w.deadlineDay === todayDay) warnings.push(`${nameOf(w)}: ${DEADLINE_TODAY_WARNING}`);
       if (item?.feasible_alone === false) warnings.push(`${nameOf(w)}: at your weekly hours, this alone may not be finished before the deadline.`);
     }
   }
