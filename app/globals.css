@@ -253,6 +253,8 @@ body::before {
 @layer components {
   .rpg-classic-table { width: 100%; table-layout: fixed; border-collapse: collapse; overflow-wrap: anywhere; }
   .rpg-classic-table caption { text-align: left; font-weight: bold; margin-bottom: 0.5rem; }
+  .rpg-classic-table__first { width: 22%; }
+  .rpg-classic-table th[scope="row"] { overflow-wrap: break-word; }
   .rpg-classic-table :is(th, td) { padding: 0.5rem; text-align: left; vertical-align: top; border-bottom: 1px solid currentColor; }
 
   @media (max-width: 55rem) {

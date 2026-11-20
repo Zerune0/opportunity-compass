@@ -92,7 +92,7 @@ describe("Quest Board: Classic table and Adventure cards show the same opportuni
 
     it("is an accessible table with a caption and scoped headers", () => {
         expect(tableHtml).toContain("<caption>Opportunities, in the current order</caption>");
-        expect(tableHtml).toContain('<th scope="col">Opportunity</th>');
+        expect(tableHtml).toContain('<th scope="col" class="rpg-classic-table__first">Opportunity</th>');
         expect(tableHtml).toContain('<th scope="row">');
         expect(tableHtml).toContain('data-label="Weekly hours"');
     });
