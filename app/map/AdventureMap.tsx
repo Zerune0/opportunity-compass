@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { PixelLoader } from "@/components/rpg/pixel-loader";
 import { DetailDialog } from "@/components/rpg/DetailDialog";
+import { SourceText } from "@/components/rpg/SourceText";
 import { useViewPreference } from "@/components/rpg/view-preference";
 import { alternativeQuestHref } from "./alternative-links";
 import { splitOfficial, stepFields } from "./step-details";
@@ -133,7 +134,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
       {plan?.status === "blocked" && (
         <QuestCard><h2>Routes unavailable</h2>
           <ul className="rpg-list">{plan.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
-          <ul className="rpg-list">{plan.blocking_requirements.map((requirement, index) => <li key={index}>{requirement.source_text}</li>)}</ul>
+          <ul className="rpg-list">{plan.blocking_requirements.map((requirement, index) => <li key={index}><SourceText text={requirement.source_text} /></li>)}</ul>
           {/* The concrete list below replaces these general hints when it has anything to show. */}
           {alternatives.length === 0 && <ul className="rpg-list">{plan.alternatives.map((hint, index) => <li key={index}>{hint.text}</li>)}</ul>}
         </QuestCard>
@@ -192,6 +193,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                   const prep = opportunity.preparation.find((item) => item.id === step.prep_item_id);
                   return {
                     step,
+                    prep,
                     fields: stepFields(step, prep),
                     dependencyTitles: step.depends_on.map((id) => route.steps.find((item) => item.id === id)?.title ?? id),
                     dependencies: step.depends_on.map((id) => route.steps.find((item) => item.id === id)?.title ?? id).join(", ") || "None",
@@ -237,7 +239,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                         const official = splitOfficial(value);
                         return <td data-label={label} key={label}>
                           <span style={{ display: "block" }}>{official.label}</span>
-                          {official.detail && <DetailDialog label="View source" subject={item.step.title} title={`Organizer source: ${item.step.title}`}><p>{official.detail}</p></DetailDialog>}
+                          {official.detail && <DetailDialog label="View source" subject={item.step.title} title={`Organizer source: ${item.step.title}`}><SourceText text={item.prep?.source_text} /></DetailDialog>}
                         </td>;
                       })}
                     </tr>)}</tbody>
@@ -246,7 +248,9 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                       <h3>{item.step.title}</h3>
                       {competitionLink(item.step)}
                       {item.step.skipped && <p><StatusTag tone="success">Skipped, excluded from totals</StatusTag> {item.step.skip_reason}</p>}
-                      <details><summary>Step details: {item.step.title}</summary><dl>{fields(item).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details>
+                      <details><summary>Step details: {item.step.title}</summary><dl>{fields(item).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{label === "Official requirement?" && item.step.official === "official_requirement"
+                        ? <>Stated by the organizer<SourceText text={item.prep?.source_text} /></>
+                        : value}</dd></div>)}</dl></details>
                     </QuestCard>
                   </li>)}</ol>}
                   <h3>Weekly timeline</h3>
