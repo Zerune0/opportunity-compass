@@ -9,7 +9,7 @@ import { VerificationAge } from "./verification-age-badge";
 
 const eligibilityLabels: Record<OverallEligibility, string> = { eligible: "Eligible", not_eligible: "Not eligible", unknown: "Unknown" };
 function reachabilityLabel(reachable: boolean | null | undefined): string {
-    return reachable === true ? "Reachable (not a guarantee of admission)" : reachable === false ? "Not reachable yet" : "Unknown";
+    return reachable === true ? "Reachable (not a guarantee of admission)" : reachable === false ? "Not reachable right now" : "Unknown";
 }
 
 export type QuestTableProps = {
