@@ -19,6 +19,7 @@ import { formatReliabilityReport, PAIR_CASE_LABEL, REPORT_TITLE } from './format
 import {
   BASELINE_DEFINITION_NOTE,
   BASELINE_IDS,
+  betterByObjective,
   buildCases,
   DEFAULT_EXHAUSTIVE_LIMITS,
   FAIRNESS_BASELINE_NOTE,
@@ -247,13 +248,40 @@ describe('reliability metrics on the sample scenarios', () => {
   });
 
   it('summarize flags baseline D exceeding the joint solver with a reproducer, and the text shows a warning', () => {
-    const v = { joint_status: 'OPTIMAL' as const, d_executable: true, d_N: 3, joint_N: 2, tie: false, d_exceeds_joint: true, d_limited: false };
+    const v = {
+      joint_status: 'OPTIMAL' as const,
+      d_executable: true,
+      d_N: 3,
+      joint_N: 2,
+      d_L: 1,
+      joint_L: 0,
+      d_cost_usd: 40,
+      joint_cost_usd: 20,
+      tie: false,
+      d_exceeds_joint: true,
+      d_limited: false,
+    };
     const s = summarize([fakeCase({ d_vs_joint: v })]);
     expect(s.d_vs_joint).toMatchObject({ compared: 1, d_exceeds_joint: 1, ties: 0 });
-    expect(s.d_vs_joint.reproducers).toEqual([{ scenario_id: 'hand-built-scenario', case_id: 'case-1', joint_status: 'OPTIMAL', d_N: 3, joint_N: 2 }]);
+    expect(s.d_vs_joint.reproducers).toEqual([
+      { scenario_id: 'hand-built-scenario', case_id: 'case-1', joint_status: 'OPTIMAL', d_N: 3, joint_N: 2, d_L: 1, joint_L: 0, d_cost_usd: 40, joint_cost_usd: 20 },
+    ]);
     const out = formatReliabilityReport({ ...report, scenarios: [], totals: s });
     expect(out).toContain('WARNING');
-    expect(out).toContain('baseline D exceeds joint solver');
+    expect(out).toContain('D did better than the joint solver on N, L or cost');
+    expect(out).toContain('D N 3, L 1, cost $40; joint N 2, L 0, cost $20');
+  });
+
+  it('betterByObjective follows the objective order: larger N, then smaller L, then lower cost', () => {
+    const j = { N: 2, L: 1, total_usd: 100 };
+    expect(betterByObjective({ N: 3, L: 5, total_usd: 999 }, j)).toBe(true); // N 更大
+    expect(betterByObjective({ N: 1, L: 0, total_usd: 0 }, j)).toBe(false); // N 更小
+    expect(betterByObjective({ N: 2, L: 0, total_usd: 999 }, j)).toBe(true); // 同 N，L 更小
+    expect(betterByObjective({ N: 2, L: 2, total_usd: 0 }, j)).toBe(false); // 同 N，L 更大
+    expect(betterByObjective({ N: 2, L: 1, total_usd: 90 }, j)).toBe(true); // 同 N 同 L，成本更低
+    expect(betterByObjective({ N: 2, L: 1, total_usd: 100 }, j)).toBe(false); // 打平
+    expect(betterByObjective({ N: 2, L: 1, total_usd: 100 - 1e-9 }, j)).toBe(false); // EPS 内视为相同
+    expect(betterByObjective({ N: 2, L: 1, total_usd: 110 }, j)).toBe(false);
   });
 
   it('baseline aggregates equal explicit sums: headline over default cases, second over all cases, protect-only', () => {

@@ -623,6 +623,17 @@ function planOf(c: Candidate | null): JointPlan {
 }
 
 /**
+ * D 触发节点上限或任何规模保护时，它的说明（notes）里都带这句（句末另加句号）。
+ * What-if 视图据此在 D 行的协调标签后追加 "; optimality not proven"（BaselineRow 的结构不变）。
+ */
+export const D_OPTIMALITY_NOT_PROVEN_MARKER = 'D may be worse than the joint solver for this reason';
+
+/** 一组基线说明里是否有 D 的「未证明最优」说明（节点上限或规模保护）。 */
+export function dOptimalityNotProven(notes: readonly string[]): boolean {
+  return notes.some((n) => typeof n === 'string' && n.startsWith('Baseline D') && n.includes(D_OPTIMALITY_NOT_PROVEN_MARKER));
+}
+
+/**
  * 运行基线 D。调用方（./baselines 的 compareBaselines）负责校验输入（不合法时不调用）、用验证器复核返回的方案。
  * maxRounds 只为测试注入较小的上限；正常调用用缺省值 MAX_COORDINATION_ROUNDS。
  */
@@ -704,18 +715,18 @@ export function planCoordinated(
       "Baseline D found no plan that meets the organizer's requirements (required measures, minimum new pairs, fairness floors) together with the hard constraints, so, like the joint solver's main result, it proposes the empty plan. Requirements were not relaxed.",
     );
   }
-  if (limits.node) notes.push('Baseline D: the organizer-side search hit the node limit; optimality is not proven, so D may be worse than the joint solver for this reason.');
+  if (limits.node) notes.push(`Baseline D: the organizer-side search hit the node limit; optimality is not proven, so ${D_OPTIMALITY_NOT_PROVEN_MARKER}.`);
   if (limits.selections) {
-    notes.push(`Baseline D: more than ${D_LIMITS.approvedInterventions} approved measures, so the organizer side only tried combinations of at most ${D_LIMITS.selectionSizeWhenLarge} measures; D may be worse than the joint solver for this reason.`);
+    notes.push(`Baseline D: more than ${D_LIMITS.approvedInterventions} approved measures, so the organizer side only tried combinations of at most ${D_LIMITS.selectionSizeWhenLarge} measures; ${D_OPTIMALITY_NOT_PROVEN_MARKER}.`);
   }
   if (limits.revocations) {
-    notes.push(`Baseline D: more than ${D_LIMITS.voluntaryRevocations} existing resources could be revoked voluntarily, so the organizer side only made forced revocations; D may be worse than the joint solver for this reason.`);
+    notes.push(`Baseline D: more than ${D_LIMITS.voluntaryRevocations} existing resources could be revoked voluntarily, so the organizer side only made forced revocations; ${D_OPTIMALITY_NOT_PROVEN_MARKER}.`);
   }
   if (student.limitedMenus) {
-    notes.push(`Baseline D: some pairs had more than ${D_LIMITS.menuCandidates} candidate measures, so the student side only listed combinations of at most ${D_LIMITS.menuSizeWhenLarge} measures; D may be worse than the joint solver for this reason.`);
+    notes.push(`Baseline D: some pairs had more than ${D_LIMITS.menuCandidates} candidate measures, so the student side only listed combinations of at most ${D_LIMITS.menuSizeWhenLarge} measures; ${D_OPTIMALITY_NOT_PROVEN_MARKER}.`);
   }
   if (student.limitedPatterns) {
-    notes.push(`Baseline D: some pairs had more than ${D_LIMITS.relevantGrantsPerPair} revocable existing resources, so the student side only reported "none revoked" and "all revoked"; D may be worse than the joint solver for this reason.`);
+    notes.push(`Baseline D: some pairs had more than ${D_LIMITS.relevantGrantsPerPair} revocable existing resources, so the student side only reported "none revoked" and "all revoked"; ${D_OPTIMALITY_NOT_PROVEN_MARKER}.`);
   }
   return { plan: proposal, claimed_reachable: claimed, coordination: { rounds: usedRounds, converged, max_rounds: rounds }, notes };
 }

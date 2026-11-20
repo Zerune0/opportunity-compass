@@ -31,7 +31,8 @@
  *     注意基线的定义本身就有不对称（CONTRACT 第 10 条）：B、C 从不撤回已有 grant，A / B / C 都不考虑公平底线；
  *     D（充分协调的分离式规划器）与联合求解一样考虑撤回规则、公平底线与其他主办方要求。
  *   · D 与联合求解对照：两边都可执行时比较验证器重算的 N、L、成本（打平是预期中可能的结果）；
- *     D 的验证器确认 N 大于联合求解时单独记录（d_exceeds_joint），输出里醒目标出。
+ *     按目标顺序 D 比联合求解更好时单独记录（d_exceeds_joint），输出里醒目标出：N 大者胜；N 相同看 L 小者胜；
+ *     再相同看成本低者胜（成本差在 EPS 内视为相同）。
  * - 有效路线发现（valid-route discovery）只用基线对比行里验证器确认的数字作代理（按（学生, 机会）对计，
  *   不是学生端的准备路线）；协调轮数（coordination rounds）只对基线 D 测量（compareBaselines 的 D 行 coordination；
  *   联合求解是一次集中搜索，没有轮数），汇总给出分布与未收敛数；D 行缺失的用例（输入不合法、出错）单独计为未测量。
@@ -236,9 +237,17 @@ export interface DVsJoint {
   /** D 可执行时的 N；否则 null。 */
   d_N: number | null;
   joint_N: number | null;
+  /** D / 联合求解可执行时的 L、成本；否则 null。 */
+  d_L: number | null;
+  joint_L: number | null;
+  d_cost_usd: number | null;
+  joint_cost_usd: number | null;
   /** 两边都可执行，且 N、L、成本都相同。 */
   tie: boolean;
-  /** 两边都可执行且 D 的 N 大于联合求解的 N（联合求解 OPTIMAL 时即联合求解器的 bug）。 */
+  /**
+   * 两边都可执行且按目标顺序 D 更好（N 更大；N 相同时 L 更小；N、L 都相同时成本更低）。
+   * 联合求解 OPTIMAL 时即联合求解器的 bug。
+   */
   d_exceeds_joint: boolean;
   /** D 的 notes 说它达到节点上限或触发了规模保护（可能因此不如联合求解）。 */
   d_limited: boolean;
@@ -292,6 +301,10 @@ export interface DExceedsReproducer {
   joint_status: JointStatus;
   d_N: number;
   joint_N: number;
+  d_L: number;
+  joint_L: number;
+  d_cost_usd: number;
+  joint_cost_usd: number;
 }
 
 /** 基线 D 与联合求解的对照汇总。 */
@@ -306,7 +319,7 @@ export interface DVsJointSummary {
   d_not_executable: number;
   /** D 触发节点上限或规模保护的用例数。 */
   d_limited: number;
-  /** D 的验证器确认 N 大于联合求解的用例数（预期 0；> 0 时联合求解器有问题）。 */
+  /** 按目标顺序（N → L → 成本）D 的验证结果优于联合求解的用例数（预期 0；> 0 时联合求解器有问题）。 */
   d_exceeds_joint: number;
   reproducers: DExceedsReproducer[];
   note: string;
@@ -486,7 +499,7 @@ export const DEFINITIONS: Record<string, string> = {
   determinism: 'Solving the same case twice gives identical results, and the baseline comparison\'s joint row has the same plan.',
   coordination_rounds: COORDINATION_DEFINITION,
   d_vs_joint:
-    'For each case, baseline D\'s plan and the joint solver\'s plan are both recomputed by the verifier. A tie means both are executable and N, L and total cost are equal. D exceeding the joint solver (larger verified N) would point to a problem in the joint solver and is listed separately.',
+    'For each case, baseline D\'s plan and the joint solver\'s plan are both recomputed by the verifier. A tie means both are executable and N, L and total cost are equal. D doing better than the joint solver on N, L or cost (objective order: larger N, then smaller L, then lower cost) would point to a problem in the joint solver and is listed separately.',
 };
 
 // ───────────────────────────── 工具 ─────────────────────────────
@@ -695,6 +708,19 @@ function baselineRow(row: BaselineRow, r0: number, floorsGiven: boolean): Baseli
   };
 }
 
+/**
+ * 按联合求解的目标顺序比较两个验证器重算的结果：N 大者胜；N 相同看 L 小者胜；再相同看成本低者胜
+ * （成本差在 EPS 内视为相同）。a 严格更好时返回 true。
+ */
+export function betterByObjective(
+  a: { N: number; L: number; total_usd: number },
+  b: { N: number; L: number; total_usd: number },
+): boolean {
+  if (a.N !== b.N) return a.N > b.N;
+  if (a.L !== b.L) return a.L < b.L;
+  return a.total_usd < b.total_usd - EPS;
+}
+
 function dVsJointOf(status: JointStatus, rows: readonly BaselineRow[], notes: readonly string[]): DVsJoint | null {
   const d = rows.find((r) => r.id === 'D_coordinated');
   const j = rows.find((r) => r.id === 'joint');
@@ -707,8 +733,12 @@ function dVsJointOf(status: JointStatus, rows: readonly BaselineRow[], notes: re
     d_executable: dv !== null,
     d_N: dv ? dv.N : null,
     joint_N: jv ? jv.N : null,
+    d_L: dv ? dv.L : null,
+    joint_L: jv ? jv.L : null,
+    d_cost_usd: dv ? dv.total_usd : null,
+    joint_cost_usd: jv ? jv.total_usd : null,
     tie: both && dv.N === jv.N && dv.L === jv.L && Math.abs(dv.total_usd - jv.total_usd) <= EPS,
-    d_exceeds_joint: both && dv.N > jv.N,
+    d_exceeds_joint: both && betterByObjective(dv, jv),
     d_limited: notes.some((n) => n.startsWith('Baseline D') && /node limit|may be worse/.test(n)),
   };
 }
@@ -1075,7 +1105,17 @@ export function summarize(cases: readonly CaseMetrics[]): ReliabilitySummary {
       if (v.d_limited) dj.d_limited++;
       if (v.d_exceeds_joint) {
         dj.d_exceeds_joint++;
-        dj.reproducers.push({ scenario_id: c.scenario_id, case_id: c.case_id, joint_status: v.joint_status, d_N: v.d_N ?? 0, joint_N: v.joint_N ?? 0 });
+        dj.reproducers.push({
+          scenario_id: c.scenario_id,
+          case_id: c.case_id,
+          joint_status: v.joint_status,
+          d_N: v.d_N ?? 0,
+          joint_N: v.joint_N ?? 0,
+          d_L: v.d_L ?? 0,
+          joint_L: v.joint_L ?? 0,
+          d_cost_usd: v.d_cost_usd ?? 0,
+          joint_cost_usd: v.joint_cost_usd ?? 0,
+        });
       }
     }
 

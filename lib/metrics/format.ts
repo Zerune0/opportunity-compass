@@ -19,6 +19,7 @@ import type {
   CaseMetrics,
   CoordinationSummary,
   CoverageNumbers,
+  DExceedsReproducer,
   DVsJointSummary,
   ExhaustiveLimits,
   GapCheck,
@@ -157,7 +158,12 @@ function roundsText(c: CoordinationSummary): string {
   return `measured in ${plural(c.cases_measured, 'case')} (rounds ${range}; ${dist}); ${c.not_converged} did not converge within the round limit${c.cases_not_measured > 0 ? `; ${plural(c.cases_not_measured, 'case')} not measured (no baseline D row: invalid input or a measurement error)` : ''}`;
 }
 
-/** D 与联合求解的对照（D 超过联合求解时醒目标出）。 */
+/** 复现条目里 D 与联合求解的 N、L、成本。 */
+function dJointNumbers(r: DExceedsReproducer): string {
+  return `D N ${num(r.d_N)}, L ${num(r.d_L)}, cost $${num(r.d_cost_usd)}; joint N ${num(r.joint_N)}, L ${num(r.joint_L)}, cost $${num(r.joint_cost_usd)}`;
+}
+
+/** D 与联合求解的对照（D 按目标顺序优于联合求解时醒目标出）。 */
 function dVsJointLines(d: DVsJointSummary, pad: string): string[] {
   const out: string[] = [];
   out.push(
@@ -165,12 +171,14 @@ function dVsJointLines(d: DVsJointSummary, pad: string): string[] {
   );
   out.push(`${pad}${d.note}`);
   if (d.d_exceeds_joint > 0) {
-    out.push(`${pad}!!! WARNING: baseline D's verified N is LARGER than the joint solver's in ${plural(d.d_exceeds_joint, 'case')}. This points to a problem in the joint solver:`);
+    out.push(
+      `${pad}!!! WARNING: D did better than the joint solver on N, L or cost (objective order: larger N, then smaller L, then lower cost) in ${plural(d.d_exceeds_joint, 'case')}. This points to a problem in the joint solver:`,
+    );
     for (const r of d.reproducers) {
-      out.push(`${pad}!!!   scenario ${r.scenario_id}, case ${r.case_id}: D N ${num(r.d_N)} > joint N ${num(r.joint_N)} (joint status ${r.joint_status})`);
+      out.push(`${pad}!!!   scenario ${r.scenario_id}, case ${r.case_id}: ${dJointNumbers(r)} (joint status ${r.joint_status})`);
     }
   } else {
-    out.push(`${pad}Baseline D's verified N never exceeded the joint solver's (0 cases).`);
+    out.push(`${pad}D never did better than the joint solver on N, L or cost (objective order N, then L, then cost; 0 cases).`);
   }
   return out;
 }
@@ -427,7 +435,7 @@ function summarySection(t: ReliabilitySummary, limits: ExhaustiveLimits | null, 
       );
     }
     for (const r of t.d_vs_joint.reproducers) {
-      out.push(`    baseline D exceeds joint solver: scenario ${r.scenario_id}, case ${r.case_id}; D N ${num(r.d_N)}, joint N ${num(r.joint_N)} (joint ${r.joint_status})`);
+      out.push(`    D did better than the joint solver on N, L or cost: scenario ${r.scenario_id}, case ${r.case_id}; ${dJointNumbers(r)} (joint ${r.joint_status})`);
     }
   }
   return out;

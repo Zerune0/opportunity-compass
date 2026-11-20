@@ -12,7 +12,9 @@ import {
   deviceLoanScenario,
   venueTradeoffScenario,
 } from './scenarios';
+import { compareBaselines } from './baselines';
 import {
+  baselinesView,
   defaultWhatIfInput,
   INFEASIBLE_UNCOVERED_CAUSE,
   MODE_EXPLANATIONS,
@@ -461,6 +463,43 @@ describe('runWhatIf：基线对比表格', () => {
     const v = runWhatIf(S, dlInput({ budget: -1 }));
     expect(v.baselines?.rows).toEqual([]);
     expect(v.baselines?.notes[0]).toContain('no baseline comparison was run');
+  });
+});
+
+describe('基线表：D 未证明最优的标签与打平标志', () => {
+  it('默认输入：D 标签不带 optimality not proven，D 与联合求解打平 → d_ties_joint true', () => {
+    for (const entry of SCENARIOS) {
+      const b = runWhatIf(entry.scenario, defaultWhatIfInput(entry.scenario)).baselines!;
+      const d = b.rows.find((r) => r.id === 'D_coordinated')!;
+      expect(d.coordination_label).toBe('2 rounds, converged');
+      expect(d.optimality_not_proven).toBe(false);
+      expect(b.d_ties_joint).toBe(true);
+      for (const r of b.rows) if (r.id !== 'D_coordinated') expect(r.optimality_not_proven).toBe(false);
+    }
+  });
+
+  it('max_search_nodes = 1：D 触发节点上限 → 标签追加 "; optimality not proven"', () => {
+    const cmp = compareBaselines(S, { max_search_nodes: 1 });
+    expect(cmp.notes.some((n) => n.startsWith('Baseline D') && n.includes('node limit'))).toBe(true);
+    const b = baselinesView(cmp, S);
+    const d = b.rows.find((r) => r.id === 'D_coordinated')!;
+    expect(d.coordination_label).toMatch(/, converged; optimality not proven$/);
+    expect(d.optimality_not_proven).toBe(true);
+    // 其他行不受影响
+    for (const r of b.rows) if (r.id !== 'D_coordinated') expect([r.coordination_label, r.optimality_not_proven]).toEqual([null, false]);
+  });
+
+  it('max_search_nodes = 20：D 与联合求解的验证结果不同 → d_ties_joint false', () => {
+    const b = baselinesView(compareBaselines(S, { max_search_nodes: 20 }), S);
+    const d = b.rows.find((r) => r.id === 'D_coordinated')!;
+    const j = b.rows.find((r) => r.id === 'joint')!;
+    expect(d.executable && j.executable).toBe(true);
+    expect([d.verified!.G, d.verified!.L, d.verified!.total_usd]).not.toEqual([j.verified!.G, j.verified!.L, j.verified!.total_usd]);
+    expect(b.d_ties_joint).toBe(false);
+  });
+
+  it('输入不合法（没有基线行）：d_ties_joint 为 null', () => {
+    expect(runWhatIf(S, dlInput({ budget: -1 })).baselines!.d_ties_joint).toBeNull();
   });
 });
 

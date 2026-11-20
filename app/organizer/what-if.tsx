@@ -1182,9 +1182,14 @@ function BaselinesTable({ view }: { view: WhatIfView }) {
           </table>
         </div>
       )}
-      {b.rows.some((r) => r.coordination) && (
+      {b.d_ties_joint === true && (
         <p className="mt-2 text-sm text-gray-700">
           Baseline D tying with the joint solver is an expected possible outcome. A tie does not show that the joint solver has no value, nor that it has value; it is only what happens on these sample scenarios. All numbers are Simulated.
+        </p>
+      )}
+      {b.d_ties_joint === false && (
+        <p className="mt-2 text-sm text-gray-700">
+          On this input, the coordinated separate planners and the joint solver reach different results; see the rows above. All numbers are Simulated.
         </p>
       )}
       {b.rows.length > 0 && (
