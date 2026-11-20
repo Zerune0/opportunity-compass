@@ -88,6 +88,20 @@ describe("organizer question drafts", () => {
         expect(draft.questions).toHaveLength(2);
         expect(draft.message).not.toMatch(/profile\.|opportunity\.|native code/);
     });
+    it("asks for the exact closing time when the deadline is today", () => {
+        const opp: Opportunity = {
+            id: "fixture-deadline-today", title: "Deadline today program", organizer: "Fixture Org", category: "project",
+            fields: [], summary: "Fixture.", official_url: "https://example.com/today", verified_on: "2026-11-17",
+            verified_by: "test-fixture", deadline: "2026-11-17", location: { format: "online" },
+            cost: { fee_usd: 0, requires_travel_expense: false }, time_commitment: { hours_per_week: 2, total_weeks: 4 },
+            required_devices: [], requirements: [], preparation: [], is_sample: true,
+        };
+        const reach = analyzeReachability(fullProfile, opp, [], { today: "2026-11-17" });
+        expect(reach.reachable).toBeNull();
+        const draft = buildOrganizerQuestions(opp, reach.eligibility, reach.missing_info, fullProfile);
+        expect(draft.questions).toEqual(["What is the exact closing time and time zone on the deadline day?"]);
+        expect(draft.message).not.toMatch(/opportunity\./);
+    });
     it("returns an empty draft when no information is missing", () => {
         expect(buildOrganizerQuestions(opportunity, null, [], null)).toEqual({
             questions: [], profileUpdates: [], message: "",

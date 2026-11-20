@@ -41,6 +41,9 @@
  *         否则 H = 0 → 跳过；剩余周数 W = max(剩余天数, 1) / 7；H > 可用 × W → 障碍
  *         （剩余 0 天时文案为「今天截止」），shortfall = 每周还缺的小时（向上取整到 0.5 小时）；
  *         time_support 小时和 ≥ shortfall → 化解。
+ *         剩余 0 天（截止当天）：截止的具体时刻和时区不知道 → 记 opportunity.deadline.closing_time（除非上面的
+ *         「今天做不完」障碍仍未化解，那时已是 false），summary 用 DEADLINE_TODAY_WARNING；所以截止当天不会是 true，
+ *         approved 的 grant 也不能把这个未知变成可达。
  * 5. reachable：硬性 not_satisfied 或有未化解障碍 → false；否则资格 unknown 或 missing_info 非空 → null；否则 true。
  *
  * 公平性：不读取学校名、显示名（见 lib/types.ts StudentProfile 的公平性约定）。
@@ -59,6 +62,7 @@ import type {
   SupportType,
 } from '../types';
 import { fmt, plural, pluralNoun } from '../format';
+import { DEADLINE_TODAY_WARNING } from '../path/shared';
 import { findCoveringEvidence, nonNegOrZero, requiredPrepClosure } from './coverage';
 
 export { evidenceCoversPrep, findCoveringEvidence, requiredPrepClosure } from './coverage';
@@ -72,6 +76,12 @@ const DEVICE_ZH: Record<string, string> = {
   home_internet: 'reliable home internet',
 };
 
+/**
+ * 截止当天（today 等于截止日）记入 missing_info 的路径：截止的具体时刻和时区不知道，无法判断是否还来得及。
+ * 与 planRoutes 的 DEADLINE_TODAY_WARNING 同一口径。
+ */
+export const DEADLINE_CLOSING_TIME_FIELD = 'opportunity.deadline.closing_time';
+
 /** missing_info 字段 → 面向学生的中文名。 */
 const MISSING_ZH: Record<string, string> = {
   'profile.devices': 'which devices you have',
@@ -83,6 +93,7 @@ const MISSING_ZH: Record<string, string> = {
   'opportunity.time_commitment.hours_per_week': 'weekly hours needed during the program (not clear on the website)',
   'opportunity.deadline': "the deadline (date format can't be read)",
   'options.today': "today's date",
+  [DEADLINE_CLOSING_TIME_FIELD]: 'the exact closing time and time zone on the deadline day',
   'opportunity.location.format': 'whether it is online or in person (not clear on the website)',
   'opportunity.location': 'where exactly it takes place (the state or city is not given)',
 };
@@ -340,21 +351,31 @@ export function analyzeReachability(
         resolved_by_grant_ids: [],
         pending_grant_ids: [],
       });
-    } else if (prepHours > 0) {
-      if (available == null) {
-        miss('profile.hours_per_week_available');
-      } else {
-        const daysLeft = daysBetween(today, deadline);
-        const days = Math.max(daysLeft, 1);
-        const weeks = days / 7;
-        if (prepHours > available * weeks) {
-          const shortfall = roundUpHalf(prepHours / weeks - available);
-          const description =
-            daysLeft === 0
-              ? `The deadline is today (${opp.deadline}). About ${plural(prepHours, 'hour')} of required prep ${pluralNoun(prepHours, 'is', 'are')} not done, and that can't be finished today.`
-              : `Before the deadline (${plural(days, 'day')} left) you need about ${plural(prepHours, 'hour')} of required prep. At ${plural(available, 'hour')} per week that is not enough; you are short about ${plural(shortfall, 'hour')} per week (rounded up to 0.5 hours).`;
-          barriers.push(timeBarrier(description, shortfall));
+    } else {
+      const daysLeft = daysBetween(today, deadline);
+      let todayBarrier: Barrier | null = null;
+      if (prepHours > 0) {
+        if (available == null) {
+          miss('profile.hours_per_week_available');
+        } else {
+          const days = Math.max(daysLeft, 1);
+          const weeks = days / 7;
+          if (prepHours > available * weeks) {
+            const shortfall = roundUpHalf(prepHours / weeks - available);
+            const description =
+              daysLeft === 0
+                ? `The deadline is today (${opp.deadline}). About ${plural(prepHours, 'hour')} of required prep ${pluralNoun(prepHours, 'is', 'are')} not done, and that can't be finished today.`
+                : `Before the deadline (${plural(days, 'day')} left) you need about ${plural(prepHours, 'hour')} of required prep. At ${plural(available, 'hour')} per week that is not enough; you are short about ${plural(shortfall, 'hour')} per week (rounded up to 0.5 hours).`;
+            const b = timeBarrier(description, shortfall);
+            barriers.push(b);
+            if (daysLeft === 0) todayBarrier = b;
+          }
         }
+      }
+      // 截止当天：截止的具体时刻和时区不知道 → 是否还来得及属于未知（除非「今天做不完」的障碍仍未化解，那时结论已是 false）。
+      // approved 的支持不会让截止时刻变成已知，所以截止当天永远不会是 true。
+      if (daysLeft === 0 && (todayBarrier == null || todayBarrier.resolved)) {
+        miss(DEADLINE_CLOSING_TIME_FIELD);
       }
     }
   }
@@ -380,8 +401,14 @@ export function analyzeReachability(
     const needs: string[] = [];
     const unknownHard = eligibility.items.filter((i) => i.hard && i.status === 'unknown').map((i) => `"${i.label}"`);
     if (unknownHard.length > 0) needs.push(`eligibility to confirm with the organizer: ${unknownHard.join(', ')}`);
-    if (missing.length > 0) needs.push(`missing info: ${missing.map((f) => MISSING_ZH[f] ?? f).join(', ')}`);
-    summary = `We can't tell yet if this is reachable. ${needs.join('; ')}.`;
+    const otherMissing = missing.filter((f) => f !== DEADLINE_CLOSING_TIME_FIELD);
+    if (otherMissing.length > 0) needs.push(`missing info: ${otherMissing.map((f) => MISSING_ZH[f] ?? f).join(', ')}`);
+    if (missing.includes(DEADLINE_CLOSING_TIME_FIELD)) {
+      summary = DEADLINE_TODAY_WARNING;
+      if (needs.length > 0) summary += ` Also: ${needs.join('; ')}.`;
+    } else {
+      summary = `We can't tell yet if this is reachable. ${needs.join('; ')}.`;
+    }
   } else {
     const resolvedCount = barriers.length;
     summary =

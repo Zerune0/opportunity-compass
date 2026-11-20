@@ -2,6 +2,7 @@
  * planAcrossOpportunities（第二阶段示例版本）测试。机会 fixture 全部虚构（example.com、is_sample: true）。
  */
 import { describe, expect, it } from 'vitest';
+import { DEADLINE_TODAY_WARNING } from '../path/shared';
 import opportunitiesJson from '@/data/opportunities.json';
 import profilesJson from '@/data/profiles.json';
 import { planAcrossOpportunities } from '.';
@@ -268,10 +269,31 @@ describe('planAcrossOpportunities — weekly_load 按天分摊', () => {
     expect(ok.weekly_load).toEqual([
       { week_start: '2026-11-16', days: 1, hours_needed: 2, hours_available: 2, over: false, opportunity_ids: ['fictional-today'] },
     ]);
-    expect(ok.items[0]).toMatchObject({ status: 'planned', feasible_alone: true });
+    // 截止当天：截止的具体时刻和时区不知道 → feasible_alone null（2026-11-19 起；原来是 true / false）
+    expect(ok.items[0]).toMatchObject({ status: 'planned', feasible_alone: null });
+    expect(ok.items[0].note).toContain(DEADLINE_TODAY_WARNING);
+    expect(ok.warnings).toContain(`"${ok.items[0].title}": ${DEADLINE_TODAY_WARNING}`);
     const tight = planAcrossOpportunities({ ...STUDENT, hours_per_week_available: 14 }, [single('fictional-today', TODAY, 3)], { today: TODAY });
     expect(tight.weekly_load[0].over).toBe(true);
-    expect(tight.items[0].feasible_alone).toBe(false);
+    expect(tight.items[0].feasible_alone).toBeNull();
+    expect(tight.warnings.some((w) => w.includes('may not be finished before the deadline'))).toBe(false);
+  });
+
+  it('截止当天 → feasible_alone null；截止前一天与已过截止不受影响', () => {
+    const s14 = { ...STUDENT, hours_per_week_available: 14 };
+    const today = planAcrossOpportunities(s14, [single('fictional-today', '2026-11-30', 1)], { today: '2026-11-30' });
+    expect(today.items[0]).toMatchObject({ status: 'planned', feasible_alone: null });
+    expect(today.warnings.filter((w) => w.includes(DEADLINE_TODAY_WARNING))).toHaveLength(1);
+    // 截止前一天（D = 2 天）：仍按公式判断
+    const dayBefore = planAcrossOpportunities(s14, [single('fictional-today', '2026-12-01', 4)], { today: '2026-11-30' });
+    expect(dayBefore.items[0].feasible_alone).toBe(true);
+    expect(dayBefore.warnings.some((w) => w.includes(DEADLINE_TODAY_WARNING))).toBe(false);
+    const dayBeforeTight = planAcrossOpportunities(s14, [single('fictional-today', '2026-12-01', 5)], { today: '2026-11-30' });
+    expect(dayBeforeTight.items[0].feasible_alone).toBe(false);
+    // 已过截止：past_deadline、false，不加截止当天提醒
+    const past = planAcrossOpportunities(s14, [single('fictional-today', '2026-11-29', 1)], { today: '2026-11-30' });
+    expect(past.items[0]).toMatchObject({ status: 'past_deadline', feasible_alone: false });
+    expect(past.warnings.some((w) => w.includes(DEADLINE_TODAY_WARNING))).toBe(false);
   });
 
   it('跨年：today 2026-12-30（周三）、截止 2027-01-05（周二）', () => {
@@ -301,7 +323,9 @@ describe('planAcrossOpportunities — weekly_load 按天分摊', () => {
             const item = plan.items[0];
             expect(item.status).toBe('planned');
             const anyOver = plan.weekly_load.some((w) => w.over === true);
-            expect(anyOver).toBe(item.feasible_alone === false);
+            // 截止当天 feasible_alone 为 null（截止时刻未知），不参与这条对应关系
+            if (dl === today) expect(item.feasible_alone).toBeNull();
+            else expect(anyOver).toBe(item.feasible_alone === false);
             const sum = plan.weekly_load.reduce((acc, w) => acc + w.hours_needed, 0);
             expect(Math.abs(sum - h)).toBeLessThanOrEqual(0.005 * plan.weekly_load.length + 1e-9); // 每周四舍五入到 0.01
             checked++;

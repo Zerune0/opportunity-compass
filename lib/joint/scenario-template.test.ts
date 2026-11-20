@@ -605,10 +605,14 @@ describe('scenarioReadinessProblems', () => {
 
   it('演示窗口：截止日期落在窗口里（2026-11-23）→ 之后几天学生端会显示已截止', () => {
     expect(scenarioReadinessProblems(withOpp({ deadline: '2026-11-23' }), DEMO.id)).toEqual([
-      'The deadline (2026-11-23) falls inside the demo window (2026-11-20 to 2026-11-27), so from 2026-11-24 the student side would show it as passed.',
+      'The deadline (2026-11-23) falls inside the demo window (2026-11-20 to 2026-11-27), so from 2026-11-23 the student side would no longer show it as reachable (on the deadline day the exact closing time is unknown; after it, the deadline has passed).',
     ]);
-    // 截止日期正好是窗口最后一天：整个窗口都还没截止
-    expect(scenarioReadinessProblems(withOpp({ deadline: '2026-11-27' }), DEMO.id)).toEqual([]);
+    // 截止日期正好是窗口最后一天：截止当天学生端不再显示可达（截止时刻未知）→ 也算落在窗口里
+    expect(scenarioReadinessProblems(withOpp({ deadline: '2026-11-27' }), DEMO.id)).toEqual([
+      'The deadline (2026-11-27) falls inside the demo window (2026-11-20 to 2026-11-27), so from 2026-11-27 the student side would no longer show it as reachable (on the deadline day the exact closing time is unknown; after it, the deadline has passed).',
+    ]);
+    // 截止日期在窗口之后：整个窗口都可达
+    expect(scenarioReadinessProblems(withOpp({ deadline: '2026-11-28' }), DEMO.id)).toEqual([]);
   });
 
   it('演示窗口：带支持的结论在窗口里变了（按今天算年龄、窗口里过 19 岁生日、上限 18 岁）', () => {

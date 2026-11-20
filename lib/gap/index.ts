@@ -40,7 +40,8 @@
  *    - 已过截止日期（time 且 shortfall 为 null）：improvable: false、action: null，detail = 引擎描述 + 一句指向替代机会
  *      （不重复「下一届」；recurring_annually === false 时说明不是每年举办、看同领域机会）。
  * 4. missing_info 每个字段一条 unknown_info（basis.field 保留内部字段名）：profile.* → 「在 Skill Passport 填写 <可读名称>」；
- *    opportunity.* → 「向主办方确认 <可读名称>」并说明影响哪一项判断；options.today → 没传时说明页面没有传日期，
+ *    opportunity.* → 「向主办方确认 <可读名称>」并说明影响哪一项判断（opportunity.deadline.closing_time：截止当天，
+ *    行动是到官网 / 向主办方确认截止的具体时刻和时区）；options.today → 没传时说明页面没有传日期，
  *    传了但读不了时说「缺失或无法读取」。
  *    可读名称与影响项见 FIELD_INFO，未知字段用最后一段字段名兜底；面向学生的文字不出现内部字段名。
  * 5. 档案数据损坏（有值但类型不对，见 profileFieldIssues）时不调用引擎，直接列出这些档案字段（行动：在 Skill Passport 更正），
@@ -121,6 +122,10 @@ const FIELD_INFO: Record<string, FieldInfo> = {
   'opportunity.location.format': { label: 'whether it takes place online or in person', affects: 'the transportation check' },
   'opportunity.time_commitment': { label: 'the time commitment', affects: 'the time check' },
   'options.today': { label: "today's date", affects: 'the deadline and prep-time check' },
+  'opportunity.deadline.closing_time': {
+    label: 'the exact closing time and time zone on the deadline day',
+    affects: 'whether there is still time to apply today',
+  },
 };
 
 /** 兜底：取最后一段字段名，下划线换成空格（不露出 `profile.` 之类的前缀）。 */
@@ -687,6 +692,17 @@ function missingFieldItem(field: string, todayGiven = false): GapItem {
         : "The page did not pass today's date, so we could not check whether the deadline has passed or how much prep time is left. We did not guess.",
       basis,
       'Reload the page so it can pass today\'s date. If this stays, check the deadline on the official page yourself.',
+    );
+  }
+  if (field === 'opportunity.deadline.closing_time') {
+    // 截止当天：截止的具体时刻和时区不知道，是否还来得及属于未知（不说「没问题」）。
+    return item(
+      'unknown_info',
+      field,
+      'The deadline is today: closing time not known',
+      "The deadline is today, and we don't know the exact closing time or time zone, so we can't tell whether there is still time to apply. We did not guess.",
+      basis,
+      'Check the exact closing time and time zone on the official page, or confirm them with the organizer, before you put in time today.',
     );
   }
   if (field.startsWith('profile.')) {

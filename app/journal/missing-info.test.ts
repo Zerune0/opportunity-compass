@@ -14,6 +14,10 @@ describe("Journal missing information labels", () => {
     expect(missingInfoLabel("opportunity.removed.deadline", [])).not.toContain("removed");
     expect(missingInfoLabel("profile.new_field", [])).not.toContain("new_field");
   });
+  it("labels the deadline-day closing time without exposing the path", () => {
+    expect(missingInfoLabel("opportunity.sample.one.deadline.closing_time", opportunities)).toBe("Sample opportunity: Exact closing time on the deadline day");
+    expect(missingInfoLabel("opportunity.deadline.closing_time", [])).toBe("Exact closing time on the deadline day — check the official page");
+  });
   it("retains existing human-readable messages", () => {
     expect(missingInfoLabel("Confirm the program dates", [])).toBe("Confirm the program dates");
   });
