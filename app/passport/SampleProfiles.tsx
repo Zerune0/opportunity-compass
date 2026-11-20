@@ -15,6 +15,40 @@ const sampleProfiles = loadSampleProfiles().map((profile) => ({
 
 const notProvided = "not provided";
 
+const additionalBackgrounds: Record<string, { name: string; paragraphs: string[] }> = {
+  "sample-leo": {
+    name: "Leo",
+    paragraphs: [
+      "Leo is a fictional grade 10 student at Example Valley Rural School in rural Montana. Age, citizenship and other eligibility statuses are not recorded; they should be confirmed rather than inferred from the school or location.",
+      "Leo is interested in biology and data science and reports intermediate Python skills. No supporting evidence items are recorded yet, so the profile does not establish completed projects, course certificates or independently verified experience.",
+      "The recorded availability is ten hours per week, with a budget of $40. Leo has a laptop and home internet, which can support online learning and project work, subject to each opportunity's requirements.",
+      "Travel is the main recorded access constraint: the nearest city is two hours away each way, there is no public transit, and no transport access is recorded. A laptop and available study time alone do not make an in-person opportunity reachable.",
+      "Use this sample to explore biology or data-science opportunities, compare remote options and identify evidence that could be built next. These are demo exploration directions, not recorded achievements or a promise of eligibility or admission.",
+    ],
+  },
+  "sample-ana": {
+    name: "Ana",
+    paragraphs: [
+      "Ana is a fictional 17-year-old US citizen in grade 12 at Example Heights High School in suburban New York. The profile records high-school student status; additional personal or family circumstances are not provided.",
+      "Ana is interested in computer science and public health. She reports intermediate Python skills and beginner data-analysis skills. No evidence items are recorded, so these skill levels are not accompanied by a saved project, course record or verified credential.",
+      "Her recorded availability is twelve hours per week, with a budget of $200. She has a laptop, webcam, home internet and smartphone, giving her equipment for a wider range of online activities, subject to their specific requirements.",
+      "Her family can drive her, and her recorded travel limit is 60 minutes each way. This supports some local in-person options, but does not establish access to distant programs, accommodation or travel beyond that limit.",
+      "Use this sample to explore opportunities connecting computing and public health, compare preparation routes and decide what evidence to record. More time, equipment and transport do not remove age, grade, deadline or organizer-specific requirements.",
+    ],
+  },
+  "sample-noor": {
+    name: "Noor",
+    paragraphs: [
+      "Noor is a fictional 18-year-old US citizen and first-generation undergraduate at Example Community College in suburban Ohio. Grade 13 represents the first undergraduate year in this demo.",
+      "Noor is interested in biomedical research, STEM and data science and reports beginner Python skills. The profile includes a short Python script that cleans lab measurements from an introductory biology course.",
+      "That script is recorded as self-reported project evidence with a Python tag. No public link or independent verification is recorded; it should not be presented as a verified research credential or proof of other skills.",
+      "The recorded availability is five hours per week, with a budget of $30. Noor has a laptop and smartphone. Home internet is not recorded, so reliable internet access should be confirmed for activities that require it.",
+      "Transport is limited: Noor shares a car with family, the bus runs only on weekdays, and the recorded travel limit is 40 minutes each way. Scheduling and transport can therefore constrain opportunities even when the academic requirements fit.",
+      "Use this sample to explore research preparation and competition routes, distinguish organizer requirements from team suggestions and build on the existing course project. A suggested competition is not automatically an official requirement of the target opportunity.",
+    ],
+  },
+};
+
 function location(profile: StudentProfile) {
   const region = profile.region;
   if (!region) return notProvided;
@@ -164,6 +198,29 @@ export function SampleProfiles({ profile, onChange }: {
           <QuestCard key={sample.id} className="rpg-stack">
             <h3>{sample.display_name}</h3>
             <p><StatusTag tone="warning">Sample</StatusTag></p>
+            {sample.id === "sample-maya" && (
+              <details>
+                <summary>About Maya · background and goals</summary>
+                <div className="rpg-stack">
+                  <p>Maya is a fictional 16-year-old student in grade 11 at Example Bay High School in urban California. She is a US citizen from a low-income family and is a first-generation student.</p>
+                  <p>She is interested in computer science and climate. She has started learning Python through introductory exercises on her phone. This is self-reported learning; no project portfolio or independently verified evidence is recorded.</p>
+                  <p>She works after school and studies in short sessions. Her recorded availability is four hours per week, with a budget of $20. She has a smartphone, but no laptop is recorded.</p>
+                  <p>She takes the bus and can travel up to 45 minutes each way. Opportunities need to fit her time, budget, transport and device access as well as her academic eligibility.</p>
+                  <p>Use this sample to explore a practical next step in her interests and see how organizer support can change what is reachable. This background is fictional demo context, not an assessment of a real student.</p>
+                </div>
+              </details>
+            )}
+            {additionalBackgrounds[sample.id] && (
+              <details>
+                <summary>About {additionalBackgrounds[sample.id].name} · background and goals</summary>
+                <div className="rpg-stack">
+                  {additionalBackgrounds[sample.id].paragraphs.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                  <p>This background is fictional demo context, not an assessment of a real student.</p>
+                </div>
+              </details>
+            )}
             <dl>
               <dt>Grade</dt><dd>{sample.grade ?? notProvided}</dd>
               <dt>Location</dt><dd>{location(sample)}</dd>
