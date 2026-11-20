@@ -107,6 +107,8 @@
   .shell-main { padding-block: var(--space-xl) var(--space-3xl); }
   .shell-mark { font-family: var(--font-display); font-size: var(--text-lg); text-transform: uppercase; text-decoration-line: none; line-height: 1; }
   .shell-mark:hover { color: var(--color-accent); }
+  .shell-view { display: grid; gap: var(--space-2xs); min-width: 0; max-width: 100%; }
+  .shell-view > p { margin: 0; }
   .shell-links { display: flex; flex-wrap: wrap; gap: var(--space-2xs); margin: 0; padding: 0; list-style: none; }
   .shell-link {
     display: inline-flex; align-items: center; min-height: var(--control);
@@ -280,7 +282,7 @@ body::before {
   .shell-main summary { min-height: var(--control); padding-block: var(--space-xs); }
   .journal-jumps { padding: var(--space-sm); border: 1px solid var(--color-rule); background: var(--color-paper-2); }
   .journal-jumps a { display: inline-flex; align-items: center; min-height: var(--control); padding-inline: var(--space-xs); }
-  [id^="journal-"] { scroll-margin-top: 10rem; }
+  [id^="journal-"], #saved-evidence { scroll-margin-top: 10rem; }
   @media (max-width: 40rem) {
     .shell-bar__inner, .shell-main { padding-inline: var(--space-sm); }
     .rpg-card, .rpg-head, .home, .rpg-toolbar { padding: var(--space-md); }
