@@ -22,10 +22,10 @@ function renderAt(path: string): string {
 }
 
 describe("viewToggleApplies", () => {
-  it.each(["/map", "/journal", "/passport", "/map/anything", "/passport/x"])("is true on %s", (path) => {
+  it.each(["/map", "/journal", "/passport", "/quests", "/map/anything", "/passport/x"])("is true on %s", (path) => {
     expect(viewToggleApplies(path)).toBe(true);
   });
-  it.each(["/", "", "/quests", "/quests/some-id", "/organizer", "/connect", "/data", "/mapping", "/journals"])(
+  it.each(["/", "", "/quests/some-id", "/questsx", "/organizer", "/connect", "/data", "/mapping", "/journals"])(
     "is false on %s",
     (path) => {
       expect(viewToggleApplies(path)).toBe(false);
@@ -39,6 +39,8 @@ describe("viewToggleHint", () => {
     expect(viewToggleHint("/journal")?.href).toBe("#journal-quests");
     expect(viewToggleHint("/journal")?.text).toBe('Changes how your quests are shown in "My quests".');
     expect(viewToggleHint("/passport")?.href).toBe("#saved-evidence");
+    expect(viewToggleHint("/quests")).toEqual({ text: "Changes the opportunity list between cards and a table." });
+    expect(viewToggleHint("/quests/some-id")).toBeNull();
     expect(viewToggleHint("/organizer")).toBeNull();
   });
 });
@@ -57,10 +59,15 @@ describe("SiteNav view toggle", () => {
     expect(html).not.toContain('role="status"');
   });
 
-  it("does not render the toggle on the home page or the Quest Board", () => {
+  it("does not render the toggle on the home page or a quest detail page", () => {
     expect(renderAt("/")).not.toContain("Adventure View");
-    expect(renderAt("/quests")).not.toContain("Adventure View");
     expect(renderAt("/quests/some-id")).not.toContain("Adventure View");
+  });
+
+  it("renders the toggle on the Quest Board with its explanation", () => {
+    const html = renderAt("/quests");
+    expect(html).toContain("Classic View");
+    expect(html).toContain("Changes the opportunity list between cards and a table.");
   });
 
   it("renders the toggle on /journal with the explanation, the in-page link and a status region", () => {
