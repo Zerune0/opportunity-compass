@@ -13,6 +13,7 @@ import { planRoutes } from "@/lib/path";
 import { clearPlanSnapshots, latestPlanSnapshot, loadGrants, loadPlanSnapshots, loadProfile, pushPlanSnapshot } from "@/lib/store";
 import { nextSnapshot } from "./plan-snapshots";
 import { RecommendationReplay } from "./RecommendationReplay";
+import { LoadSampleAndOpenMap, MapStart } from "./SampleMapStart";
 import type { Opportunity, PlanSnapshot, ResourceGrant, RouteStep, StudentProfile } from "@/lib/types";
 
 /** Labels for alternative kinds beyond same_field / next_cycle; unknown kinds get a generic label. */
@@ -84,13 +85,9 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
     setSnapshots(syncSnapshots());
   }
 
-  if (!opportunity) return (
-    <div className="rpg-head crt">
-      <h1>Adventure Map</h1>
-      <p>Choose an opportunity to see its preparation routes.</p>
-      <Link className="rpg-button rpg-button--primary" href="/quests">Open Quest Board</Link>
-    </div>
-  );
+  if (!opportunity) return context
+    ? <MapStart hasProfile={Boolean(context.profile)} profileName={context.profile?.display_name} />
+    : <PixelLoader label="Loading profile…" />;
   const passport = `/passport?opp=${encodeURIComponent(opportunity.id)}`;
   const profile = context?.profile;
   const plan = context && profile ? planRoutes(profile, opportunity, { today: context.today, catalog }) : null;
@@ -118,7 +115,13 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
         </div>
       </header>
       {!context && <PixelLoader label="Loading profile…" />}
-      {context && !profile && <p><Link href={passport}>Create a profile or load a sample in the Skill Passport</Link> to see routes.</p>}
+      {context && !profile && (
+        <QuestCard>
+          <h2>No profile loaded</h2>
+          <p>Routes depend on a student profile. <Link href={passport}>Create your own in the Skill Passport</Link>, or try the sample.</p>
+          <LoadSampleAndOpenMap opportunityId={opportunity.id} />
+        </QuestCard>
+      )}
       {plan?.status === "blocked" && (
         <QuestCard><h2>Routes unavailable</h2>
           <ul className="rpg-list">{plan.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
