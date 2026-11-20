@@ -1,5 +1,5 @@
 /**
- * lib/metrics/reliability — 联合求解器与基线 A / B / C 在示例场景上的可靠性指标。
+ * lib/metrics/reliability — 联合求解器与基线 A / B / C / D 在示例场景上的可靠性指标。
  * 依据 docs/validation.md：「Track valid-route discovery, false feasibility, net coverage, fairness compliance,
  * optimality gap, coordination rounds and runtime.」
  *
@@ -28,10 +28,16 @@
  *     超出规模的记为「跳过（太大）」，**不记为 gap 0**。
  *   · compareBaselines：每行的 claimed_reachable 与验证器确认的可达对数之差 = 基线的「未被确认的声称」
  *     （方案不可执行时，验证器只确认原本就可达的 R0，新声称一律不算确认）。
- *     注意基线的定义本身就有不对称（CONTRACT 第 10 条）：B、C 从不撤回已有 grant，A / B / C 都不考虑公平底线。
+ *     注意基线的定义本身就有不对称（CONTRACT 第 10 条）：B、C 从不撤回已有 grant，A / B / C 都不考虑公平底线；
+ *     D（充分协调的分离式规划器）与联合求解一样考虑撤回规则、公平底线与其他主办方要求。
+ *   · D 与联合求解对照：两边都可执行时比较验证器重算的 N、L、成本（打平是预期中可能的结果）；
+ *     按目标顺序 D 比联合求解更好时单独记录（d_exceeds_joint），输出里醒目标出：N 大者胜；N 相同看 L 小者胜；
+ *     再相同看成本低者胜（成本差在 EPS 内视为相同）。
  * - 有效路线发现（valid-route discovery）只用基线对比行里验证器确认的数字作代理（按（学生, 机会）对计，
- *   不是学生端的准备路线）；协调轮数（coordination rounds）没有诚实的数字（基线 D 未实现，联合求解是一次集中搜索），
- *   输出 not_measured 与原因。运行时间依赖机器，不在这里测（纯函数不读时钟），由 run.metrics.ts 测量并标注。
+ *   不是学生端的准备路线）；协调轮数（coordination rounds）只对基线 D 测量（compareBaselines 的 D 行 coordination；
+ *   联合求解是一次集中搜索，没有轮数），汇总给出分布与未收敛数；D 行缺失的用例（输入不合法、出错）单独计为未测量。
+ *   注意 D 的协议里学生端第 1 轮就交出完整的条件性报告，轮数反映的是协议设计，不是协调难度。
+ *   运行时间依赖机器，不在这里测（纯函数不读时钟），由 run.metrics.ts 测量并标注。
  *
  * 隐私：输出只含场景 / 用例 id、状态、计数与金额、检查项名称（不含 detail 文字，detail 可能写到学生 id），
  * 不含任何学生的 id、显示名、学校、年龄，也不含 R0 / R1 / 分配 / 撤回的明细。
@@ -96,7 +102,7 @@ export interface MeasureOptions {
 /** 预算倍数（第一项是默认预算）。 */
 export const BUDGET_FACTORS: readonly number[] = [1, 0, 0.5, 1.5];
 
-export const BASELINE_IDS: readonly BaselineId[] = ['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'joint'];
+export const BASELINE_IDS: readonly BaselineId[] = ['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'D_coordinated', 'joint'];
 
 // ───────────────────────────── 输出类型（全部可 JSON 序列化） ─────────────────────────────
 
@@ -220,6 +226,31 @@ export interface BaselineCaseRow {
   repaired_reachable: number | null;
   /** 给了底线时：方案可执行且满足全部底线；没给底线时为 null。 */
   floors_met: boolean | null;
+  /** 只有 D 行：协调轮数、是否收敛、轮数上限；其他行为 null。 */
+  coordination: { rounds: number; converged: boolean; max_rounds: number } | null;
+}
+
+/** 一个用例里 D 与联合求解的对照（数字都取验证器的重算）。 */
+export interface DVsJoint {
+  joint_status: JointStatus;
+  d_executable: boolean;
+  /** D 可执行时的 N；否则 null。 */
+  d_N: number | null;
+  joint_N: number | null;
+  /** D / 联合求解可执行时的 L、成本；否则 null。 */
+  d_L: number | null;
+  joint_L: number | null;
+  d_cost_usd: number | null;
+  joint_cost_usd: number | null;
+  /** 两边都可执行，且 N、L、成本都相同。 */
+  tie: boolean;
+  /**
+   * 两边都可执行且按目标顺序 D 更好（N 更大；N 相同时 L 更小；N、L 都相同时成本更低）。
+   * 联合求解 OPTIMAL 时即联合求解器的 bug。
+   */
+  d_exceeds_joint: boolean;
+  /** D 的 notes 说它达到节点上限或触发了规模保护（可能因此不如联合求解）。 */
+  d_limited: boolean;
 }
 
 export interface CaseMetrics extends CaseSpec {
@@ -239,11 +270,59 @@ export interface CaseMetrics extends CaseSpec {
   /** 两次求解结果完全相同，且与 compareBaselines 的 joint 行方案相同；出错时为 null。 */
   deterministic: boolean | null;
   baselines: BaselineCaseRow[];
+  /** D 与联合求解的对照；没有 D 行或 joint 行（输入不合法、出错）时为 null。 */
+  d_vs_joint: DVsJoint | null;
 }
 
 export interface NotMeasured {
   status: 'not_measured';
   reason: string;
+}
+
+/** 基线 D 的协调轮数汇总。 */
+export interface CoordinationSummary {
+  status: 'measured';
+  definition: string;
+  note: string;
+  /** 有 D 行（有轮数）的用例数。 */
+  cases_measured: number;
+  /** 没有 D 行的用例数（输入不合法、出错），单独计为未测量。 */
+  cases_not_measured: number;
+  min: number | null;
+  max: number | null;
+  /** 各轮数取值的用例数（按轮数升序）。 */
+  distribution: { rounds: number; cases: number }[];
+  not_converged: number;
+}
+
+export interface DExceedsReproducer {
+  scenario_id: string;
+  case_id: string;
+  joint_status: JointStatus;
+  d_N: number;
+  joint_N: number;
+  d_L: number;
+  joint_L: number;
+  d_cost_usd: number;
+  joint_cost_usd: number;
+}
+
+/** 基线 D 与联合求解的对照汇总。 */
+export interface DVsJointSummary {
+  /** 两边都有行的用例数。 */
+  compared: number;
+  /** 两边都可执行的用例数。 */
+  both_executable: number;
+  /** N、L、成本都打平的用例数。 */
+  ties: number;
+  /** D 方案不可执行的用例数（预期 0）。 */
+  d_not_executable: number;
+  /** D 触发节点上限或规模保护的用例数。 */
+  d_limited: number;
+  /** 按目标顺序（N → L → 成本）D 的验证结果优于联合求解的用例数（预期 0；> 0 时联合求解器有问题）。 */
+  d_exceeds_joint: number;
+  reproducers: DExceedsReproducer[];
+  note: string;
 }
 
 export interface FalseFeasibilityReproducer {
@@ -349,7 +428,8 @@ export interface ReliabilitySummary {
     reproducers: GapReproducer[];
   };
   determinism: { cases: number; identical: number };
-  coordination_rounds: NotMeasured;
+  coordination_rounds: CoordinationSummary;
+  d_vs_joint: DVsJointSummary;
 }
 
 export interface ScenarioMetrics {
@@ -379,8 +459,14 @@ export interface ReliabilityReport {
 export const DISCLAIMER =
   'Sample / simulated scenarios: sample students, simulated support measures and budgets. This is evidence about algorithm correctness on these inputs only, not about real-world impact. Reachable does not mean admitted.';
 
-export const COORDINATION_NOT_MEASURED =
-  'Baseline D (coordinated separate planners exchanging information) is not implemented, and the joint solver is one centralized search, so there are no coordination rounds to count.';
+export const COORDINATION_DEFINITION =
+  'Coordination rounds are counted for baseline D only (coordinated separate planners): one round = the student-side planner evaluates the organizer-side proposal and reports, then the organizer side re-plans. D converges when a round leaves the proposal unchanged. The joint solver is one centralized search and has no rounds.';
+
+export const COORDINATION_NOTE =
+  'In D\'s protocol the student-side planner hands over its complete conditional report in round 1, so D usually settles in round 2 (the confirmation round). The round count reflects this protocol design, not how hard coordination is.';
+
+export const D_TIE_NOTE =
+  'A tie between baseline D and the joint solver is an expected possible outcome. It is neither an advantage nor a disadvantage of the joint solver; it is only what happens on these sample scenarios.';
 
 export const RUNTIME_NOT_MEASURED_HERE =
   'Wall-clock runtime is machine-dependent and is not computed by these pure functions; the metrics runner measures and labels it separately.';
@@ -389,10 +475,10 @@ export const VALID_ROUTE_DEFINITION =
   'Proxy: (student, opportunity) pairs that each approach\'s plan makes reachable, as confirmed by the independent verifier (non-executable plans confirm only the pairs already reachable before any plan). These are coverage pairs in the organizer scenarios, not student-side preparation routes.';
 
 export const BASELINE_DEFINITION_NOTE =
-  'By definition (CONTRACT section 10, lib/joint/baselines.ts), B and C never revoke existing grants, and A, B and C do not take fairness floors into account.';
+  'By definition (CONTRACT section 10, lib/joint/baselines.ts), B and C never revoke existing grants, and A, B and C do not take fairness floors into account. D (coordinated separate planners) follows the same revocation rules as the joint solver and does take fairness floors and the other organizer requirements into account.';
 
 export const FAIRNESS_BASELINE_NOTE =
-  'A, B and C do not take fairness floors into account by definition, so their floor results follow from how the baselines are defined; they are not a measured fairness win for the joint solver.';
+  'A, B and C do not take fairness floors into account by definition, so their floor results follow from how the baselines are defined; they are not a measured fairness win for the joint solver. D does take fairness floors into account, so its floor results are on the same terms as the joint solver\'s.';
 
 export const SHARED_MODEL_NOTE =
   'The verifier, the solver and the exhaustive search all use the same student-side model (analyzeReachability, checkEligibility). These metrics therefore cannot detect an error in that shared model; they test the search and the plan-level constraints (capacity, budget, mutual exclusions, prerequisites, revocations, losses and fairness floors).';
@@ -411,6 +497,9 @@ export const DEFINITIONS: Record<string, string> = {
     'Exhaustive best N minus the verifier\'s recomputed N of the solver\'s plan, on cases small enough for the exhaustive reference search. Objective levels 1-6 (N, L, total cost, allocation count, measure count, revocation count) are compared; the final lexicographic tie-break is not compared. Skipped cases are reported as skipped, never as gap 0.',
   fairness_compliance: 'Of the cases run with the scenario\'s suggested fairness floors, how many plans meet every floor (verifier recomputation).',
   determinism: 'Solving the same case twice gives identical results, and the baseline comparison\'s joint row has the same plan.',
+  coordination_rounds: COORDINATION_DEFINITION,
+  d_vs_joint:
+    'For each case, baseline D\'s plan and the joint solver\'s plan are both recomputed by the verifier. A tie means both are executable and N, L and total cost are equal. D doing better than the joint solver on N, L or cost (objective order: larger N, then smaller L, then lower cost) would point to a problem in the joint solver and is listed separately.',
 };
 
 // ───────────────────────────── 工具 ─────────────────────────────
@@ -615,6 +704,42 @@ function baselineRow(row: BaselineRow, r0: number, floorsGiven: boolean): Baseli
     verified: v ? { R1: v.R1_count, G: v.G, L: v.L, N: v.N, cost_usd: v.total_usd } : null,
     repaired_reachable: row.repaired ? row.repaired.R1_count : null,
     floors_met: floorsGiven ? v !== null && row.soft_requirements_met === true : null,
+    coordination: row.coordination ? { ...row.coordination } : null,
+  };
+}
+
+/**
+ * 按联合求解的目标顺序比较两个验证器重算的结果：N 大者胜；N 相同看 L 小者胜；再相同看成本低者胜
+ * （成本差在 EPS 内视为相同）。a 严格更好时返回 true。
+ */
+export function betterByObjective(
+  a: { N: number; L: number; total_usd: number },
+  b: { N: number; L: number; total_usd: number },
+): boolean {
+  if (a.N !== b.N) return a.N > b.N;
+  if (a.L !== b.L) return a.L < b.L;
+  return a.total_usd < b.total_usd - EPS;
+}
+
+function dVsJointOf(status: JointStatus, rows: readonly BaselineRow[], notes: readonly string[]): DVsJoint | null {
+  const d = rows.find((r) => r.id === 'D_coordinated');
+  const j = rows.find((r) => r.id === 'joint');
+  if (!d || !j) return null;
+  const dv = d.verified;
+  const jv = j.verified;
+  const both = dv !== null && jv !== null;
+  return {
+    joint_status: status,
+    d_executable: dv !== null,
+    d_N: dv ? dv.N : null,
+    joint_N: jv ? jv.N : null,
+    d_L: dv ? dv.L : null,
+    joint_L: jv ? jv.L : null,
+    d_cost_usd: dv ? dv.total_usd : null,
+    joint_cost_usd: jv ? jv.total_usd : null,
+    tie: both && dv.N === jv.N && dv.L === jv.L && Math.abs(dv.total_usd - jv.total_usd) <= EPS,
+    d_exceeds_joint: both && betterByObjective(dv, jv),
+    d_limited: notes.some((n) => n.startsWith('Baseline D') && /node limit|may be worse/.test(n)),
   };
 }
 
@@ -633,6 +758,7 @@ function emptyCase(scenarioId: string, spec: CaseSpec, error: string | null, sta
     optimality: { main: { checked: false, reason: error ? 'error' : 'not_applicable' }, conditional: null },
     deterministic: null,
     baselines: [],
+    d_vs_joint: null,
   };
 }
 
@@ -761,6 +887,7 @@ export function measureCase(scenarioId: string, c: MetricsCase, crossCheck: bool
       optimality,
       deterministic: sameOnRepeat && sameAsBaselineJoint,
       baselines,
+      d_vs_joint: dVsJointOf(J.status, comparison.rows, comparison.notes),
     };
   } catch {
     return emptyCase(scenarioId, c.spec, `exception during ${stage}`, null);
@@ -788,6 +915,7 @@ function byBaseline<T>(make: () => T): Record<BaselineId, T> {
     A_eligibility_only: make(),
     B_student_side: make(),
     C_organizer_side: make(),
+    D_coordinated: make(),
     joint: make(),
   };
 }
@@ -847,6 +975,20 @@ export function summarize(cases: readonly CaseMetrics[]): ReliabilitySummary {
     objective_level_mismatches: 0,
     max_gap: null,
     reproducers: [],
+  };
+  const rounds = new Map<number, number>();
+  let roundsMeasured = 0;
+  let roundsNotMeasured = 0;
+  let notConverged = 0;
+  const dj: DVsJointSummary = {
+    compared: 0,
+    both_executable: 0,
+    ties: 0,
+    d_not_executable: 0,
+    d_limited: 0,
+    d_exceeds_joint: 0,
+    reproducers: [],
+    note: D_TIE_NOTE,
   };
   let errors = 0;
   let defaultCases = 0;
@@ -946,6 +1088,37 @@ export function summarize(cases: readonly CaseMetrics[]): ReliabilitySummary {
     addGap(c, 'main', c.optimality.main);
     addGap(c, 'conditional', c.optimality.conditional);
 
+    const dRow = c.baselines.find((r) => r.id === 'D_coordinated');
+    if (dRow && dRow.coordination) {
+      roundsMeasured++;
+      rounds.set(dRow.coordination.rounds, (rounds.get(dRow.coordination.rounds) ?? 0) + 1);
+      if (!dRow.coordination.converged) notConverged++;
+    } else {
+      roundsNotMeasured++;
+    }
+    const v = c.d_vs_joint ?? null;
+    if (v) {
+      dj.compared++;
+      if (v.d_executable && v.joint_N !== null) dj.both_executable++;
+      if (v.tie) dj.ties++;
+      if (!v.d_executable) dj.d_not_executable++;
+      if (v.d_limited) dj.d_limited++;
+      if (v.d_exceeds_joint) {
+        dj.d_exceeds_joint++;
+        dj.reproducers.push({
+          scenario_id: c.scenario_id,
+          case_id: c.case_id,
+          joint_status: v.joint_status,
+          d_N: v.d_N ?? 0,
+          joint_N: v.joint_N ?? 0,
+          d_L: v.d_L ?? 0,
+          joint_L: v.joint_L ?? 0,
+          d_cost_usd: v.d_cost_usd ?? 0,
+          joint_cost_usd: v.joint_cost_usd ?? 0,
+        });
+      }
+    }
+
     if (c.deterministic !== null) {
       detCases++;
       if (c.deterministic) detSame++;
@@ -971,7 +1144,18 @@ export function summarize(cases: readonly CaseMetrics[]): ReliabilitySummary {
     fairness_compliance: fairness,
     optimality_gap: gap,
     determinism: { cases: detCases, identical: detSame },
-    coordination_rounds: { status: 'not_measured', reason: COORDINATION_NOT_MEASURED },
+    coordination_rounds: {
+      status: 'measured',
+      definition: COORDINATION_DEFINITION,
+      note: COORDINATION_NOTE,
+      cases_measured: roundsMeasured,
+      cases_not_measured: roundsNotMeasured,
+      min: rounds.size > 0 ? Math.min(...rounds.keys()) : null,
+      max: rounds.size > 0 ? Math.max(...rounds.keys()) : null,
+      distribution: [...rounds.entries()].sort((a, b) => a[0] - b[0]).map(([r, n]) => ({ rounds: r, cases: n })),
+      not_converged: notConverged,
+    },
+    d_vs_joint: dj,
   };
 }
 
@@ -1035,10 +1219,7 @@ export function buildReport(scenarios: readonly ScenarioMetrics[], options: Meas
     exhaustive_limits: { ...(options.exhaustiveLimits ?? DEFAULT_EXHAUSTIVE_LIMITS) },
     scenarios: [...scenarios],
     totals: summarize(scenarios.flatMap((s) => s.cases)),
-    not_measured: [
-      { metric: 'coordination_rounds', reason: COORDINATION_NOT_MEASURED },
-      { metric: 'runtime', reason: RUNTIME_NOT_MEASURED_HERE },
-    ],
+    not_measured: [{ metric: 'runtime', reason: RUNTIME_NOT_MEASURED_HERE }],
     definitions: { ...DEFINITIONS, valid_route_discovery: VALID_ROUTE_DEFINITION },
   };
 }

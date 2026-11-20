@@ -12,7 +12,9 @@ import {
   deviceLoanScenario,
   venueTradeoffScenario,
 } from './scenarios';
+import { compareBaselines } from './baselines';
 import {
+  baselinesView,
   defaultWhatIfInput,
   INFEASIBLE_UNCOVERED_CAUSE,
   MODE_EXPLANATIONS,
@@ -431,18 +433,22 @@ describe('runWhatIf：设备借用场景的公平底线', () => {
 });
 
 describe('runWhatIf：基线对比表格', () => {
-  it('设备借用默认：4 行，声称 / 复核 / 截断数字', () => {
+  it('设备借用默认：5 行（含 D），声称 / 复核 / 截断数字', () => {
     const v = runWhatIf(S, dlInput());
     const rows = v.baselines!.rows;
-    expect(rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'joint']);
-    expect(rows.map((r) => r.claimed_reachable)).toEqual([10, 10, 7, 5]);
-    expect(rows.map((r) => r.executable)).toEqual([true, false, true, true]);
-    expect(rows.map((r) => r.verified?.G ?? null)).toEqual([0, null, 5, 5]);
+    expect(rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'D_coordinated', 'joint']);
+    expect(rows.map((r) => r.claimed_reachable)).toEqual([10, 10, 7, 5, 5]);
+    expect(rows.map((r) => r.executable)).toEqual([true, false, true, true, true]);
+    expect(rows.map((r) => r.verified?.G ?? null)).toEqual([0, null, 5, 5, 5]);
     expect(rows[1].failed_checks).toEqual(['Within capacity', 'Within budget']);
     expect(rows[1].repaired).toMatchObject({ G: 5, total_usd: 350 });
     expect(rows[2].verified?.total_usd).toBe(350);
     expect(rows[3].verified?.total_usd).toBe(200);
-    expect(rows.map((r) => r.soft_label)).toEqual(['No requirement set', 'No requirement set', 'No requirement set', 'No requirement set']);
+    expect(rows[4].verified?.total_usd).toBe(200);
+    expect(rows.map((r) => r.soft_label)).toEqual(Array(5).fill('No requirement set'));
+    // 只有 D 行带协调轮数
+    expect(rows.map((r) => r.coordination_label)).toEqual([null, null, null, '2 rounds, converged', null]);
+    expect(rows[3].coordination).toEqual({ rounds: 2, converged: true, max_rounds: 50 });
     expect(v.baselines!.notes.join('')).toContain('Baseline D');
     // 视图里的基线行不带方案（方案里有学生 id）
     for (const r of rows) expect(Object.keys(r)).not.toContain('plan');
@@ -450,13 +456,50 @@ describe('runWhatIf：基线对比表格', () => {
 
   it('带底线时：不可执行的行写「方案不可执行，不评估」', () => {
     const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME] }), DL_FLOORS);
-    expect(v.baselines!.rows.map((r) => r.soft_label)).toEqual(['Not met', 'Plan not executable; not evaluated', 'Not met', 'Met']);
+    expect(v.baselines!.rows.map((r) => r.soft_label)).toEqual(['Not met', 'Plan not executable; not evaluated', 'Not met', 'Met', 'Met']);
   });
 
   it('输入不合法（负预算）：基线 rows 为空，notes 写明原因', () => {
     const v = runWhatIf(S, dlInput({ budget: -1 }));
     expect(v.baselines?.rows).toEqual([]);
     expect(v.baselines?.notes[0]).toContain('no baseline comparison was run');
+  });
+});
+
+describe('基线表：D 未证明最优的标签与打平标志', () => {
+  it('默认输入：D 标签不带 optimality not proven，D 与联合求解打平 → d_ties_joint true', () => {
+    for (const entry of SCENARIOS) {
+      const b = runWhatIf(entry.scenario, defaultWhatIfInput(entry.scenario)).baselines!;
+      const d = b.rows.find((r) => r.id === 'D_coordinated')!;
+      expect(d.coordination_label).toBe('2 rounds, converged');
+      expect(d.optimality_not_proven).toBe(false);
+      expect(b.d_ties_joint).toBe(true);
+      for (const r of b.rows) if (r.id !== 'D_coordinated') expect(r.optimality_not_proven).toBe(false);
+    }
+  });
+
+  it('max_search_nodes = 1：D 触发节点上限 → 标签追加 "; optimality not proven"', () => {
+    const cmp = compareBaselines(S, { max_search_nodes: 1 });
+    expect(cmp.notes.some((n) => n.startsWith('Baseline D') && n.includes('node limit'))).toBe(true);
+    const b = baselinesView(cmp, S);
+    const d = b.rows.find((r) => r.id === 'D_coordinated')!;
+    expect(d.coordination_label).toMatch(/, converged; optimality not proven$/);
+    expect(d.optimality_not_proven).toBe(true);
+    // 其他行不受影响
+    for (const r of b.rows) if (r.id !== 'D_coordinated') expect([r.coordination_label, r.optimality_not_proven]).toEqual([null, false]);
+  });
+
+  it('max_search_nodes = 20：D 与联合求解的验证结果不同 → d_ties_joint false', () => {
+    const b = baselinesView(compareBaselines(S, { max_search_nodes: 20 }), S);
+    const d = b.rows.find((r) => r.id === 'D_coordinated')!;
+    const j = b.rows.find((r) => r.id === 'joint')!;
+    expect(d.executable && j.executable).toBe(true);
+    expect([d.verified!.G, d.verified!.L, d.verified!.total_usd]).not.toEqual([j.verified!.G, j.verified!.L, j.verified!.total_usd]);
+    expect(b.d_ties_joint).toBe(false);
+  });
+
+  it('输入不合法（没有基线行）：d_ties_joint 为 null', () => {
+    expect(runWhatIf(S, dlInput({ budget: -1 })).baselines!.d_ties_joint).toBeNull();
   });
 });
 
@@ -724,6 +767,7 @@ describe('runWhatIf：基线表同口径的复核后可达（必须修 1）', ()
     expect(rows.map((r) => [r.claimed_reachable, r.verified?.R1_count ?? null, r.repaired?.R1_count ?? null])).toEqual([
       [18, 3, null],
       [18, null, 5],
+      [5, 5, null],
       [5, 5, null],
       [5, 5, null],
     ]);

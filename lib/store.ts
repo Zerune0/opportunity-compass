@@ -321,7 +321,7 @@ export function grantsByIntervention(interventionId: string): ResourceGrant[] {
 // ═════════════════════════════ 第二阶段新增 ═════════════════════════════
 //
 // 约定（与上面一致）：SSR 安全、JSON 损坏或形状不对回退默认值、列表逐条过滤非法条目、不抛异常。
-// 日期一律由调用方传入，存储层不读系统时钟（id 生成除外，见 newId）。
+// 日期一律由调用方传入，存储层不读系统时钟（newId 也不读时钟）。
 
 // ───────────── 内部工具 ─────────────
 
@@ -340,8 +340,26 @@ function readList<T>(key: StoreKey, guard: (v: unknown) => v is T): T[] {
 
 let idCounter = 0;
 
+/** n 字节随机数的十六进制：优先 crypto.getRandomValues；不可用时用 Math.random。不读系统时钟。 */
+function randomHex(bytes: number): string {
+  try {
+    const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+    if (c && typeof c.getRandomValues === 'function') {
+      const buf = new Uint8Array(bytes);
+      c.getRandomValues(buf);
+      return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {
+    // 回退到 Math.random
+  }
+  let out = '';
+  for (let i = 0; i < bytes; i += 1) out += Math.floor(Math.random() * 256).toString(16).padStart(2, '0');
+  return out;
+}
+
 /**
- * 生成 id：优先 crypto.randomUUID；不可用时回退到「时间戳 + 计数」。
+ * 生成 id：优先 crypto.randomUUID；不可用时（例如局域网 http 演示的非安全上下文）回退到
+ * 「16 字节随机十六进制 + 进程内计数」。回退不读系统时钟——分享句柄等 id 不能泄露生成时间。
  * 存储层允许非确定性（判断逻辑仍是纯函数）。
  */
 function newId(prefix: string): string {
@@ -352,7 +370,7 @@ function newId(prefix: string): string {
     // 回退
   }
   idCounter += 1;
-  return `${prefix}-${Date.now().toString(36)}-${idCounter.toString(36)}`;
+  return `${prefix}-${randomHex(16)}-${idCounter.toString(36)}`;
 }
 
 /**
@@ -898,7 +916,7 @@ function isShareSettings(v: unknown): v is ShareSettings {
   );
 }
 
-/** 生成一个不透明的分享句柄：`share-<uuid>`（没有 crypto.randomUUID 时回退到时间戳 + 计数），不含档案 id 或姓名。 */
+/** 生成一个不透明的分享句柄：`share-<uuid>`（没有 crypto.randomUUID 时回退到随机十六进制 + 计数，不含时间），不含档案 id 或姓名。 */
 function newShareHandle(): string {
   return newId('share');
 }

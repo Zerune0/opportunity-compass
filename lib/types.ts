@@ -825,7 +825,7 @@ export interface RouteDiff {
  *   再字典序最小。因此选中的每项措施要么有分配，要么必须启用，要么是这两类措施的（传递）前置依赖。
  * - 额度非负时 grant 只会帮忙：不撤回任何已有 grant 时 L 恒为 0；L > 0 只可能来自撤回。
  * - 求解器不会返回「OPTIMAL 但复核不通过」：内部复核不通过时按 UNSUPPORTED_INPUT 处理（见 CONTRACT 第 6 条）。
- * - 基线对比（BaselineComparison）：A 只看资格 / B 学生端 / C 机构端 / joint，同一场景、同一选项、同一验证器。
+ * - 基线对比（BaselineComparison）：A 只看资格 / B 学生端 / C 机构端 / D 充分协调的分离式 / joint，同一场景、同一选项、同一验证器。
  * - 所有结果都是模拟，不是真实影响；可达 ≠ 录取。
  */
 
@@ -1268,10 +1268,10 @@ export interface VerifyResult {
 // ───────────────────────────── 基线对比（lib/joint/baselines.ts）─────────────────────────────
 
 /**
- * 基线：A 只看资格；B 学生端约束规划器；C 机构端干预规划器；joint 联合求解。
- * 说明书中的基线 D（充分协调的分离式规划器）未实现。
+ * 基线：A 只看资格；B 学生端约束规划器；C 机构端干预规划器；D 充分协调的分离式规划器
+ * （学生端与机构端两个分开的规划器交换完整信息、反复协调，lib/joint/baseline-d.ts）；joint 联合求解。
  */
-export type BaselineId = 'A_eligibility_only' | 'B_student_side' | 'C_organizer_side' | 'joint';
+export type BaselineId = 'A_eligibility_only' | 'B_student_side' | 'C_organizer_side' | 'D_coordinated' | 'joint';
 
 /** 独立重算的方案指标（来自验证器的重算，不信任方案自带的数字）。 */
 export interface BaselineMetrics {
@@ -1311,11 +1311,15 @@ export interface BaselineRow {
    * 原方案可执行、或该做法没有截断规则（A、joint）时为 null。
    */
   repaired: (BaselineMetrics & { note: string }) | null;
+  /**
+   * 只有 D 行填：协调轮数（学生端评估提议的次数）、是否在上限内达到不动点、轮数上限。其他行缺省或为 null。
+   */
+  coordination?: { rounds: number; converged: boolean; max_rounds: number } | null;
 }
 
 /**
  * compareBaselines(scenario, options?) 的返回：`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`。
- * rows 固定顺序 A、B、C、joint；输入不合法时 rows 为空、notes 写明原因。全部为模拟结果。
+ * rows 固定顺序 A、B、C、D、joint；输入不合法时 rows 为空、notes 写明原因。全部为模拟结果。
  */
 export interface BaselineComparison {
   rows: BaselineRow[];

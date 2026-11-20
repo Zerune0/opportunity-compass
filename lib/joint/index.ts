@@ -15,7 +15,8 @@
  * - verifyPlan(scenario, plan, options?)（./verify）：独立复核候选方案（含 revocation、fairness 检查），
  *   不 import 求解器与基线模块，不依赖求解器自己的可行性标记。
  * - compareBaselines(scenario, options?)（./baselines）：A 基础资格筛选 / B 学生端约束规划器 / C 机构端干预规划器 /
- *   joint 联合求解四行对比，同一场景、同一选项、同一验证器复核；说明书中的基线 D 未实现。
+ *   D 充分协调的分离式规划器（./baseline-d，学生端与机构端两个角色反复协调，不调用 solveJoint）/
+ *   joint 联合求解五行对比，同一场景、同一选项、同一验证器复核。
  *
  * 纯函数、确定性、无 IO、不调 AI。所有结果均为模拟，不是真实影响；可达 ≠ 录取。
  */

@@ -19,6 +19,8 @@
  *    同一优先级按 opp.preparation 原顺序。依赖不存在或依赖自身 → 忽略该依赖并提醒；
  *    依赖成环 → 卡住时只强行放入环上原顺序最靠前的一个步骤，然后继续正常排序（不在环上的依赖仍被遵守），并提醒。
  * 5. 合计 / 周数 / 是否来得及 / 预算提醒见 buildRoute。来得及 ≠ 会被录取。
+ *    是否来得及按 today 到截止日的天数差：< 0 → false（截止已过）；= 0（截止就是今天）→ null（截止的具体时刻和时区未知，
+ *    无法判断），并加 DEADLINE_TODAY_WARNING；≥ 1 → 合计小时 ≤ 每周小时 × 天数 / 7。
  * 6. 新手竞赛路线 competition（第四阶段；只在传了 options.catalog 时考虑，blocked 时不生成；排在其他路线之后，最多一条）：
  *    - 候选来自 lib/match/evidence-building.ts 的 findEvidenceBuildingCandidates（已核实目录、非 user_posted、
  *      非目标自身、截止没过、资格不是 not_eligible、领域标签有交集并且能产出目标还缺的证据），且类别为 hackathon / competition；
@@ -50,6 +52,7 @@
  */
 import { EVIDENCE_KIND_ZH, checkEligibility } from '../eligibility';
 import { plural } from '../format';
+import { parseSourceText } from '../source-text';
 import { dayNumber, daysBetween, parseISODate } from '../eligibility/dates';
 import { exactAgeOnReference } from '../eligibility/age';
 import { belowMinimumLater } from '../requirement-timing';
@@ -70,6 +73,7 @@ import type {
   StudentProfile,
 } from '../types';
 import {
+  DEADLINE_TODAY_WARNING,
   FEE_UNKNOWN_WARNING,
   PARTNER_STEP_ID,
   PRACTICE_KINDS,
@@ -191,12 +195,18 @@ export const TEAM_RELATION = 'Suggested by our team; not tied to a requirement s
 const TEAM_SOURCE_RE = /\bteam\b|not an official/i;
 
 /**
- * 准备项的性质：required_for_application === true、source_text 是非空字符串、且 source_text 不含团队建议的写法
- * （"team" 一词或 "not an official"）→ official_requirement；其余一律 team_suggestion（判别不了时宁可少标官方）。
+ * 准备项的性质（按顺序判，判别不了时宁可少标官方）：
+ * 1. required_for_application !== true → team_suggestion（即使 source_text 以 `Official excerpt:` 开头）。
+ * 2. source_text 以 `Official excerpt:` 开头且引号内的官网原文非空（见 lib/source-text.ts）→ official_requirement：
+ *    数据作者明确标了官网原文，后面我们自己的核实说明里出现 "team" 等字样不影响。
+ * 3. 否则 source_text 是非空字符串、且不含团队建议的写法（"team" 一词或 "not an official"）→ official_requirement；
+ *    其余（没有原文、原文为空、原文含团队建议写法）→ team_suggestion。
  */
 export function prepOfficial(prep: PrepItem): Exclude<RouteStepOfficial, 'application_step'> {
   if (prep.required_for_application !== true) return 'team_suggestion';
   const src = prep.source_text;
+  const parsed = parseSourceText(src);
+  if (parsed.marked_official && parsed.excerpt != null) return 'official_requirement';
   if (typeof src !== 'string' || src.trim() === '') return 'team_suggestion';
   return TEAM_SOURCE_RE.test(src) ? 'team_suggestion' : 'official_requirement';
 }
@@ -262,7 +272,12 @@ function stepFromPrep(profile: StudentProfile, opp: Opportunity, prep: PrepItem,
   const skipped = covering.length > 0;
   const official = prepOfficial(prep);
   const descParts = [prepDescriptionLead(prep, official)];
-  if (prep.source_text) descParts.push(` Source: ${prep.source_text}`);
+  if (prep.source_text) {
+    // 官方要求且用 `Official excerpt:` 标了原文：只引引号内的官网原文，不把我们的核实说明一起当原文引。
+    const parsed = parseSourceText(prep.source_text);
+    const quoted = official === 'official_requirement' && parsed.marked_official && parsed.excerpt != null;
+    descParts.push(quoted ? ` Source: "${parsed.excerpt}"` : ` Source: ${prep.source_text}`);
+  }
   return {
     id: prep.id,
     title: prep.title,
@@ -411,6 +426,8 @@ interface Feasibility {
   value: boolean | null;
   missing: string[];
   deadlinePassed: boolean;
+  /** today 等于截止日（天数差 0）：截止的具体时刻和时区未知 → value 为 null。 */
+  deadlineToday: boolean;
   /** 到截止日前大约能投入的小时数（可判断时）。 */
   capacityHours: number | null;
   daysLeft: number | null;
@@ -437,19 +454,22 @@ function judgeFeasibility(totalHours: number, hours: HoursState, opp: Opportunit
   // 截止日已过与每周可用小时无关：日期都能解析时先判断。
   if (deadline != null && now != null) {
     const daysLeft = daysBetween(now, deadline);
-    if (daysLeft < 0) return { value: false, missing: [], deadlinePassed: true, capacityHours: 0, daysLeft };
+    if (daysLeft < 0) return { value: false, missing: [], deadlinePassed: true, deadlineToday: false, capacityHours: 0, daysLeft };
+    // 截止就是今天：不知道具体截止时刻和时区，不能按「还剩 1 天」算 → 无法判断（null），不报 true。
+    if (daysLeft === 0) return { value: null, missing: [], deadlinePassed: false, deadlineToday: true, capacityHours: null, daysLeft };
   }
 
   if (hours.kind === 'missing') missing.push('your profile has no weekly available hours yet');
   else if (hours.kind === 'invalid') missing.push('the weekly available hours in your profile are invalid (must be more than 0)');
 
-  const none: Feasibility = { value: null, missing, deadlinePassed: false, capacityHours: null, daysLeft: null };
+  const none: Feasibility = { value: null, missing, deadlinePassed: false, deadlineToday: false, capacityHours: null, daysLeft: null };
   if (missing.length > 0 || deadline == null || now == null || hours.kind !== 'ok') return none;
 
   const hpw = hours.value;
   const days = daysBetween(now, deadline);
-  const capacity = (hpw * Math.max(days, 1)) / 7;
-  return { value: totalHours <= capacity, missing, deadlinePassed: false, capacityHours: capacity, daysLeft: days };
+  // 到这里 days ≥ 1（< 0 与 = 0 已在上面返回）。
+  const capacity = (hpw * days) / 7;
+  return { value: totalHours <= capacity, missing, deadlinePassed: false, deadlineToday: false, capacityHours: capacity, daysLeft: days };
 }
 
 // ───────────────────────────── 路线 ─────────────────────────────
@@ -537,6 +557,8 @@ function buildRoute(type: RouteType, ordered: BaseStep[], cyclic: boolean, ctx: 
         `At ${plural(hpw as number, 'hour')} per week, you can put in about ${plural(round2(feas.capacityHours as number), 'hour')} before the deadline ${opp.deadline} (${plural(feas.daysLeft as number, 'day')} left). This route needs ${plural(total_hours, 'hour')}, so you may not make it. Doing only the required items (and the steps they depend on) needs ${plural(ctx.requiredOnlyHours, 'hour')}, for reference; you decide which steps to cut.`,
       );
     }
+  } else if (feas.deadlineToday) {
+    warnings.push(DEADLINE_TODAY_WARNING);
   } else if (feas.value === null) {
     warnings.push(`We can't tell yet if you can finish before the deadline: ${feas.missing.join('; ')}.`);
   }

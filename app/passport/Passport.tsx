@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { QuestCard, RpgButton, StatusTag } from "@/components/rpg";
+import { renderedView, useViewPreference } from "@/components/rpg/view-preference";
 import {
   addEvidence, loadJournal, loadProfile, loadSavedOpportunityIds, loadUserPostedOpportunities, removeEvidence, saveProfile,
 } from "@/lib/store";
 import type { EvidenceItem, StudentProfile } from "@/lib/types";
-import { EvidenceCard } from "./EvidenceCard";
 import { catalog as opportunities, isHttpUrl, kinds, localToday, parseSkills, toStudentStatus, type LinkContext } from "./evidence-shared";
 import { ProfileEditor } from "./ProfileEditor";
+import { SavedEvidence } from "./SavedEvidence";
 import { SampleProfiles } from "./SampleProfiles";
 import { StatusHelp } from "./StatusHelp";
 
@@ -23,6 +24,8 @@ function readLinkContext(profile: StudentProfile | null): LinkContext {
 }
 
 export function Passport({ opportunityId }: { opportunityId?: string }) {
+  // Read before the profile effect below, so the view is known by the time the evidence appears.
+  const [view, , viewReady] = useViewPreference();
   const [profile, setProfile] = useState<StudentProfile | null>();
   const [message, setMessage] = useState("");
   const [skillsInput, setSkillsInput] = useState("");
@@ -155,13 +158,7 @@ export function Passport({ opportunityId }: { opportunityId?: string }) {
           <p role="status">{message}</p>
         </form>
       </QuestCard>
-      <section className="rpg-stack" aria-label="Saved evidence">
-        <h2>Saved evidence</h2>
-        <div className="rpg-route-grid">
-        {profile !== undefined && !profile?.evidence.length && <p>No evidence saved yet.</p>}
-        {profile?.evidence.map((item) => <EvidenceCard key={item.id} item={item} ctx={linkContext} onChange={refresh} onDelete={deleteEvidence} />)}
-        </div>
-      </section>
+      <SavedEvidence profile={profile} ctx={linkContext} view={renderedView(view, viewReady)} onChange={refresh} onDelete={deleteEvidence} />
     </div>
   );
 }

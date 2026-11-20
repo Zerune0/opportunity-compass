@@ -1,21 +1,23 @@
 /**
  * compareBaselines(scenario, options?) — 基线对比（CONTRACT.md「联合求解模型」第 10 条，逐条实现）。
  *
- * 四行，固定顺序：
+ * 五行，固定顺序 A、B、C、D、joint：
  * - A `A_eligibility_only`「基础资格筛选」：只调用 checkEligibility，方案为空方案。
  * - B `B_student_side`「学生端约束规划器」：每个（学生, 机会）对单独找最小的措施子集，不协调名额 / 预算 / 互斥；
  *   原方案不可执行时按（学生编号, 机会编号）升序先到先得截断。
  * - C `C_organizer_side`「机构端干预规划器」：按措施 id 升序、按障碍类型贪心分配名额与预算，
  *   不计算学生是否因此完整可达；原方案不可执行时同样先到先得截断。
+ * - D `D_coordinated`「充分协调的分离式规划器」：学生端与机构端两个分开的角色交换完整信息、反复协调到不动点
+ *   （实现与协议见 ./baseline-d.ts；不调用 solveJoint）。D 的方案只用已批准措施、遵守全部硬约束，没有截断规则（repaired 恒为 null）。
  * - joint `joint`「联合求解」：solveJoint 的主方案（INFEASIBLE 时为空主方案）。
  *
  * 每一行都用同一个验证器（./verify 的 verifyAndMeasure，与 verifyPlan 同一实现）、同一份复核选项重新复核；
  * `verified` / `repaired` 的数字一律取验证器的独立重算，不用方案自带或基线自己算的数字。
  * 「可执行」= 复核中除 organizer_requirements、fairness 以外的检查全部通过。
  * 基线的顺序规则（按编号升序、先到先得）是确定性的简化，不代表任何真实系统，也不代表谁更需要。
- * 说明书中的基线 D（充分协调的分离式规划器）未实现。
  *
- * 依赖方向：本文件 import ./solve（joint 行）与 ./verify；./verify、./exhaustive 不得 import 本文件。
+ * 依赖方向：本文件 import ./solve（joint 行）、./baseline-d（D 行）与 ./verify；./verify、./exhaustive、./baseline-d 不得 import 本文件，
+ * ./baseline-d 不得 import ./solve。
  * 纯函数：确定性、不读系统时钟、无随机、无 IO、不调 AI；不修改输入。所有结果都是模拟，可达 ≠ 录取。
  */
 import { SUPPORT_RESOLVES } from '../types';
@@ -36,6 +38,7 @@ import type {
 import { solveJoint } from './solve';
 import { plural } from '../format';
 import { createJointEvaluator, verifyAndMeasure } from './verify';
+import { planCoordinated } from './baseline-d';
 import type { JointEvaluator, RecomputedMetrics } from './verify';
 
 const EPS = 1e-6;
@@ -49,6 +52,7 @@ export const BASELINE_LABELS = {
   A_eligibility_only: 'Eligibility filter only',
   B_student_side: 'Student-side planner',
   C_organizer_side: 'Organizer-side planner',
+  D_coordinated: 'Coordinated separate planners',
   joint: 'Joint solver',
 } as const;
 
@@ -59,13 +63,16 @@ export const BASELINE_DESCRIPTIONS = {
     'Plans support measures for each student separately and can find a combination that works for that student, but assumes every resource belongs to that student alone and does not coordinate capacity, budget or mutual exclusions. By rule it never revokes an existing resource (in any mode), so part of its gap to the joint solver in trade-off mode comes from this.',
   C_organizer_side:
     'Allocates measure capacity and budget by barrier type and respects capacity and budget, but does not jointly check eligibility, preparation routes or other conditions. Removing one barrier does not mean the student can attend. By rule it never revokes an existing resource (in any mode), so part of its gap to the joint solver in trade-off mode comes from this.',
+  D_coordinated:
+    'Two separate planners: a student-side planner that checks whether each student can actually take part and which support combinations would make that possible, and an organizer-side planner that decides measures and allocations under budget, capacity, mutual exclusions, prerequisites, approval status, the loss rule and the organizer\'s requirements. They exchange complete information and coordinate over several rounds until the plan stops changing. This is the strongest baseline, and it can tie with the joint solver.',
   joint:
     'Considers student eligibility and real-world barriers together with the organizer\'s capacity, budget, mutual exclusions, prerequisites and loss cap, and finds the plan with the largest net change in coverage under those constraints.',
 } as const;
 
 export const BASELINE_NOTES = {
   same_inputs: 'All rows use the same scenario, budget, capacity, rules and verifier.',
-  d_missing: 'Baseline D from the spec (a fully coordinated separate planner) is not implemented.',
+  d_tie:
+    'Baseline D (coordinated separate planners) tying with the joint solver is an expected possible outcome. A tie does not show that the joint solver has no value, nor that it has value; it is only what happens on these sample scenarios.',
   simulation: 'All results are simulated from sample data. They do not represent real-world impact. Reachable does not mean admitted.',
   ordering: 'The baselines\' ordering rule (ascending id, first come first served) is a deterministic simplification. It does not represent any real system or who needs help more.',
   search_limit: 'The joint solver hit its search limit; optimality is not proven.',
@@ -180,6 +187,7 @@ function rowOf(
   claimed: number,
   plan: JointPlan,
   repair: ((m: Measured) => BaselineRow['repaired']) | null,
+  coordination?: BaselineRow['coordination'],
 ): BaselineRow {
   const m = measure(ctx, plan);
   const soft = ctx.softGiven
@@ -195,6 +203,7 @@ function rowOf(
     verified: m.executable ? metricsOf(m.metrics) : null,
     soft_requirements_met: soft,
     repaired: m.executable || repair === null ? null : repair(m),
+    ...(coordination !== undefined ? { coordination } : {}),
   };
 }
 
@@ -218,6 +227,15 @@ function firstComeTruncate(ctx: Ctx, units: readonly Pair[], build: (acc: Pair[]
 }
 
 export function compareBaselines(scenario: Scenario, options?: SolveOptions): BaselineComparison {
+  return compareBaselinesWith(scenario, options);
+}
+
+/** 与 compareBaselines 相同；maxCoordinationRounds 只供测试注入较小的 D 轮数上限。 */
+export function compareBaselinesWith(
+  scenario: Scenario,
+  options?: SolveOptions,
+  maxCoordinationRounds?: number,
+): BaselineComparison {
   const opts: SolveOptions = options ?? {};
   const J = solveJoint(scenario, opts);
   if (J.status === 'UNSUPPORTED_INPUT') {
@@ -357,6 +375,10 @@ export function compareBaselines(scenario: Scenario, options?: SolveOptions): Ba
     firstComeTruncate(ctx, cPairs, buildC),
   );
 
+  // ── D：充分协调的分离式规划器（./baseline-d，不调用 solveJoint）──
+  const D = planCoordinated(scenario, opts, evaluator, maxCoordinationRounds);
+  const rowD = rowOf(ctx, 'D_coordinated', D.claimed_reachable, D.plan, null, { ...D.coordination });
+
   // ── joint ──
   const jointPlan: JointPlan = {
     selected_intervention_ids: [...J.selected_intervention_ids],
@@ -365,8 +387,9 @@ export function compareBaselines(scenario: Scenario, options?: SolveOptions): Ba
   };
   const rowJ = rowOf(ctx, 'joint', J.R1.length, jointPlan, null);
 
-  const notes: string[] = [BASELINE_NOTES.same_inputs, BASELINE_NOTES.d_missing, BASELINE_NOTES.simulation, BASELINE_NOTES.ordering];
+  const notes: string[] = [BASELINE_NOTES.same_inputs, BASELINE_NOTES.d_tie, BASELINE_NOTES.simulation, BASELINE_NOTES.ordering];
   if (J.status === 'SEARCH_LIMIT_REACHED') notes.push(BASELINE_NOTES.search_limit);
   if (J.status === 'INFEASIBLE') notes.push(BASELINE_NOTES.infeasible);
-  return { rows: [rowA, rowB, rowC, rowJ], notes };
+  notes.push(...D.notes);
+  return { rows: [rowA, rowB, rowC, rowD, rowJ], notes };
 }

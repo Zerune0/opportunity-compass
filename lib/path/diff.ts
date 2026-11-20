@@ -18,7 +18,7 @@
  */
 import type { AlternativeHint, PlanResult, Route, RouteChange, RouteDiff, RouteStep, RouteType, StepChange } from '../types';
 import { ROUTE_TYPES } from '../types';
-import { FEE_UNKNOWN_WARNING, ROUTE_TITLES, SUBMIT_STEP_ID, deepEqual, fmt, round2, usd } from './shared';
+import { DEADLINE_TODAY_WARNING, FEE_UNKNOWN_WARNING, ROUTE_TITLES, SUBMIT_STEP_ID, deepEqual, fmt, round2, usd } from './shared';
 import { joinAnd, plural, pluralNoun } from '../format';
 
 const ALT_LABELS: Record<AlternativeHint['kind'], string> = {
@@ -366,10 +366,14 @@ export function diffRoutes(before: PlanResult, after: PlanResult): RouteDiff {
     }
 
     if (a.feasible_by_deadline !== b.feasible_by_deadline) {
+      const aToday = a.warnings.includes(DEADLINE_TODAY_WARNING);
+      const bToday = b.warnings.includes(DEADLINE_TODAY_WARNING);
       const cause =
-        a.total_hours !== b.total_hours
-          ? `hours needed changed from ${fmt(b.total_hours)} to ${fmt(a.total_hours)}`
-          : 'hours needed did not change; your weekly hours or the dates changed';
+        aToday && !bToday
+          ? "the deadline is now today, and we don't know its exact closing time and time zone"
+          : a.total_hours !== b.total_hours
+            ? `hours needed changed from ${fmt(b.total_hours)} to ${fmt(a.total_hours)}`
+            : 'hours needed did not change; your weekly hours or the dates changed';
       const key = `finishing before the deadline changed from "${feasibleZh(b.feasible_by_deadline)}" to "${feasibleZh(a.feasible_by_deadline)}" (${cause})`;
       feasibleGroups.set(key, [...(feasibleGroups.get(key) ?? []), type]);
       explained = true;

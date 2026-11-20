@@ -37,6 +37,7 @@
 import { analyzeReachability } from '../reachability';
 import { plural, pluralNoun } from '../format';
 import { compareBaselines } from './baselines';
+import { dOptimalityNotProven } from './baseline-d';
 import { fairnessCoverageBounds, solveJoint } from './solve';
 import type { FloorCoverageBound } from './solve';
 import { verifyPlan } from './verify';
@@ -293,11 +294,25 @@ export interface WhatIfBaselineRow {
   soft_requirements_met: boolean | null;
   /** 「是 / 否 / 未设要求」等中文说明。 */
   soft_label: string;
+  /** 只有 D 行（充分协调的分离式规划器）有：协调轮数、是否收敛、轮数上限；其他行为 null。 */
+  coordination: { rounds: number; converged: boolean; max_rounds: number } | null;
+  /**
+   * 协调轮数的英文说明（如 "2 rounds, converged"）；D 触发节点上限或任何规模保护时追加 "; optimality not proven"
+   * （如 "2 rounds, converged; optimality not proven"）。其他行为 null。
+   */
+  coordination_label: string | null;
+  /** 只有 D 行有意义：D 触发节点上限或规模保护、未证明最优时为 true；其他行（及 D 未触发时）为 false。 */
+  optimality_not_proven: boolean;
 }
 
 export interface WhatIfBaselines {
   rows: WhatIfBaselineRow[];
   notes: string[];
+  /**
+   * D 与联合求解是否打平：两行都可执行，且验证器确认的新增 G、损失 L、成本都相同时为 true；
+   * 有 D 行但不满足上述条件时为 false；没有 D 行或没有联合求解行时为 null（页面不显示打平 / 不打平的说明）。
+   */
+  d_ties_joint: boolean | null;
 }
 
 export interface WhatIfAlternative extends WhatIfOutcomeSummary {
@@ -1064,7 +1079,25 @@ function lossAndRevocations(
 
 const SOFT_CHECK_NAMES = new Set(['organizer_requirements', 'fairness']);
 
-function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBaselines {
+function coordinationLabel(c: { rounds: number; converged: boolean; max_rounds: number }, optimalityNotProven: boolean): string {
+  const rounds = `${c.rounds} ${c.rounds === 1 ? 'round' : 'rounds'}`;
+  const base = c.converged ? `${rounds}, converged` : `${rounds}, stopped at the limit of ${c.max_rounds} without converging`;
+  return optimalityNotProven ? `${base}; optimality not proven` : base;
+}
+
+/** D 与联合求解是否打平（见 WhatIfBaselines.d_ties_joint）。 */
+function dTiesJoint(rows: WhatIfBaselineRow[]): boolean | null {
+  const d = rows.find((r) => r.id === 'D_coordinated');
+  const j = rows.find((r) => r.id === 'joint');
+  if (!d || !j) return null;
+  if (!d.executable || !j.executable || !d.verified || !j.verified) return false;
+  return d.verified.G === j.verified.G && d.verified.L === j.verified.L && d.verified.total_usd === j.verified.total_usd;
+}
+
+/** 基线对比的视图模型（导出供测试直接用任意 compareBaselines 结果构造）。 */
+export function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBaselines {
+  // D 的「未证明最优」说明在 cmp.notes 里（按原文判断，在 cleanText 之前）。
+  const dUnproven = dOptimalityNotProven(cmp.notes);
   const m = (x: { R1_count: number; G: number; L: number; N: number; total_usd: number }): WhatIfBaselineMetrics => ({
     R1_count: x.R1_count,
     G: x.G,
@@ -1072,31 +1105,36 @@ function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBasel
     N: x.N,
     total_usd: round2(x.total_usd),
   });
+  const rows: WhatIfBaselineRow[] = cmp.rows.map((r) => {
+    const failed = r.verification.checks.filter((c) => !SOFT_CHECK_NAMES.has(c.name) && !c.passed);
+    const executable = r.verified !== null;
+    return {
+      id: r.id,
+      label: r.label,
+      description: r.description,
+      claimed_reachable: r.claimed_reachable,
+      executable,
+      failed_checks: failed.map((c) => CHECK_LABELS[c.name] ?? c.name),
+      verified: r.verified ? m(r.verified) : null,
+      repaired: r.repaired ? { ...m(r.repaired), note: cleanText(r.repaired.note, scenario) } : null,
+      soft_requirements_met: r.soft_requirements_met,
+      soft_label:
+        r.soft_requirements_met === null
+          ? 'No requirement set'
+          : !executable
+            ? 'Plan not executable; not evaluated'
+            : r.soft_requirements_met
+              ? 'Met'
+              : 'Not met',
+      coordination: r.coordination ? { ...r.coordination } : null,
+      coordination_label: r.coordination ? coordinationLabel(r.coordination, r.id === 'D_coordinated' && dUnproven) : null,
+      optimality_not_proven: r.id === 'D_coordinated' && dUnproven,
+    };
+  });
   return {
-    rows: cmp.rows.map((r) => {
-      const failed = r.verification.checks.filter((c) => !SOFT_CHECK_NAMES.has(c.name) && !c.passed);
-      const executable = r.verified !== null;
-      return {
-        id: r.id,
-        label: r.label,
-        description: r.description,
-        claimed_reachable: r.claimed_reachable,
-        executable,
-        failed_checks: failed.map((c) => CHECK_LABELS[c.name] ?? c.name),
-        verified: r.verified ? m(r.verified) : null,
-        repaired: r.repaired ? { ...m(r.repaired), note: cleanText(r.repaired.note, scenario) } : null,
-        soft_requirements_met: r.soft_requirements_met,
-        soft_label:
-          r.soft_requirements_met === null
-            ? 'No requirement set'
-            : !executable
-              ? 'Plan not executable; not evaluated'
-              : r.soft_requirements_met
-                ? 'Met'
-                : 'Not met',
-      };
-    }),
+    rows,
     notes: cmp.notes.map((n) => cleanText(n, scenario)),
+    d_ties_joint: dTiesJoint(rows),
   };
 }
 
@@ -1217,7 +1255,7 @@ export function runWhatIfWithPlan(
       : 'Protected mode never revokes existing resources, so new measures that conflict with existing resources cannot be enabled.',
     'Existing resources given to students outside the scenario cannot be revoked (their loss cannot be evaluated, and we do not guess). New measures that conflict with those resources\' measures cannot be enabled in either mode.',
     'Fairness floors use only status labels that students report themselves (such as low-income or first-generation), never school names or personal names. The denominator counts only group members who are officially eligible for at least one opportunity, counted per student (covered = at least one reachable opportunity). A student in several groups counts once in each group.',
-    'Baselines A / B / C are deterministic simplifications (ascending id, first come first served). They do not represent any real system or who needs help more. Baseline D from the spec (a fully coordinated separate planner) is not implemented.',
+    'Baselines A / B / C are deterministic simplifications (ascending id, first come first served). They do not represent any real system or who needs help more. Baseline D (coordinated separate planners) lets a student-side planner and an organizer-side planner exchange complete information over several rounds; it can tie with the joint solver.',
   ];
   if (floors.length > 0) assumptions.push('The fairness floors set here and their basis are samples (fictional basis), for demo only.');
   if (running.length > 0) {

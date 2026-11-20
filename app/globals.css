@@ -325,3 +325,42 @@ body::before {
   .journal-plan-table th { font-size: 11pt; }
   .journal-plan-table td { break-inside: avoid; }
 }
+
+/* Adventure View for the Quest Journal and the Skill Passport. These classes are only rendered in
+   Adventure View; Classic View keeps the markup above. No new animation or transition: the press
+   surface keeps its own, which the reduced-motion rules above already switch off. */
+@layer components {
+  .rpg-quest-list, .rpg-inventory { margin: 0; padding: 0; list-style: none; }
+  .rpg-quest-list { display: grid; gap: var(--space-xl); }
+  .rpg-inventory { display: grid; gap: var(--space-lg); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+  .rpg-quest-list > li, .rpg-inventory > li { display: flex; min-width: 0; }
+  .rpg-quest-list > li > .rpg-card, .rpg-inventory > li > .rpg-card { flex: 1 1 auto; }
+
+  /* Quest card: a lit head band with the title and the way to the official page */
+  .rpg-quest-card { border-color: var(--color-accent-2); box-shadow: var(--shadow-card); }
+  .rpg-quest-card__head { display: grid; gap: var(--space-xs); padding: var(--space-md); background: var(--color-paper-3); border-inline-start: var(--space-xs) solid var(--color-accent); }
+  .rpg-quest-card__head h3 { font-family: var(--font-display); font-weight: var(--display-weight, 400); letter-spacing: 0; text-transform: uppercase; max-width: none; }
+  .rpg-quest-card__head h3 a { text-decoration-line: none; }
+  .rpg-quest-card__head h3 a:hover { text-decoration-line: underline; }
+  /* The four status lines stay four separate panels, each with its own label and controls */
+  .rpg-quest-card__status dl.rpg-stack { gap: var(--space-sm); }
+  @media (min-width: 40rem) { .rpg-quest-card__status dl.rpg-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .rpg-quest-card__status dl > div { padding: var(--space-sm); background: var(--color-paper); border: var(--rule-bar) solid var(--color-rule); }
+
+  /* Inventory slot: a double frame, the evidence type in the pixel face beside its status text */
+  .rpg-slot { border: 4px double var(--color-rule); box-shadow: var(--shadow-card); }
+  .rpg-slot__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); padding: var(--space-xs) var(--space-sm); background: var(--color-paper); border: var(--rule-hair) dashed var(--color-rule); }
+  .rpg-slot__kind { font-family: var(--font-outlier); font-size: var(--text-sm); text-transform: uppercase; color: var(--color-answer-text); overflow-wrap: anywhere; }
+}
+
+/* Print: the Adventure cards fall back to plain bordered lists, like Classic. */
+@media print {
+  .rpg-inventory, .rpg-quest-list { display: block; }
+  .rpg-inventory > li, .rpg-quest-list > li { display: block; margin-block: 8pt; }
+  .rpg-slot, .rpg-quest-card { border: 1px solid #777 !important; }
+  .rpg-quest-card__head, .rpg-slot__meta { padding: 0; background: none !important; border: 0; }
+  .rpg-quest-card__head h3 { font-family: var(--font-body); text-transform: none; }
+  .rpg-quest-card__status dl.rpg-stack { grid-template-columns: minmax(0, 1fr); }
+  .rpg-quest-card__status dl > div { padding: 0; border: 0; background: none !important; }
+  .rpg-slot__kind { font-family: var(--font-body); text-transform: none; }
+}

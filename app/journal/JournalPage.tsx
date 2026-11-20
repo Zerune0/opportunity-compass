@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { StatusTag } from "@/components/rpg";
+import { renderedView, useViewPreference } from "@/components/rpg/view-preference";
 import {
   loadJournal,
   loadMaterials,
@@ -12,8 +13,8 @@ import {
 import { catalogOpportunities } from "@/lib/data";
 import type { JournalEntry, Material, Opportunity, StudentProfile } from "@/lib/types";
 import { CrossPlanSection } from "./CrossPlanSection";
-import { JournalEntryCard } from "./JournalEntryCard";
 import { MaterialsSection } from "./MaterialsSection";
+import { QuestList } from "./QuestList";
 import { RecordSummary } from "./RecordSummary";
 import { localToday } from "./labels";
 
@@ -39,6 +40,8 @@ function readContext(): JournalContext {
 }
 
 export function JournalPage() {
+  // Read before the Journal effect below, so the view is known by the time the entries appear.
+  const [view, , viewReady] = useViewPreference();
   const [context, setContext] = useState<JournalContext>();
 
   // Re-read localStorage after every write so the page always shows what is stored.
@@ -105,18 +108,14 @@ export function JournalPage() {
                 </p>
               </div>
             ) : (
-              <div className="rpg-stack">
-                {context.entries.map((entry) => (
-                  <JournalEntryCard
-                    key={entry.id}
-                    entry={entry}
-                    opportunity={findOpportunity(entry.opportunity_id)}
-                    profileId={profile.id}
-                    today={context.today}
-                    onChange={refresh}
-                  />
-                ))}
-              </div>
+              <QuestList
+                entries={context.entries}
+                findOpportunity={findOpportunity}
+                profileId={profile.id}
+                today={context.today}
+                onChange={refresh}
+                view={renderedView(view, viewReady)}
+              />
             )}
           </section>
 
