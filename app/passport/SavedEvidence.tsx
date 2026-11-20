@@ -21,7 +21,7 @@ type Props = {
 export function SavedEvidence({ profile, ctx, view, onChange, onDelete }: Props) {
   const empty = profile !== undefined && !profile?.evidence.length;
   return (
-    <section className="rpg-stack" aria-label="Saved evidence">
+    <section id="saved-evidence" className="rpg-stack" aria-label="Saved evidence">
       <h2>Saved evidence</h2>
       {empty && <p>No evidence saved yet.</p>}
       {Boolean(profile?.evidence.length) && (

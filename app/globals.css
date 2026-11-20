@@ -107,6 +107,8 @@
   .shell-main { padding-block: var(--space-xl) var(--space-3xl); }
   .shell-mark { font-family: var(--font-display); font-size: var(--text-lg); text-transform: uppercase; text-decoration-line: none; line-height: 1; }
   .shell-mark:hover { color: var(--color-accent); }
+  .shell-view { display: grid; gap: var(--space-2xs); min-width: 0; max-width: 100%; }
+  .shell-view > p { margin: 0; }
   .shell-links { display: flex; flex-wrap: wrap; gap: var(--space-2xs); margin: 0; padding: 0; list-style: none; }
   .shell-link {
     display: inline-flex; align-items: center; min-height: var(--control);
@@ -272,6 +274,9 @@ body::before {
   .rpg-button { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
   .rpg-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .rpg-stack:is(dl) { grid-template-columns: minmax(0, 1fr); }
+  /* A dl whose rows are wrapped in <div>s (dt + dd inside each div) is a single column of rows;
+     the two-column dt/dd grid above would otherwise put every other row in a near-zero column. */
+  dl:has(> div) { grid-template-columns: minmax(0, 1fr); }
   .rpg-evidence-form :is(input:not([type="checkbox"], [type="radio"]), select, textarea),
   .rpg-field :is(input, select, textarea) { min-width: 0; max-width: 100%; width: 100%; }
   .shell-main label:has(input[type="checkbox"], input[type="radio"]) {
@@ -280,7 +285,7 @@ body::before {
   .shell-main summary { min-height: var(--control); padding-block: var(--space-xs); }
   .journal-jumps { padding: var(--space-sm); border: 1px solid var(--color-rule); background: var(--color-paper-2); }
   .journal-jumps a { display: inline-flex; align-items: center; min-height: var(--control); padding-inline: var(--space-xs); }
-  [id^="journal-"] { scroll-margin-top: 10rem; }
+  [id^="journal-"], #saved-evidence { scroll-margin-top: 10rem; }
   @media (max-width: 40rem) {
     .shell-bar__inner, .shell-main { padding-inline: var(--space-sm); }
     .rpg-card, .rpg-head, .home, .rpg-toolbar { padding: var(--space-md); }

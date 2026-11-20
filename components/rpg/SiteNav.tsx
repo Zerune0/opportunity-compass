@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useViewPreference } from "./view-preference";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
+import type { ViewPreference } from "@/lib/types";
+import { useViewPreference, viewToggleApplies, viewToggleHint } from "./view-preference";
 
 type SiteNavProps = {
   items: { href: string; label: string }[];
 };
 
+const viewLabels: Record<ViewPreference, string> = { adventure: "Adventure View", classic: "Classic View" };
+
 export function SiteNav({ items }: SiteNavProps) {
-  const [view, chooseView] = useViewPreference();
   const pathname = usePathname() ?? "";
   return (
     <>
@@ -25,10 +28,40 @@ export function SiteNav({ items }: SiteNavProps) {
         );
       })}
     </ul>
-    <div className="rpg-row" role="group" aria-label="View preference">
-      <button className="rpg-button rpg-button--secondary" aria-pressed={view === "adventure"} onClick={() => chooseView("adventure")}>Adventure View</button>
-      <button className="rpg-button rpg-button--secondary" aria-pressed={view === "classic"} onClick={() => chooseView("classic")}>Classic View</button>
-    </div>
+    {/* Not rendered at all on pages the preference does not change. */}
+    {viewToggleApplies(pathname) && <ViewToggle pathname={pathname} />}
     </>
+  );
+}
+
+function ViewToggle({ pathname }: { pathname: string }) {
+  const [view, chooseView] = useViewPreference();
+  // The confirmation belongs to the page it was given on; another page starts without one.
+  const [confirmed, setConfirmed] = useState<{ path: string; view: ViewPreference } | null>(null);
+  const hint = viewToggleHint(pathname);
+  const choose = (next: ViewPreference) => {
+    chooseView(next);
+    setConfirmed({ path: pathname, view: next });
+  };
+  return (
+    <div className="shell-view">
+      <div className="rpg-row" role="group" aria-label="View preference">
+        {(["adventure", "classic"] as const).map((option) => (
+          <button key={option} type="button" className="rpg-button rpg-button--secondary" aria-pressed={view === option} onClick={() => choose(option)}>
+            {view === option && <span aria-hidden="true">✓ </span>}
+            {viewLabels[option]}
+          </button>
+        ))}
+        <span className="rpg-small" role="status" aria-live="polite">
+          {confirmed?.path === pathname ? `${viewLabels[confirmed.view]} is on.` : ""}
+        </span>
+      </div>
+      {hint && (
+        <p className="rpg-small rpg-muted">
+          {hint.text}
+          {hint.href && <>{" "}<a href={hint.href}>{hint.linkLabel}</a></>}
+        </p>
+      )}
+    </div>
   );
 }
