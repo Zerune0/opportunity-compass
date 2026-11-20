@@ -11,8 +11,10 @@ import { invitationReasons } from './invitations';
 import {
   EVIDENCE_TITLE_NOTICE,
   GUARDIAN_ADVICE,
+  NOTE_REMOVED_NOTICE,
   PROTECTION_EFFECTS,
   canChangeSharing,
+  collaborationNoteToClear,
   exactlyAsWrittenWarning,
   isUnprotected,
   protectionFor,
@@ -363,3 +365,38 @@ describe('C2：发布者一侧分辨不出档案是否受保护', () => {
     }
   });
 });
+
+describe('受保护时清掉存着的合作说明（保护解除后不自动重新分享）', () => {
+  it('受保护 + 有说明 → 需要清除：只把 collaboration_note 设为 null，其他选择不动，不改输入', () => {
+    const before = structuredClone(EVERYTHING);
+    const cleared = collaborationNoteToClear(EVERYTHING, protectionFor(MINOR, TODAY));
+    expect(cleared).toEqual({ ...EVERYTHING, collaboration_note: null });
+    expect(EVERYTHING).toEqual(before);
+    // 保护状态缺失或损坏按受保护处理
+    expect(collaborationNoteToClear(EVERYTHING, null)).toEqual({ ...EVERYTHING, collaboration_note: null });
+    expect(collaborationNoteToClear(EVERYTHING, PROTECTED)).not.toBeNull();
+  });
+
+  it('受保护 + 无说明（null / 空白）→ 不需要清除', () => {
+    expect(collaborationNoteToClear(settings({ collaboration_note: null }), PROTECTED)).toBeNull();
+    expect(collaborationNoteToClear(settings({ collaboration_note: '   ' }), PROTECTED)).toBeNull();
+    expect(collaborationNoteToClear(null, PROTECTED)).toBeNull();
+  });
+
+  it('不受保护 + 有说明 → 不动', () => {
+    expect(isUnprotected(protectionFor(ADULT, TODAY))).toBe(true);
+    expect(collaborationNoteToClear(EVERYTHING, protectionFor(ADULT, TODAY))).toBeNull();
+    expect(collaborationNoteToClear(EVERYTHING, unprotected())).toBeNull();
+  });
+
+  it('清掉之后，档案改成成年也不会重新向发布者显示说明', () => {
+    const cleared = collaborationNoteToClear(EVERYTHING, protectionFor(MINOR, TODAY));
+    expect(cleared).not.toBeNull();
+    const view = publisherView(ADULT, cleared, unprotected());
+    expect(view?.collaboration_note ?? null).toBeNull();
+    expect(NOTE_REMOVED_NOTICE).toBe(
+      'Your collaboration note was removed from sharing because stricter defaults apply to this profile. You can write a new one if these defaults stop applying.',
+    );
+  });
+});
+

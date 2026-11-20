@@ -13,7 +13,9 @@
  *    像联系方式的技能名 / 兴趣即使勾选，发布者也看不到（页面写明）。
  *    发布者对所有档案都看不到证据标题（页面写明）。
  *    受保护的档案（lib/connect/protection.ts：未满 18、12 年级及以下、或年龄未知）：显示提示；
- *    合作说明不能分享（输入框禁用；以前保存的说明留在本浏览器但不分享，学生可以删除）；
+ *    合作说明不能分享（输入框禁用）；挂载后第一次读取时，若分享设置里还存着以前写的说明，就用
+ *    collaborationNoteToClear + saveShareSettings 把它清掉（其他选择不动）并显示 NOTE_REMOVED_NOTICE——
+ *    这样以后不再受保护时，说明不会在学生没有重新同意的情况下自动重新分享；
  *    分享区顶部多一个「已经和家长 / 监护人 / 老师谈过」的复选框，没勾选时各分享开关禁用（canChangeSharing），
  *    已开着的分享不变，「Stop sharing everything」始终可用；勾选只放在组件状态里，每次打开页面要重新确认。
  *    「Invitations」：按本档案的 share_handle 列出示例邀请，隐藏已屏蔽的发布者（invitationList），再按保护状态分组
@@ -58,10 +60,12 @@ import type { InvitationAction, InvitationRow } from "@/lib/connect/invitations"
 import {
   EVIDENCE_TITLE_NOTICE,
   GUARDIAN_ADVICE,
+  NOTE_REMOVED_NOTICE,
   PROTECTION_EFFECTS,
   SHARING_CONFIRM_LABEL,
   SHARING_LOCKED_REASON,
   canChangeSharing,
+  collaborationNoteToClear,
   exactlyAsWrittenWarning,
   isUnprotected,
   protectionFor,
@@ -165,6 +169,8 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
   const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
   /** 受保护档案：收起的邀请已展开（只在组件状态里，按档案 id 记；不存储）。 */
   const [heldOpenFor, setHeldOpenFor] = useState<string | null>(null);
+  /** 挂载时因受保护而清掉了存着的合作说明的档案 id（只在组件状态里；用于显示 NOTE_REMOVED_NOTICE）。 */
+  const [noteRemovedFor, setNoteRemovedFor] = useState<string | null>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const inviteStatusRef = useRef<HTMLParagraphElement>(null);
   const publisherStatusRef = useRef<HTMLParagraphElement>(null);
@@ -173,8 +179,23 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
     setLocal(readLocal(loadProfile()));
   }, []);
 
+  /**
+   * 挂载后的第一次读取（setTimeout 里，不在渲染期间写存储）：受保护的档案若还存着合作说明，先把它从分享设置里清掉，
+   * 保存成功并读回确认后才显示说明；然后照常读取。只在这一步做一次。
+   */
+  const initialLoad = useCallback(() => {
+    const current = loadProfile();
+    if (current) {
+      const cleared = collaborationNoteToClear(loadShareSettings(current.id), protectionFor(current, localToday()));
+      if (cleared && saveShareSettings(cleared) && sameShareSettings(loadShareSettings(current.id), cleared)) {
+        setNoteRemovedFor(current.id);
+      }
+    }
+    setLocal(readLocal(current));
+  }, []);
+
   useEffect(() => {
-    const initialRead = window.setTimeout(refresh);
+    const initialRead = window.setTimeout(initialLoad);
     window.addEventListener("focus", refresh);
     window.addEventListener("storage", refresh);
     window.addEventListener("pageshow", refresh);
@@ -184,7 +205,7 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
       window.removeEventListener("storage", refresh);
       window.removeEventListener("pageshow", refresh);
     };
-  }, [refresh]);
+  }, [initialLoad, refresh]);
 
   useEffect(() => {
     if (focusRequest === null) return;
@@ -475,6 +496,12 @@ export function TalentBoard({ publishers }: { publishers: SamplePublisher[] }) {
                   <p>{PROTECTION_EFFECTS}</p>
                   <p>{GUARDIAN_ADVICE}</p>
                 </div>
+              )}
+
+              {noteRemovedFor === profile.id && (
+                <p role="note" className="rounded border border-amber-700 bg-amber-50 p-2 text-sm text-amber-950">
+                  {NOTE_REMOVED_NOTICE}
+                </p>
               )}
 
               {strict && (

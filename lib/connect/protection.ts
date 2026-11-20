@@ -19,12 +19,16 @@
  *
  * 失败时从严：调用方传来的 Protection 只有 `protected === false` 才算不受保护（见 isUnprotected）。
  *
+ * 被隐藏的合作说明不会在保护解除后自动重新分享（2026-11-19）：Talent Board 挂载后读取数据时，若档案受保护且
+ * 分享设置里存着非空的 `collaboration_note`，就把它清掉（`collaborationNoteToClear` 给出清掉后的设置，其他选择不动，
+ * 页面用 lib/store.ts 的 saveShareSettings 保存）并告诉学生；以后不再受保护时，学生要重新写一条才会分享。
+ *
  * 纯函数：日期由调用方传入，不读时钟、不读写存储、永不抛异常。年龄与出生日期只用于判断，
  * 不出现在任何返回的字符串里（发布者端永远看不到）。
  */
 import { joinAnd } from '../format';
 import { ageOn } from '../eligibility/dates';
-import type { ISODate, StudentProfile } from '../types';
+import type { ISODate, ShareSettings, StudentProfile } from '../types';
 
 export type ProtectionReason = 'under_18' | 'grade_12_or_below' | 'age_unknown';
 
@@ -125,3 +129,23 @@ export function canChangeSharing(protection: Protection | null | undefined, conf
 export const SHARING_CONFIRM_LABEL = 'I have talked with a parent, guardian or teacher about what I share here.';
 export const SHARING_LOCKED_REASON =
   'Check the box above before changing what you share. Items you already share stay as they are, and you can stop sharing everything at any time.';
+
+/** 学生端：受保护时存着的合作说明被清掉后显示的说明。 */
+export const NOTE_REMOVED_NOTICE =
+  'Your collaboration note was removed from sharing because stricter defaults apply to this profile. You can write a new one if these defaults stop applying.';
+
+/**
+ * 受保护的档案里存着非空（去掉首尾空白后非空）的合作说明时，返回把 `collaboration_note` 设为 null 的新设置
+ * （其他字段原样，包括 updated_on）；否则返回 null（不需要清除）。
+ * 保护状态缺失或损坏按受保护处理（与 isUnprotected 一致）。不修改输入。
+ */
+export function collaborationNoteToClear(
+  settings: ShareSettings | null | undefined,
+  protection: Protection | null | undefined,
+): ShareSettings | null {
+  if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) return null;
+  if (isUnprotected(protection)) return null;
+  const note = settings.collaboration_note;
+  if (typeof note !== 'string' || note.trim() === '') return null;
+  return { ...settings, collaboration_note: null };
+}
