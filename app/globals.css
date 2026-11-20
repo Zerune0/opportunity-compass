@@ -301,6 +301,17 @@ body::before {
   .rpg-facts dd { margin: 0; font-weight: 700; color: var(--color-ink); }
   .rpg-facts--wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
   .rpg-facts--wide dd { font-weight: 400; }
+  /* Quest details tabs: one part at a time; every panel prints. */
+  .quest-actions { gap: var(--space-sm); align-items: center; }
+  .quest-tabs { display: grid; gap: var(--space-lg); }
+  .quest-tabs__list { display: flex; flex-wrap: wrap; gap: var(--space-2xs); border-bottom: 1px solid var(--color-rule); }
+  .quest-tabs__list [role="tab"] { display: inline-flex; align-items: center; gap: var(--space-xs); padding: var(--space-sm) var(--space-md); border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-card) var(--radius-card) 0 0; background: none; color: var(--color-muted); font: inherit; font-weight: 700; cursor: pointer; margin-bottom: -1px; }
+  .quest-tabs__list [role="tab"]:hover { color: var(--color-ink); }
+  .quest-tabs__list [role="tab"][aria-selected="true"] { color: var(--color-ink); background: var(--color-paper-2); border-color: var(--color-rule); box-shadow: inset 0 3px 0 var(--color-accent); }
+  .quest-tabs__list [role="tab"]:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+  .quest-tabs__badge { padding: 0 var(--space-xs); border: 1px solid var(--color-rule); border-radius: var(--radius-pill); font-size: var(--text-sm); font-weight: 400; color: var(--color-ink-2); }
+  .quest-tabs__panel:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
+  @media (max-width: 40rem) { .quest-tabs__list [role="tab"] { padding: var(--space-xs) var(--space-sm); font-size: var(--text-sm); } }
   /* Quest details: eligibility and reachability side by side, preparation full width below with its items as cards. */
   .quest-overview { display: grid; gap: var(--space-lg); align-items: start; }
   @media (min-width: 56rem) { .quest-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); } .quest-overview__wide { grid-column: 1 / -1; order: 3; } }
