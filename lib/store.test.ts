@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addEvidence,
   addGrants,
@@ -1121,5 +1121,50 @@ describe('store 第三阶段：addGrants / removeGrants / grantsByIntervention',
     const unmarked = { ...g('g1'), is_sample: false };
     expect(saveGrants([unmarked])).toBe(true);
     expect(loadGrants()[0].is_sample).toBe(false);
+  });
+});
+
+describe('newId 回退：没有 crypto.randomUUID 时不读时钟', () => {
+  const FIXED = new Date('2026-11-19T15:04:05.678Z');
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function expectNoTime(id: string): void {
+    const ms = FIXED.getTime();
+    expect(id).not.toContain(ms.toString(36));
+    expect(id).not.toContain(String(ms));
+    expect(id).not.toContain(String(Math.floor(ms / 1000)));
+  }
+
+  function idsUnder(cryptoStub: unknown): string[] {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(FIXED);
+    vi.stubGlobal('crypto', cryptoStub);
+    return [
+      defaultShareSettings('p-full', '2026-11-19').share_handle,
+      defaultShareSettings('p-full', '2026-11-19').share_handle,
+      createEmptyProfile('x').id,
+    ];
+  }
+
+  it('只有 crypto.getRandomValues 时：前缀正确、16 字节十六进制、两次不同、不含时间', () => {
+    const real = globalThis.crypto;
+    const [a, b, p] = idsUnder({ getRandomValues: (arr: Uint8Array) => real.getRandomValues(arr) });
+    expect(a).toMatch(/^share-[0-9a-f]{32}-[0-9a-z]+$/);
+    expect(b).toMatch(/^share-[0-9a-f]{32}-[0-9a-z]+$/);
+    expect(p).toMatch(/^profile-[0-9a-f]{32}-[0-9a-z]+$/);
+    expect(a).not.toBe(b);
+    for (const id of [a, b, p]) expectNoTime(id);
+  });
+
+  it('完全没有 crypto 时用 Math.random 回退：仍是 128 位十六进制、两次不同、不含时间', () => {
+    const [a, b, p] = idsUnder(undefined);
+    expect(a).toMatch(/^share-[0-9a-f]{32}-[0-9a-z]+$/);
+    expect(p).toMatch(/^profile-[0-9a-f]{32}-[0-9a-z]+$/);
+    expect(a).not.toBe(b);
+    for (const id of [a, b, p]) expectNoTime(id);
   });
 });
