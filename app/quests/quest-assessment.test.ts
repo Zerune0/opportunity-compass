@@ -344,3 +344,34 @@ describe('Quest Details alternative destinations', () => {
   } finally { spy.mockRestore(); }
  });
 });
+
+describe('Quest Details for user-posted opportunities', () => {
+ // Fictional test-only records: one verified-catalog shape and one user-posted copy of it.
+ const official: Opportunity = { ...fixture, id: 'fixture-official-listing', source_tier: 'official', is_sample: false, posted_by: null, requirements: [], deadline: '2027-03-01' };
+ const postedRule: Opportunity['requirements'][number] = { id: 'posted-grade', label: 'Grade 9 or above', hard: true, source_text: 'Fictional poster-entered rule.', type: 'grade', min: 9 };
+ const posted: Opportunity = { ...official, id: 'fixture-user-posted', source_tier: 'user_posted', is_sample: true, posted_by: 'sample-publisher', official_url: 'https://example.com/fixture' };
+ const render = (opportunity: Opportunity) => renderToStaticMarkup(React.createElement(QuestAssessment, { opportunity, context: { catalog: [], profile: noor, grants: [], saved: [], today: '2026-11-19', loaded: true } }));
+ it('keeps official wording and the growth routes link for catalog opportunities', () => {
+  const page = render(official);
+  expect(page).toContain('<h2>Official eligibility</h2>');
+  expect(page).toContain('No official requirements have been entered.');
+  expect(page).toContain('href="/map?opp=fixture-official-listing"');
+  expect(page).toContain('View growth routes');
+  expect(page).not.toContain('Eligibility stated by the poster');
+ });
+ it.each([
+  { name: 'without requirements', opp: posted },
+  { name: 'with a poster-entered requirement', opp: { ...posted, requirements: [postedRule] } },
+ ])('labels poster-entered eligibility and hides the map link ($name)', ({ opp }) => {
+  const page = render(opp);
+  expect(page).not.toContain('Official eligibility');
+  expect(page).toContain('<h2>Eligibility stated by the poster</h2>');
+  expect(page).toContain('These requirements were entered by a sample publisher in this browser. They are not from an official site.');
+  expect(page).not.toContain('No official requirements');
+  expect(page).not.toContain('no official requirements recorded');
+  expect(page).not.toContain('/map?opp=');
+  expect(page).not.toContain('View growth routes');
+  expect(page).toContain('Growth routes are available for verified catalog opportunities only.');
+  if (!opp.requirements.length) expect(page).toContain('No requirements were entered.');
+ });
+});
