@@ -186,6 +186,7 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                   return {
                     step,
                     fields: stepFields(step, prep),
+                    dependencyTitles: step.depends_on.map((id) => route.steps.find((item) => item.id === id)?.title ?? id),
                     dependencies: step.depends_on.map((id) => route.steps.find((item) => item.id === id)?.title ?? id).join(", ") || "None",
                   };
                 });
@@ -208,11 +209,18 @@ export function AdventureMap({ opportunity }: { opportunity?: Opportunity }) {
                     <caption>Preparation checklist</caption>
                     <thead><tr><th scope="col">Step</th>{["Why this step", "Time and cost", "Evidence you can record", "Official requirement?", "Dependency"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
                     <tbody>{steps.map((item) => <tr key={item.step.id}>
-                      <th scope="row">{item.step.title}{competitionLink(item.step)}{item.step.skipped && <p>Skipped, excluded from totals. {item.step.skip_reason}</p>}</th>
+                      <th scope="row">{item.step.title}{competitionLink(item.step)}{item.step.skipped && <p className="rpg-small" style={{ fontWeight: "normal" }}>Skipped, excluded from totals.{item.step.skip_reason && <> <DetailDialog label="Read why" subject={`skipped: ${item.step.title}`} title={`Skipped: ${item.step.title}`}><p>{item.step.skip_reason}</p></DetailDialog></>}</p>}</th>
                       {fields(item).map(([label, value]) => {
                         // Short labels in the cells; the longer text opens in a centered card.
                         if (label === "Why this step") return <td data-label={label} key={label}>
                           {value === "Not recorded" ? value : <DetailDialog label="Read why" subject={item.step.title} title={`Why this step: ${item.step.title}`}><p>{value}</p></DetailDialog>}
+                        </td>;
+                        if (label === "Dependency" && item.dependencyTitles.length > 1) return <td data-label={label} key={label}>
+                          <span style={{ display: "block" }}>After {item.dependencyTitles.length} steps</span>
+                          <DetailDialog label="See which" subject={item.step.title} title={`Before: ${item.step.title}`}>
+                            <p>Do these steps first:</p>
+                            <ul className="rpg-list">{item.dependencyTitles.map((title) => <li key={title}>{title}</li>)}</ul>
+                          </DetailDialog>
                         </td>;
                         if (label !== "Official requirement?") return <td data-label={label} key={label}>{value}</td>;
                         const official = splitOfficial(value);
