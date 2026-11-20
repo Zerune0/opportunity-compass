@@ -134,42 +134,22 @@ export function JournalEntryCard({ entry, opportunity, profileId, today, onChang
       </div>
   </>;
 
-  if (view === "adventure") return (
-    // A quest card: the head carries the title and the way to the official page; the four status lines
-    // stay four separate panels (submitting is not eligibility, admission or taking part).
-    <QuestCard aria-labelledby={headingId} className="rpg-quest-card">
-      <header className="rpg-quest-card__head">
+  // The header, status controls and feedback keep their positions when only the view changes.
+  return (
+    <QuestCard aria-labelledby={headingId} className={view === "adventure" ? "rpg-quest-card" : ""}>
+      <header className={view === "adventure" ? "rpg-quest-card__head" : "rpg-stack"}>
         <h3 id={headingId}>{titleText}</h3>
         {sampleNote}
         {deadline}
         {officialUrl ? (
-          <p className="rpg-row">
-            <a className="rpg-button rpg-button--primary" href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
-            <span>You can apply there directly at any time.</span>
+          <p className={view === "adventure" ? "rpg-row" : undefined}>
+            <a className={view === "adventure" ? "rpg-button rpg-button--primary" : undefined}
+              href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
+            {" "}<span>You can apply there directly at any time.</span>
           </p>
         ) : noOfficialPage}
       </header>
-      <div className="rpg-quest-card__status">{statusLines}</div>
-      {rest}
-    </QuestCard>
-  );
-
-  return (
-    <QuestCard aria-labelledby={headingId}>
-      <h3 id={headingId}>
-        {titleText}
-      </h3>
-      {sampleNote}
-      {deadline}
-      {officialUrl ? (
-        <p>
-          <a href={officialUrl} target="_blank" rel="noopener noreferrer">Official page (opens in a new tab)</a>
-          {" "}· You can apply there directly at any time.
-        </p>
-      ) : noOfficialPage}
-
-      {statusLines}
-
+      <div className={view === "adventure" ? "rpg-quest-card__status" : undefined}>{statusLines}</div>
       {rest}
     </QuestCard>
   );
