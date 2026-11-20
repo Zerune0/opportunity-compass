@@ -150,7 +150,7 @@ export function StatusLines({
         separately, by you. You can pick an earlier date if something happened before today, and clear a record you
         made by mistake.
       </p>
-      <dl className="rpg-stack">
+      <dl className="rpg-facts rpg-facts--wide">
         <Line
           label="Your application"
           value={applicationValue}

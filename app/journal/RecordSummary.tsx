@@ -15,7 +15,7 @@ export function RecordSummary({ entries, profileId, isSample, findOpportunity }:
       <p>Only what you recorded on this device. Nothing here is sent anywhere.</p>
       {isSample && <p><StatusTag tone="warning">Sample</StatusTag></p>}
       <p>Each stage is counted separately from your current records. Submitting an application does not mean eligibility was confirmed, admission was granted, or participation happened. Counts update when you correct or remove a record.</p>
-      <dl className="rpg-stack">
+      <dl className="rpg-facts">
         {summary.stages.map((stage) => <div key={stage.label}>
           <dt>{stage.label}</dt>
           <dd>{stage.recorded ? stage.count : "Not recorded"}</dd>

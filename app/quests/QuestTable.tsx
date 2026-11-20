@@ -6,6 +6,7 @@ import type { BoardExplanations } from "./board-model";
 import { categories, deadlineText, durationText, feeText, formats, hoursText, locationText, showsOfficialLink, verifiedLabel } from "./quest-labels";
 import { sourceLabels } from "./use-quest-context";
 import { VerificationAge } from "./verification-age-badge";
+import { verificationAge } from "./verification-age";
 
 const eligibilityLabels: Record<OverallEligibility, string> = { eligible: "Eligible", not_eligible: "Not eligible", unknown: "Unknown" };
 function reachabilityLabel(reachable: boolean | null | undefined): string {
@@ -55,10 +56,12 @@ export function QuestTable({ items, explanations, hasProfile, saved, loaded, tod
                 <td data-label="Fee">{feeText(o)}</td>
                 <td data-label="Weekly hours">{hoursText(o)}; {durationText(o)}</td>
                 <td data-label="Source">
-                    {sourceLabelFor(o, sourceLabels[o.source_tier ?? "official"])}
-                    <span style={{ display: "block" }}>{verifiedLabel(o)}: {o.verified_on}</span>
-                    <VerificationAge opportunity={o} today={today} />
-                    {showsOfficialLink(o) && <a href={o.official_url}>Official application</a>}
+                    {/* Only the official link here; who verified it and when are on the details page and the cards.
+                        A stale verification still shows its warning, since it changes whether to trust the row. */}
+                    {showsOfficialLink(o)
+                        ? <a href={o.official_url} title={`${sourceLabelFor(o, sourceLabels[o.source_tier ?? "official"])}. ${verifiedLabel(o)}: ${o.verified_on}`}>Official application</a>
+                        : <span className="rpg-muted">No official page</span>}
+                    {verificationAge(o.verified_on, today).stale && <VerificationAge opportunity={o} today={today} />}
                 </td>
                 {hasProfile && <>
                     <td data-label="Eligibility">{explanation ? eligibilityLabels[explanation.eligibility_overall] ?? "Unknown" : "Unknown"}</td>

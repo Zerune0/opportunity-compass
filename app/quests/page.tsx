@@ -5,13 +5,14 @@ import { readBoardQuery, writeBoardQuery } from "./board-discovery";
 import { saveSavedOpportunityIds } from "../../lib/store";
 import { normalizeTag } from "../../lib/tags";
 import { VerificationAge } from "./verification-age-badge";
+import { verificationAge } from "./verification-age";
 import type { Opportunity } from "../../lib/types";
 import { emptyFilters, filterCatalog, explainCatalog, orderPreparedCatalog, type BoardFilters } from "./board-model";
 import { localRecordTag, sourceLabelFor } from "../../lib/sample-origin";
 import { sourceLabels, useQuestContext } from "./use-quest-context";
 import { SavedComparison } from "./saved-comparison";
 import { QuestTable } from "./QuestTable";
-import { categories, deadlineText, durationText, feeText, formats, hoursText, locationText, showsOfficialLink, verifiedLabel } from "./quest-labels";
+import { categories, deadlineText, durationText, feeText, formats, hoursText, locationText, showsOfficialLink } from "./quest-labels";
 import { useViewPreference } from "@/components/rpg/view-preference";
 
 function subscribeBoardQuery(onChange: () => void) {
@@ -106,9 +107,12 @@ export default function QuestBoard() {
  <h2><Link href={`/quests/${encodeURIComponent(o.id)}`}>{o.title}</Link></h2><p>{o.organizer}</p><p>{o.summary}</p>
  <dl><dt>Deadline</dt><dd>{deadlineText(o)}</dd><dt>Location</dt><dd>{locationText(o)}</dd>
  <dt>Time</dt><dd>{hoursText(o)}; {durationText(o)}</dd>
- <dt>Program fee</dt><dd>{feeText(o)}</dd><dt>Source</dt><dd>{sourceLabelFor(o, sourceLabels[o.source_tier ?? "official"])}</dd><dt>{verifiedLabel(o)}</dt><dd>{o.verified_on}<VerificationAge opportunity={o} today={context.today} /></dd></dl>
+ <dt>Program fee</dt><dd>{feeText(o)}</dd>{!showsOfficialLink(o) && <><dt>Source</dt><dd>{sourceLabelFor(o, sourceLabels[o.source_tier ?? "official"])}</dd></>}</dl>
+ {/* Verified catalog entries keep source and verification date on the details page; records that are not
+     official still name their source here. A stale verification still warns. */}
+ {verificationAge(o.verified_on, context.today).stale && <VerificationAge opportunity={o} today={context.today} />}
  {sort === "match" && explanations.get(o.id)?.reasons.map(r => <p key={r.kind}>{r.text}</p>)}
  <button type="button" className="rpg-button rpg-button--secondary" disabled={!context.loaded} aria-pressed={saved.includes(o.id)} aria-label={`${saved.includes(o.id) ? "Unsave" : "Save"} ${o.title}`} onClick={() => toggle(o.id)}>{saved.includes(o.id) ? "Saved" : "Save opportunity"}</button>
- {showsOfficialLink(o) && <a href={o.official_url}>Official application</a>}
+ {showsOfficialLink(o) ? <a href={o.official_url}>Official application</a> : <p className="rpg-muted">No official page</p>}
  </li>)}</ul>}</div>;
 }
