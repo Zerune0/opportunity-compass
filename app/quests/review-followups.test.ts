@@ -28,7 +28,7 @@ const profile: StudentProfile = {
 };
 const gradeRule = { id: "undergraduate", type: "grade" as const, min: 13, max: 16, hard: true, label: "Undergraduate", source_text: "Fictional undergraduate requirement." };
 const contextFor = (opportunity: Opportunity, student: StudentProfile | null) => ({
-    catalog: [opportunity], saved: [], profile: student, grants: [], today: "2026-11-19", loaded: true,
+    catalog: [opportunity], saved: [], profile: student, grants: [], today: "2026-11-19", loaded: true, setSaved: () => {},
 });
 
 describe("Quest Details review follow-ups", () => {
