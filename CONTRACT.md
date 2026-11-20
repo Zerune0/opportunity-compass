@@ -707,7 +707,7 @@ type RejectedRecord = { id: string | null; index: number; errors: string[] }  //
 
 需要改别人目录里的东西：找对方，或在群里说明后由对方改。
 
-- **`lib/metrics/`**（第四阶段新增）：本轮归 Charles（入口文件由他确定）。
+- **`lib/metrics/`**（第四阶段新增）：联合求解与基线的指标（`reliability.ts`、`format.ts`）归 Charles；学生端指标（`route-checker.ts`、`student-reliability.ts`、`format-student.ts`）归主导。入口 `run.metrics.ts`，用 `npm run metrics` 运行（只打印，不断言）。
 
 - **首页 `app/page.tsx`**：归主导；本阶段的首页改版交给队友 B 做，改之前在群里说一声即可。
 
@@ -899,3 +899,4 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - What-if：`WhatIfBaselineRow` 新增 `coordination`、`coordination_label`（其他行为 null）；`/organizer` 的基线表多一行 D 并显示轮数，表下说明 D 与联合求解打平的含义。
   - 指标（`lib/metrics/`，`npm run metrics`）：基线表多出 D 一行 / 一列（数字取验证器重算）；`BASELINE_IDS` 为 A、B、C、D、joint。协调轮数由 not_measured 改为对 D 实测（`CaseMetrics.baselines[].coordination`、汇总 `coordination_rounds` 给出最小 / 最大 / 分布与未收敛数，没有 D 行的用例计为未测量），并说明轮数反映的是协议设计（学生端第 1 轮就交出完整报告）而不是协调难度；新增 `d_vs_joint` 对照（打平数、D 不可执行数、D 的 N 超过联合求解的用例会醒目标出）；基线说明补上「D 考虑公平底线」。`not_measured` 只剩 runtime。
   - 结果（模拟）：三个示例场景在 protect、公平底线、tradeoff（`loss_cap` 0 / 2 / 3）、`min_gain` 下，D 与联合求解在 N、L、成本上全部打平，均 2 轮收敛。测试：`lib/joint/baseline-d.test.ts`（含与穷举参考、40 个固定种子随机小场景的对照）。
+- 2026-11-19：**学生端可靠性指标与截止当天的口径差异（文档补记）**：`lib/metrics/route-checker.ts` 是不 import `lib/path/` 的独立路线检查器，`lib/metrics/student-reliability.ts` 在全部示例档案 × 已核实机会上统计（`npm run metrics` 的第二段）。检查器按规则文字把「today 到截止日的天数差（不含 today 当天）」算作可用天数；`planRoutes` 在截止日就是 today 时按至少 1 天计算容量。两者只在截止当天不同，当前数据没有命中；这是已知差异，未改引擎。此前变更记录里「`metrics` 脚本等确定入口文件后再加」已完成（`package.json` 的 `metrics`）。
