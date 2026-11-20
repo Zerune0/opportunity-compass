@@ -431,18 +431,22 @@ describe('runWhatIf：设备借用场景的公平底线', () => {
 });
 
 describe('runWhatIf：基线对比表格', () => {
-  it('设备借用默认：4 行，声称 / 复核 / 截断数字', () => {
+  it('设备借用默认：5 行（含 D），声称 / 复核 / 截断数字', () => {
     const v = runWhatIf(S, dlInput());
     const rows = v.baselines!.rows;
-    expect(rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'joint']);
-    expect(rows.map((r) => r.claimed_reachable)).toEqual([10, 10, 7, 5]);
-    expect(rows.map((r) => r.executable)).toEqual([true, false, true, true]);
-    expect(rows.map((r) => r.verified?.G ?? null)).toEqual([0, null, 5, 5]);
+    expect(rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'D_coordinated', 'joint']);
+    expect(rows.map((r) => r.claimed_reachable)).toEqual([10, 10, 7, 5, 5]);
+    expect(rows.map((r) => r.executable)).toEqual([true, false, true, true, true]);
+    expect(rows.map((r) => r.verified?.G ?? null)).toEqual([0, null, 5, 5, 5]);
     expect(rows[1].failed_checks).toEqual(['Within capacity', 'Within budget']);
     expect(rows[1].repaired).toMatchObject({ G: 5, total_usd: 350 });
     expect(rows[2].verified?.total_usd).toBe(350);
     expect(rows[3].verified?.total_usd).toBe(200);
-    expect(rows.map((r) => r.soft_label)).toEqual(['No requirement set', 'No requirement set', 'No requirement set', 'No requirement set']);
+    expect(rows[4].verified?.total_usd).toBe(200);
+    expect(rows.map((r) => r.soft_label)).toEqual(Array(5).fill('No requirement set'));
+    // 只有 D 行带协调轮数
+    expect(rows.map((r) => r.coordination_label)).toEqual([null, null, null, '2 rounds, converged', null]);
+    expect(rows[3].coordination).toEqual({ rounds: 2, converged: true, max_rounds: 50 });
     expect(v.baselines!.notes.join('')).toContain('Baseline D');
     // 视图里的基线行不带方案（方案里有学生 id）
     for (const r of rows) expect(Object.keys(r)).not.toContain('plan');
@@ -450,7 +454,7 @@ describe('runWhatIf：基线对比表格', () => {
 
   it('带底线时：不可执行的行写「方案不可执行，不评估」', () => {
     const v = runWhatIf(S, dlInput({ fairnessFloorIds: [LOW_INCOME] }), DL_FLOORS);
-    expect(v.baselines!.rows.map((r) => r.soft_label)).toEqual(['Not met', 'Plan not executable; not evaluated', 'Not met', 'Met']);
+    expect(v.baselines!.rows.map((r) => r.soft_label)).toEqual(['Not met', 'Plan not executable; not evaluated', 'Not met', 'Met', 'Met']);
   });
 
   it('输入不合法（负预算）：基线 rows 为空，notes 写明原因', () => {
@@ -724,6 +728,7 @@ describe('runWhatIf：基线表同口径的复核后可达（必须修 1）', ()
     expect(rows.map((r) => [r.claimed_reachable, r.verified?.R1_count ?? null, r.repaired?.R1_count ?? null])).toEqual([
       [18, 3, null],
       [18, null, 5],
+      [5, 5, null],
       [5, 5, null],
       [5, 5, null],
     ]);

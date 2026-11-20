@@ -10,7 +10,6 @@ import type { BaselineId } from '../types';
 import {
   BASELINE_DEFINITION_NOTE,
   BASELINE_IDS,
-  COORDINATION_NOT_MEASURED,
   DISCLAIMER,
   RUNTIME_NOT_MEASURED_HERE,
   VALID_ROUTE_DEFINITION,
@@ -18,7 +17,9 @@ import {
 import type {
   BaselineAggregate,
   CaseMetrics,
+  CoordinationSummary,
   CoverageNumbers,
+  DVsJointSummary,
   ExhaustiveLimits,
   GapCheck,
   ReliabilityReport,
@@ -41,7 +42,7 @@ export interface FormatOptions {
   runtime?: readonly RuntimeEntry[];
 }
 
-export const REPORT_TITLE = 'Opportunity Compass - reliability metrics (joint solver and baselines A/B/C)';
+export const REPORT_TITLE = 'Opportunity Compass - reliability metrics (joint solver and baselines A/B/C/D)';
 
 export const PAIR_CASE_LABEL = 'pair-case instances summed over the cases; the same pair counts once per case';
 
@@ -49,10 +50,17 @@ const APPROACH_LABELS: Record<BaselineId, string> = {
   A_eligibility_only: 'A eligibility only',
   B_student_side: 'B student-side',
   C_organizer_side: 'C organizer-side',
+  D_coordinated: 'Coordinated separate planners',
   joint: 'Joint solver',
 };
 
-const SHORT: Record<BaselineId, string> = { A_eligibility_only: 'A', B_student_side: 'B', C_organizer_side: 'C', joint: 'joint' };
+const SHORT: Record<BaselineId, string> = {
+  A_eligibility_only: 'A',
+  B_student_side: 'B',
+  C_organizer_side: 'C',
+  D_coordinated: 'D',
+  joint: 'joint',
+};
 
 // ───────────────────────────── 工具 ─────────────────────────────
 
@@ -140,6 +148,31 @@ function truncationLines(aggs: Record<BaselineId, BaselineAggregate>): string[] 
 function bExecutabilitySentence(aggs: Record<BaselineId, BaselineAggregate>): string {
   const b = aggs.B_student_side;
   return `B's untruncated plan was executable in ${b.cases - b.not_executable_cases} of ${plural(b.cases, 'case')} here.`;
+}
+
+function roundsText(c: CoordinationSummary): string {
+  if (c.cases_measured === 0) return `no case had a baseline D row (${plural(c.cases_not_measured, 'case')} not measured)`;
+  const dist = c.distribution.map((d) => `${plural(d.rounds, 'round')}: ${plural(d.cases, 'case')}`).join('; ');
+  const range = c.min === c.max ? `${num(c.min)}` : `${num(c.min)} to ${num(c.max)}`;
+  return `measured in ${plural(c.cases_measured, 'case')} (rounds ${range}; ${dist}); ${c.not_converged} did not converge within the round limit${c.cases_not_measured > 0 ? `; ${plural(c.cases_not_measured, 'case')} not measured (no baseline D row: invalid input or a measurement error)` : ''}`;
+}
+
+/** D 与联合求解的对照（D 超过联合求解时醒目标出）。 */
+function dVsJointLines(d: DVsJointSummary, pad: string): string[] {
+  const out: string[] = [];
+  out.push(
+    `${pad}Baseline D vs joint solver: tied (same verified N, L and cost) in ${d.ties} of ${plural(d.compared, 'case')}; both plans executable in ${d.both_executable}; D plan not executable in ${d.d_not_executable}; D hit a node or size limit in ${d.d_limited}.`,
+  );
+  out.push(`${pad}${d.note}`);
+  if (d.d_exceeds_joint > 0) {
+    out.push(`${pad}!!! WARNING: baseline D's verified N is LARGER than the joint solver's in ${plural(d.d_exceeds_joint, 'case')}. This points to a problem in the joint solver:`);
+    for (const r of d.reproducers) {
+      out.push(`${pad}!!!   scenario ${r.scenario_id}, case ${r.case_id}: D N ${num(r.d_N)} > joint N ${num(r.joint_N)} (joint status ${r.joint_status})`);
+    }
+  } else {
+    out.push(`${pad}Baseline D's verified N never exceeded the joint solver's (0 cases).`);
+  }
+  return out;
 }
 
 function limitsText(l: ExhaustiveLimits): string {
@@ -272,6 +305,8 @@ function scenarioSection(s: ScenarioMetrics): string[] {
   out.push('');
   out.push(`  Baselines, all ${plural(s.cases.length, 'case')} (${PAIR_CASE_LABEL}):`);
   out.push(...indent(baselineTable(sum)));
+  out.push(`  Baseline D coordination rounds: ${roundsText(sum.coordination_rounds)}.`);
+  out.push(...dVsJointLines(sum.d_vs_joint, '  '));
   return out;
 }
 
@@ -316,7 +351,7 @@ function summarySection(t: ReliabilitySummary, limits: ExhaustiveLimits | null, 
   out.push(`      verifier-confirmed reachable pairs ${perApproach(t.baselines, (b) => num(b.confirmed_reachable))}; newly reachable (G) ${perApproach(t.baselines, (b) => num(b.confirmed_new))}.`);
   for (const l of truncationLines(t.baselines)) out.push(`      ${l}`);
   out.push(
-    `      Newly reachable (G), protect-mode cases only (${plural(t.protect_cases, 'case')}; no approach revokes anything there): C ${t.baselines_protect.C_organizer_side.confirmed_new}, joint ${t.baselines_protect.joint.confirmed_new} (all cases: C ${t.baselines.C_organizer_side.confirmed_new}, joint ${t.baselines.joint.confirmed_new}).`,
+    `      Newly reachable (G), protect-mode cases only (${plural(t.protect_cases, 'case')}; no approach revokes anything there): C ${t.baselines_protect.C_organizer_side.confirmed_new}, D ${t.baselines_protect.D_coordinated.confirmed_new}, joint ${t.baselines_protect.joint.confirmed_new} (all cases: C ${t.baselines.C_organizer_side.confirmed_new}, D ${t.baselines.D_coordinated.confirmed_new}, joint ${t.baselines.joint.confirmed_new}).`,
   );
   out.push(`    ${VALID_ROUTE_DEFINITION}`);
 
@@ -331,6 +366,12 @@ function summarySection(t: ReliabilitySummary, limits: ExhaustiveLimits | null, 
   );
   out.push(`    Second, ${allLabel}: ${perApproach(t.baselines, (b) => `${b.unconfirmed_claims} of ${b.claimed_reachable}`)}.`);
   out.push(`    Cases whose plan fails the verifier's executability checks: ${perApproach(t.baselines, (b) => `${b.not_executable_cases}/${b.cases}`)}.`);
+  {
+    const d = t.baselines.D_coordinated;
+    out.push(
+      `    Baseline D (${allLabel}): ${d.unconfirmed_claims} of ${d.claimed_reachable} claimed reachable pairs not confirmed by the verifier; plan not executable in ${d.not_executable_cases} of ${plural(d.cases, 'case')}.`,
+    );
+  }
   out.push(`    ${BASELINE_DEFINITION_NOTE} ${bExecutabilitySentence(t.baselines)}`);
 
   out.push('  [net coverage] See the per-case rows above (R0, R1, G, L, N and cost from the verifier\'s recomputation).');
@@ -363,14 +404,18 @@ function summarySection(t: ReliabilitySummary, limits: ExhaustiveLimits | null, 
   out.push(`    ${plural(g.skipped_too_large, 'solve')} skipped as too large for exhaustive search (not counted as gap 0).`);
 
   out.push(`  [determinism] ${t.determinism.identical} of ${plural(t.determinism.cases, 'case')} gave identical results when solved twice.`);
-  out.push(`  [coordination rounds] not measured: ${COORDINATION_NOT_MEASURED}`);
+  out.push(`  [coordination rounds] baseline D: ${roundsText(t.coordination_rounds)}.`);
+  out.push(`    ${t.coordination_rounds.definition}`);
+  out.push(`    ${t.coordination_rounds.note}`);
+  out.push('  [baseline D vs joint solver]');
+  out.push(...dVsJointLines(t.d_vs_joint, '    '));
   if (runtime && runtime.length > 0) {
     out.push('  [runtime] measured by the runner; machine-dependent, see the runtime table below.');
   } else {
     out.push(`  [runtime] not measured here: ${RUNTIME_NOT_MEASURED_HERE}`);
   }
 
-  if (ff.reproducers.length > 0 || g.reproducers.length > 0) {
+  if (ff.reproducers.length > 0 || g.reproducers.length > 0 || t.d_vs_joint.reproducers.length > 0) {
     out.push('');
     out.push('  Problems to investigate (reproducing cases):');
     for (const r of ff.reproducers) {
@@ -380,6 +425,9 @@ function summarySection(t: ReliabilitySummary, limits: ExhaustiveLimits | null, 
       out.push(
         `    ${r.problem.replace(/_/g, ' ')} (${r.which}): scenario ${r.scenario_id}, case ${r.case_id}; exhaustive N ${r.exhaustive_N === null ? 'infeasible' : num(r.exhaustive_N)}, solver ${r.solver_status} with verified N ${num(r.verified_N)}${r.mismatched_levels.length > 0 ? `; levels differ: ${r.mismatched_levels.join(', ')}` : ''}`,
       );
+    }
+    for (const r of t.d_vs_joint.reproducers) {
+      out.push(`    baseline D exceeds joint solver: scenario ${r.scenario_id}, case ${r.case_id}; D N ${num(r.d_N)}, joint N ${num(r.joint_N)} (joint ${r.joint_status})`);
     }
   }
   return out;
@@ -395,7 +443,7 @@ function runtimeSection(runtime: readonly RuntimeEntry[]): string[] {
         [false, true, true, true],
       ),
     ),
-    '  harness = two solves, baseline comparison, verifier checks and exhaustive cross-check for every case.',
+    '  harness = two solves, baseline comparison (including baseline D\'s coordination), verifier checks and exhaustive cross-check for every case.',
     '  The first scenario\'s times include warm-up (module loading, JIT compilation, caches).',
   ];
 }

@@ -293,6 +293,10 @@ export interface WhatIfBaselineRow {
   soft_requirements_met: boolean | null;
   /** 「是 / 否 / 未设要求」等中文说明。 */
   soft_label: string;
+  /** 只有 D 行（充分协调的分离式规划器）有：协调轮数、是否收敛、轮数上限；其他行为 null。 */
+  coordination: { rounds: number; converged: boolean; max_rounds: number } | null;
+  /** 协调轮数的英文说明（如 "2 rounds, converged"）；其他行为 null。 */
+  coordination_label: string | null;
 }
 
 export interface WhatIfBaselines {
@@ -1064,6 +1068,11 @@ function lossAndRevocations(
 
 const SOFT_CHECK_NAMES = new Set(['organizer_requirements', 'fairness']);
 
+function coordinationLabel(c: { rounds: number; converged: boolean; max_rounds: number }): string {
+  const rounds = `${c.rounds} ${c.rounds === 1 ? 'round' : 'rounds'}`;
+  return c.converged ? `${rounds}, converged` : `${rounds}, stopped at the limit of ${c.max_rounds} without converging`;
+}
+
 function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBaselines {
   const m = (x: { R1_count: number; G: number; L: number; N: number; total_usd: number }): WhatIfBaselineMetrics => ({
     R1_count: x.R1_count,
@@ -1094,6 +1103,8 @@ function baselinesView(cmp: BaselineComparison, scenario: Scenario): WhatIfBasel
               : r.soft_requirements_met
                 ? 'Met'
                 : 'Not met',
+        coordination: r.coordination ? { ...r.coordination } : null,
+        coordination_label: r.coordination ? coordinationLabel(r.coordination) : null,
       };
     }),
     notes: cmp.notes.map((n) => cleanText(n, scenario)),
@@ -1217,7 +1228,7 @@ export function runWhatIfWithPlan(
       : 'Protected mode never revokes existing resources, so new measures that conflict with existing resources cannot be enabled.',
     'Existing resources given to students outside the scenario cannot be revoked (their loss cannot be evaluated, and we do not guess). New measures that conflict with those resources\' measures cannot be enabled in either mode.',
     'Fairness floors use only status labels that students report themselves (such as low-income or first-generation), never school names or personal names. The denominator counts only group members who are officially eligible for at least one opportunity, counted per student (covered = at least one reachable opportunity). A student in several groups counts once in each group.',
-    'Baselines A / B / C are deterministic simplifications (ascending id, first come first served). They do not represent any real system or who needs help more. Baseline D from the spec (a fully coordinated separate planner) is not implemented.',
+    'Baselines A / B / C are deterministic simplifications (ascending id, first come first served). They do not represent any real system or who needs help more. Baseline D (coordinated separate planners) lets a student-side planner and an organizer-side planner exchange complete information over several rounds; it can tie with the joint solver.',
   ];
   if (floors.length > 0) assumptions.push('The fairness floors set here and their basis are samples (fictional basis), for demo only.');
   if (running.length > 0) {

@@ -70,7 +70,7 @@ function vo(opts: SolveOptions): VerifyOptions {
 }
 
 function expectConsistent(sc: Scenario, opts: SolveOptions, c: BaselineComparison) {
-  expect(c.rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'joint']);
+  expect(c.rows.map((r) => r.id)).toEqual(['A_eligibility_only', 'B_student_side', 'C_organizer_side', 'D_coordinated', 'joint']);
   for (const r of c.rows) {
     expect(Object.keys(r.plan).sort()).toEqual(['allocations', 'revoked_grant_ids', 'selected_intervention_ids']);
     expect(verifyPlan(sc, r.plan, vo(opts))).toEqual(r.verification);
@@ -79,13 +79,15 @@ function expectConsistent(sc: Scenario, opts: SolveOptions, c: BaselineCompariso
       .every((x) => x.passed);
     expect(r.verified === null).toBe(!executable);
     if (r.verified) expect(r.verified.N).toBe(r.verified.G - r.verified.L);
-    if (r.id === 'A_eligibility_only' || r.id === 'joint') expect(r.repaired).toBeNull();
+    if (r.id === 'A_eligibility_only' || r.id === 'D_coordinated' || r.id === 'joint') expect(r.repaired).toBeNull();
+    if (r.id === 'D_coordinated') expect(r.coordination).not.toBeNull();
+    else expect(r).not.toHaveProperty('coordination');
     if (executable) expect(r.repaired).toBeNull();
     else if (r.id === 'B_student_side' || r.id === 'C_organizer_side') expect(r.repaired).not.toBeNull();
     expect(r.label.length).toBeGreaterThan(0);
     expect(r.description.length).toBeGreaterThan(0);
   }
-  for (const n of [BASELINE_NOTES.same_inputs, BASELINE_NOTES.d_missing, BASELINE_NOTES.simulation, BASELINE_NOTES.ordering]) {
+  for (const n of [BASELINE_NOTES.same_inputs, BASELINE_NOTES.d_tie, BASELINE_NOTES.simulation, BASELINE_NOTES.ordering]) {
     expect(c.notes).toContain(n);
   }
 }
@@ -93,8 +95,14 @@ function expectConsistent(sc: Scenario, opts: SolveOptions, c: BaselineCompariso
 describe('compareBaselines：设备借用场景，只启用笔记本借用（预算 $400）', () => {
   const c = compareBaselines(LAPTOP_ONLY);
 
-  it('四行固定顺序，标签固定', () => {
-    expect(c.rows.map((r) => r.label)).toEqual(['Eligibility filter only', 'Student-side planner', 'Organizer-side planner', 'Joint solver']);
+  it('五行固定顺序（A、B、C、D、joint），标签固定', () => {
+    expect(c.rows.map((r) => r.label)).toEqual([
+      'Eligibility filter only',
+      'Student-side planner',
+      'Organizer-side planner',
+      'Coordinated separate planners',
+      'Joint solver',
+    ]);
     expectConsistent(LAPTOP_ONLY, {}, c);
   });
 
@@ -204,11 +212,11 @@ describe('compareBaselines：权衡场景', () => {
 });
 
 describe('compareBaselines：公平底线时 soft_requirements_met', () => {
-  it('设备借用全部措施 + 低收入 ≥ 50%：A false、B true（但不可执行）、C false、joint true', () => {
+  it('设备借用全部措施 + 低收入 ≥ 50%：A false、B true（但不可执行）、C false、D true、joint true', () => {
     const opts: SolveOptions = { fairness_floors: DL_FLOORS };
     const c = compareBaselines(DL, opts);
     expectConsistent(DL, opts, c);
-    expect(c.rows.map((r) => r.soft_requirements_met)).toEqual([false, true, false, true]);
+    expect(c.rows.map((r) => r.soft_requirements_met)).toEqual([false, true, false, true, true]);
     expect(row(c, 'B_student_side').verified).toBeNull();
     // C 服务 s01…s05，低收入的 s07…s10 一个都没覆盖
     expect(row(c, 'C_organizer_side').verification.checks.find((x) => x.name === 'fairness')?.passed).toBe(false);
@@ -227,9 +235,9 @@ describe('compareBaselines：公平底线时 soft_requirements_met', () => {
   });
 
   it('不设软要求时全部为 null；min_gain 给出时按 organizer_requirements 判', () => {
-    expect(compareBaselines(DL).rows.map((r) => r.soft_requirements_met)).toEqual([null, null, null, null]);
+    expect(compareBaselines(DL).rows.map((r) => r.soft_requirements_met)).toEqual([null, null, null, null, null]);
     const c = compareBaselines(DL, { min_gain: 5 });
-    expect(c.rows.map((r) => r.soft_requirements_met)).toEqual([false, true, true, true]);
+    expect(c.rows.map((r) => r.soft_requirements_met)).toEqual([false, true, true, true, true]);
   });
 });
 
@@ -288,7 +296,7 @@ describe('compareBaselines：小的对抗场景', () => {
     }
   });
 
-  it('没有任何措施：B、C、joint 都是空方案', () => {
+  it('没有任何措施：B、C、D、joint 都是空方案', () => {
     const sc: Scenario = { ...DL, interventions: [] };
     const c = compareBaselines(sc);
     expectConsistent(sc, {}, c);
@@ -300,7 +308,7 @@ describe('compareBaselines：小的对抗场景', () => {
     expect(row(c, 'A_eligibility_only').claimed_reachable).toBe(10);
   });
 
-  it('全是 pending 措施：B、C 不用 pending，joint 主结果也不含 pending', () => {
+  it('全是 pending 措施：B、C、D 不用 pending，joint 主结果也不含 pending', () => {
     const sc: Scenario = { ...DL, interventions: DL.interventions.map((iv) => ({ ...iv, status: 'pending' as const })) };
     const c = compareBaselines(sc);
     expectConsistent(sc, {}, c);

@@ -40,7 +40,7 @@
 | `EvalOptions` | `checkEligibility` / `analyzeReachability` / `planRoutes` 的可选末位参数 | `today?: ISODate`（评估基准日；不传时不读系统时间，依赖日期的判断按信息不足处理）；`catalog?: Opportunity[]`（第四阶段新增：只有 `planRoutes` 读取，用来生成 competition 路线；不传时不生成 competition，其余结果与第四阶段之前相同（只多了步骤的三个说明字段）） |
 | `VerifyOptions` | `verifyPlan` 的可选第三参数（已确认保留） | `mode`、`loss_cap`（均可选，类型同 `SolveOptions`）；复核损失时用，不传按 protect 处理（损失必须为 0）；`mode: 'tradeoff'` 但没给 `loss_cap` 时判为不通过。新增可选 `assume_approved_intervention_ids?`（复核条件性方案时把这些 pending 措施当作已批准）、`required_intervention_ids?`、`min_gain?`、`fairness_floors?`（与 `SolveOptions` 同义，传了才检查） |
 | `VerifyResult` | 独立复核 | `passed`、`checks[]`（`name`、`passed`、`detail`）；`capacity` / `cost_accounting` 按 `Allocation` 的口径复核（按不同 (`intervention_id`, `student_id`) 计）；检查项名称见「联合求解模型」（新增 `revocation`、`fairness`） |
-| `BaselineId` / `BaselineRow` / `BaselineMetrics` / `BaselineComparison` | 基线对比（`compareBaselines` 的返回） | 行 `A_eligibility_only` / `B_student_side` / `C_organizer_side` / `joint`：`label`、`description`、`claimed_reachable`（自称）、`plan`、`verification`（同一验证器复核）、`verified`（可执行时的独立重算指标，否则 null）、`soft_requirements_met`、`repaired`（先到先得截断后的指标）；`notes` |
+| `BaselineId` / `BaselineRow` / `BaselineMetrics` / `BaselineComparison` | 基线对比（`compareBaselines` 的返回） | 行 `A_eligibility_only` / `B_student_side` / `C_organizer_side` / `D_coordinated` / `joint`：`label`、`description`、`claimed_reachable`（自称）、`plan`、`verification`（同一验证器复核）、`verified`（可执行时的独立重算指标，否则 null）、`soft_requirements_met`、`repaired`（先到先得截断后的指标）、`coordination?`（只有 D 行：`{ rounds, converged, max_rounds }`）；`notes` |
 
 `R0 / R1 / G / L / N`（出自 `docs/product-scope.md` Shared constraints）：在同一评估时间和假设下，
 `R0` = 原始覆盖（不加新措施时现实可达的学生-机会对集合），`R1` = 全局分配后的覆盖；
@@ -154,7 +154,7 @@
 | `planAcrossOpportunities` | `lib/planner`（第二阶段） | `(profile: StudentProfile, opps: Opportunity[], options?: CrossPlanOptions) => CrossPlan` | 已实现（第二阶段第 2 层；`CrossPlanOptions` 新增可选 `materials`，向后兼容） |
 | `explainMatch` | `lib/match`（第二阶段） | `(profile: StudentProfile, opp: Opportunity, options?: MatchOptions) => MatchExplanation` | 已实现（第二阶段第 2 层） |
 
-第 3 层新增（不属于上表的共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，已实现（A / B / C / joint 四行；基线 D 未实现），规则见「联合求解模型」第 10 条。`solveJoint` 的撤回、权衡模式、公平底线与新目标顺序均已实现。
+第 3 层新增（不属于上表的共享函数）：`compareBaselines`（`lib/joint/baselines.ts`）`(scenario: Scenario, options?: SolveOptions) => BaselineComparison`，已实现（A / B / C / D / joint 五行；D 在 `lib/joint/baseline-d.ts`），规则见「联合求解模型」第 10 条。`solveJoint` 的撤回、权衡模式、公平底线与新目标顺序均已实现。
 
 `VerifyOptions = { mode?: 'protect' | 'tradeoff'; loss_cap?: number; assume_approved_intervention_ids?: string[]; required_intervention_ids?: string[]; min_gain?: number; fairness_floors?: FairnessFloor[] }`（字段类型沿用 `SolveOptions`）。**第三参数确定保留，为可选**：复核损失 `L` 时需要知道模式与损失上限。不传（或不给 `mode`）按 protect 处理，即损失 `L` 必须为 0；`mode: 'tradeoff'` 时 `L ≤ loss_cap` 才算通过；`mode: 'tradeoff'` 但没给 `loss_cap` 时 `verifyPlan` 判为不通过（与 `solveJoint` 在同样输入下返回 `UNSUPPORTED_INPUT` 一致）。
 
@@ -500,10 +500,19 @@
   4. `repaired`：plan 可执行时为 `null`（通常如此：C 遵守名额与预算；`verified` 会少于 `claimed_reachable`，因为有些学生还缺别的条件或资格不符）。否则按 B 第 4 步的方法截断：以「有 Allocation 的对」为单位按升序逐个加入（加入一个对 = 加入 C 给该对的全部 Allocation），`selected_intervention_ids` 保持为 `sel`，`cost_usd` 每次用 `fill_costs` 重算，不可执行则跳过该对；`note` 同 B 的格式。
   - description 要点：能按障碍类型分配名额与预算，但不联合计算学生的准备路线与其他条件，化解一种障碍不等于能参加。
 - **joint `joint`，label「联合求解」**：`plan` = `J` 的 `selected_intervention_ids`、`allocations`、`revoked_grant_ids ?? []`（INFEASIBLE 时即空主方案，不用 `alternative`）；`claimed_reachable` = `J.R1.length`。description 要点：同时考虑学生的资格、障碍与主办方的名额、预算、互斥、依赖和损失底线。
-- `rows` 固定顺序：A、B、C、joint。
+- **D `D_coordinated`，label "Coordinated separate planners"（充分协调的分离式规划器）**（`lib/joint/baseline-d.ts`，由 `compareBaselines` 调用）：学生端规划器与机构端规划器是两个分开的角色，交换完整信息、共享约束、反复协调。这是最强的基线，可能与联合求解取得相同最优解，不得故意削弱。
+  1. **学生端角色**：对机构端的提议（选中措施、分配、撤回）报告：(a) 每个对在该提议下是否完整可达（用 `./verify` 的 `createJointEvaluator`，与验证器同一口径）；(b) 每个对的全部**极小**可达措施集合（候选 = `{ i ∈ AP : applicable(i, o) }`，按大小、同大小按排序后 id 数组的字典序枚举，跳过已找到集合的超集；不撤回就可达时为 `[[]]`），并按「该对相关的可撤回已有 grant（`student_id = s`，`opportunity_id` 为 null 或 = o）被撤回了哪些」分情况给出（按需计算并缓存，内容等同一次全部给出）；(c) 分到了但用不上的分配条数（拿掉不影响该对可达，或该对无论如何不可达）；(d) 每名学生是否至少对一个机会官方资格为 eligible（公平底线分母）。
+  2. **机构端角色**：不计算可达性，只读学生端的报告。枚举 `AP` 的子集作为选中集合（要求：`requires` 都在集合内、集合内无 `excl`、不与有场景外学生已有承诺的措施 `excl`、包含 `required_intervention_ids`、固定成本 ≤ 预算）；强制撤回 = 与选中措施 `excl` 的措施的全部可撤回 grant，protect 下强制撤回非空的集合不用；tradeoff 下另外枚举自愿撤回（候选只取「措施在选中集合内且有名额上限」的可撤回 grant，其余自愿撤回只会更差）。对每个（选中集合, 撤回集合），每个对的选项 = 学生端在对应撤回情况下给出的极小集合中、全部措施都已选中且不是「撤回后又分配同一 (措施, 学生)」的那些，或者不分配；对选项做分支定界的精确搜索，遵守容量（含时段、已有 grant 占位，`E'` 计）、成本（`E'` 中 approved 的 (措施, 学生) 免成本）、预算、损失（protect `L = 0`；tradeoff `L ≤ loss_cap`），并把软要求（`min_gain`、`fairness_floors`，按学生端报告的可达对计算）当作约束。目标顺序与第 5 条相同：N → L → 成本 → 分配条数 → 措施数 → 撤回数 → 字典序。没有方案满足全部约束（含软要求）时提议空方案（与联合求解 INFEASIBLE 的主结果一致，软要求如实不满足，不放松）。
+  3. **协调协议**：第 0 轮机构端提议空方案（空方案总满足全部硬约束）。第 r 轮：学生端评估上一轮提议并报告 → 机构端核对（自己以为可达、学生端说不可达的（对, 撤回情况, 措施集合）记为无效，以后不用）并重新规划。新提议与刚评估的提议相同即收敛（不动点），`rounds = r`。上限 `MAX_COORDINATION_ROUNDS = 50`（因为第 1 轮学生端就给出完整的条件性报告，通常第 2 轮确认收敛，空方案已最优时第 1 轮收敛；50 远大于此，不会人为卡住）；到上限仍未收敛时 `converged = false`，返回机构端最后一次提议（尚未经学生端确认，照常由验证器复核），`notes` 写明。
+  4. **计算资源与规模保护**：机构端搜索的节点上限 = `options.max_search_nodes ?? 200000`（与联合求解相同的数值；「节点」= 一个（选中集合, 撤回集合）或分支定界的一个状态，计法与联合求解不同）。已批准措施超过 12 项时只枚举至多 4 项的组合；某对候选措施超过 12 项时只列至多 3 项的极小集合；可自愿撤回的候选超过 10 条时只做强制撤回；某对相关的可撤回 grant 超过 6 条时只报告「不撤回」与「全部撤回」。达到节点上限或触发任一保护时 `notes` 写明（D 因此可能不如联合求解）。
+  5. 输出：`plan` = 最后的提议；`claimed_reachable` = 机构端按学生端报告认为可达的对数（收敛时 = 学生端在确认轮报告的可达对数）；`repaired` 恒为 `null`（D 的提议按构造满足硬约束，没有截断规则）；`coordination = { rounds, converged, max_rounds }`（其他行不带此字段）。`soft_requirements_met` 按公共定义（D 考虑软要求，包括公平底线）。
+  6. 独立性：`baseline-d.ts` 不得 import `./solve`（不调用 `solveJoint`，有静态守卫测试），只用 `./verify` 的评估器；确定性（并列按 id 升序与第 5 条字典序）、不读时钟、无随机、不修改输入。
+  - description 要点：两个分开的规划器、交换完整信息并反复协调、是最强的基线、可能与联合求解打平。
+- `rows` 固定顺序：A、B、C、D、joint。
 - `notes` 必须包含（措辞可调整，含义不变）：
   - 「所有行使用相同的场景、预算、名额、规则与复核器。」
-  - 「说明书中的基线 D（充分协调的分离式规划器）未实现。」
+  - 「基线 D 与联合求解打平是预期中可能出现的结果；打平不代表联合求解没有价值，也不代表它有价值，只是在这些示例场景上的事实。」
+  - D 的协调说明（只含人数）：第 1 轮学生端的报告、收敛轮数或「未收敛、停在上限」、以及（如触发）节点上限 / 规模保护 / 软要求无解的说明。
   - 「全部为模拟结果，基于示例数据，不代表真实影响；可达不等于录取。」
   - 「基线的顺序规则（按编号升序、先到先得）是确定性的简化，不代表任何真实系统，也不代表谁更需要。」
   - `J.status` 为 `SEARCH_LIMIT_REACHED` 时加一条「联合求解达到搜索上限，未证明最优」；为 `INFEASIBLE` 时加一条「联合求解在当前要求下无解，表中为空方案，放松后的替代方案见求解结果」。
@@ -521,7 +530,7 @@
 - 导入 `data/*.json` 时，TypeScript 会把字面量（如 `'online'`、`'approved'`）拓宽成 `string`，与联合类型不兼容；目前需要断言，例如
   `import profilesJson from '@/data/profiles.json'; const profiles = profilesJson as unknown as StudentProfile[];`。**页面不要这样直接读**：改用带校验的 `lib/data.ts`（见下方「数据加载」一节）；直接导入只留给 `lib/` 里的测试。
 - **主办方 What-if（`solveJoint` / `verifyPlan`）**：
-  - `/organizer` 页面用 `runWhatIfWithPlan(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / 联合求解的基线对比表）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，返回 `{ view, plan }`——`view` 是只含人数和汇总数字的 `WhatIfView`；`plan`（`WhatIfPlanDetail`，含匿名学生编号与逐人分配）只交给「回到学生端的桥」（`lib/joint/bridge.ts` 的 `decideBridge`），页面不渲染其中任何内容。同文件的 `runWhatIf(scenario, input, availableFloors?)` 仍在、行为不变，是它只取 `view` 的包装（同一次求解与复核）。
+  - `/organizer` 页面用 `runWhatIfWithPlan(scenario, input, availableFloors?)`（`lib/joint/whatif.ts`）拿汇总视图（页面支持切换演示场景、保护 / 权衡模式与损失上限、勾选公平底线并调整比例，并显示 A / B / C / D / 联合求解的基线对比表，D 行显示协调轮数，如 "2 rounds, converged"）：它处理勾选与前置依赖、调用 `solveJoint`、**再独立调用一次 `verifyPlan`**，返回 `{ view, plan }`——`view` 是只含人数和汇总数字的 `WhatIfView`；`plan`（`WhatIfPlanDetail`，含匿名学生编号与逐人分配）只交给「回到学生端的桥」（`lib/joint/bridge.ts` 的 `decideBridge`），页面不渲染其中任何内容。同文件的 `runWhatIf(scenario, input, availableFloors?)` 仍在、行为不变，是它只取 `view` 的包装（同一次求解与复核）。
   - 直接用 `solveJoint` 时，展示前**自己再调一次 `verifyPlan`**（相同的 `mode` / `loss_cap` / 软要求；复核 `conditional` 时传 `assume_approved_intervention_ids`），不要只信结果里自带的 `verification`。
   - 所有结果都是**模拟**（示例学生、示例场景），界面标 `Sample` / `Simulated`；可达 ≠ 录取；`SEARCH_LIMIT_REACHED` 不等于最优也不等于无解；`INFEASIBLE` 的主结果是空方案，替代方案要写明放松了什么。
   - 权衡分析模式（tradeoff）只在组织者主动设置 `loss_cap` 时使用；界面要说明受影响的对数（`lost_pairs` 的数量）和撤回条数（其中强制撤回多少条），不列出具体学生。公平底线、基线对比同样只显示人数与比例。
@@ -883,3 +892,10 @@ npm run lint       # ESLint（开 PR 前必须通过）
   - `lib/official-link.ts`：`hasOfficialPage`（用户发布 / 示例机会或占位链接 → 不显示「官方页面」链接）、`journalOfficialUrl`（Quest Journal 条目该显示的官方链接，找不到机会时只认非占位的抄录链接）、`isPlaceholderUrl`（非 http(s) 或保留示例域名 example.com / .org / .net 及其子域）。纯函数，不抛异常。
   - `lib/metrics/`（归 Charles）：联合求解器与基线在示例场景上的可靠性指标，用 `npm run metrics` 运行；只是这些示例输入上的算法正确性证据，不代表真实影响。
   - Connect 本地示例的保护规则（未成年人 / 年级 ≤ 12 / 年龄不明时更严格的默认设置）写在 `lib/connect/protection.ts` 的文件头。
+- 2026-11-19：**基线 D「充分协调的分离式规划器」已实现**（规则见「联合求解模型」第 10 条 D 行）：
+  - ⚠️ **用户批准扩大已发布的联合类型 `BaselineId`**：追加 `'D_coordinated'`。`BaselineRow` 新增可选字段 `coordination?: { rounds; converged; max_rounds } | null`（只有 D 行带）。其他类型与字段不变。**对 `BaselineId` 做穷尽式映射（如 `Record<BaselineId, …>`）、或写死基线行数 / 行顺序的代码需要补 D**（本次已补：`lib/joint/baselines.ts`、`lib/joint/whatif.ts`、`app/organizer/what-if.tsx`、`lib/metrics/format.ts`、`lib/metrics/reliability.ts`）。
+  - `compareBaselines` 的 `rows` 现为五行：A、B、C、D、joint；A / B / C / joint 四行逐字段不变。`notes` 中「基线 D 未实现」一句改为「D 与联合求解打平是预期中可能的结果……」，并追加 D 的协调说明。新文件 `lib/joint/baseline-d.ts`（`planCoordinated`、`MAX_COORDINATION_ROUNDS = 50`），不 import `./solve`；`lib/joint/baselines.ts` 另导出 `compareBaselinesWith`（第三参数只供测试注入较小的轮数上限）。
+  - D 考虑软要求（必须启用的措施、`min_gain`、公平底线），做不到时提议空方案、`soft_requirements_met = false`，与联合求解一致，不放松。
+  - What-if：`WhatIfBaselineRow` 新增 `coordination`、`coordination_label`（其他行为 null）；`/organizer` 的基线表多一行 D 并显示轮数，表下说明 D 与联合求解打平的含义。
+  - 指标（`lib/metrics/`，`npm run metrics`）：基线表多出 D 一行 / 一列（数字取验证器重算）；`BASELINE_IDS` 为 A、B、C、D、joint。协调轮数由 not_measured 改为对 D 实测（`CaseMetrics.baselines[].coordination`、汇总 `coordination_rounds` 给出最小 / 最大 / 分布与未收敛数，没有 D 行的用例计为未测量），并说明轮数反映的是协议设计（学生端第 1 轮就交出完整报告）而不是协调难度；新增 `d_vs_joint` 对照（打平数、D 不可执行数、D 的 N 超过联合求解的用例会醒目标出）；基线说明补上「D 考虑公平底线」。`not_measured` 只剩 runtime。
+  - 结果（模拟）：三个示例场景在 protect、公平底线、tradeoff（`loss_cap` 0 / 2 / 3）、`min_gain` 下，D 与联合求解在 N、L、成本上全部打平，均 2 轮收敛。测试：`lib/joint/baseline-d.test.ts`（含与穷举参考、40 个固定种子随机小场景的对照）。

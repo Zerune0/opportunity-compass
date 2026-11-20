@@ -1116,6 +1116,9 @@ function BaselineRowView({ r }: { r: WhatIfBaselineRow }) {
     <tr className="border-b border-gray-200 align-top">
       <th scope="row" className="whitespace-nowrap py-1 pr-3 text-left font-medium">
         {r.label}
+        {r.coordination_label && (
+          <span className="block text-xs font-normal text-gray-600">Coordination: {r.coordination_label}</span>
+        )}
       </th>
       <td className="py-1 pr-3 text-right tabular-nums">{r.claimed_reachable}</td>
       <td className="py-1 pr-3">{r.executable ? "Passed" : "Failed"}</td>
@@ -1178,6 +1181,11 @@ function BaselinesTable({ view }: { view: WhatIfView }) {
             </tbody>
           </table>
         </div>
+      )}
+      {b.rows.some((r) => r.coordination) && (
+        <p className="mt-2 text-sm text-gray-700">
+          Baseline D tying with the joint solver is an expected possible outcome. A tie does not show that the joint solver has no value, nor that it has value; it is only what happens on these sample scenarios. All numbers are Simulated.
+        </p>
       )}
       {b.rows.length > 0 && (
         <dl className="mt-2 space-y-1 text-sm">

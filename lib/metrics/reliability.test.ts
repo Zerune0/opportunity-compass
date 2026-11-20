@@ -199,7 +199,61 @@ describe('reliability metrics on the sample scenarios', () => {
       const a = c.baselines.find((r) => r.id === 'A_eligibility_only')!;
       expect(a.executable).toBe(true);
       expect(a.confirmed_new).toBe(0);
+      // 只有 D 行带协调轮数
+      for (const r of c.baselines) if (r.id !== 'D_coordinated') expect(r.coordination, `${label} ${r.id}`).toBeNull();
     }
+  });
+
+  it('baseline D: executable in every case (or reported as not measured), verified N never exceeds the joint solver, rounds are positive integers', () => {
+    let measured = 0;
+    for (const c of allCases()) {
+      const label = `${c.scenario_id} ${c.case_id}`;
+      const d = c.baselines.find((r) => r.id === 'D_coordinated');
+      if (!d) {
+        // 没有 D 行的用例只能是输入不合法或出错，汇总里计为未测量。
+        expect(c.status === 'UNSUPPORTED_INPUT' || c.error !== null, label).toBe(true);
+        expect(c.d_vs_joint, label).toBeNull();
+        continue;
+      }
+      measured++;
+      const joint = c.baselines.find((r) => r.id === 'joint')!;
+      expect(d.executable, label).toBe(true);
+      expect(d.verified!.N, label).toBeLessThanOrEqual(joint.verified!.N);
+      expect(d.coordination, label).not.toBeNull();
+      expect(Number.isInteger(d.coordination!.rounds) && d.coordination!.rounds >= 1, label).toBe(true);
+      expect(d.coordination!.rounds).toBeLessThanOrEqual(d.coordination!.max_rounds);
+      expect(c.d_vs_joint, label).not.toBeNull();
+      expect(c.d_vs_joint!.d_exceeds_joint, label).toBe(false);
+      expect(c.d_vs_joint!.d_executable, label).toBe(true);
+    }
+    const cr = report.totals.coordination_rounds;
+    expect(cr.status).toBe('measured');
+    expect(cr.cases_measured).toBe(measured);
+    expect(cr.cases_measured + cr.cases_not_measured).toBe(report.totals.cases);
+    expect(cr.distribution.reduce((n, d) => n + d.cases, 0)).toBe(cr.cases_measured);
+    for (const d of cr.distribution) expect(Number.isInteger(d.rounds) && d.rounds >= 1).toBe(true);
+    expect(cr.min).toBe(cr.distribution[0].rounds);
+    expect(cr.max).toBe(cr.distribution[cr.distribution.length - 1].rounds);
+    const dj = report.totals.d_vs_joint;
+    expect(dj.compared).toBe(measured);
+    expect(dj.d_exceeds_joint).toBe(0);
+    expect(dj.reproducers).toEqual([]);
+    expect(dj.d_not_executable).toBe(0);
+    expect(dj.ties).toBeLessThanOrEqual(dj.compared);
+    expect(text).toContain(`tied (same verified N, L and cost) in ${dj.ties} of`);
+    expect(text).toContain(dj.note);
+    expect(text).toContain(cr.note);
+    expect(text).not.toContain('WARNING');
+  });
+
+  it('summarize flags baseline D exceeding the joint solver with a reproducer, and the text shows a warning', () => {
+    const v = { joint_status: 'OPTIMAL' as const, d_executable: true, d_N: 3, joint_N: 2, tie: false, d_exceeds_joint: true, d_limited: false };
+    const s = summarize([fakeCase({ d_vs_joint: v })]);
+    expect(s.d_vs_joint).toMatchObject({ compared: 1, d_exceeds_joint: 1, ties: 0 });
+    expect(s.d_vs_joint.reproducers).toEqual([{ scenario_id: 'hand-built-scenario', case_id: 'case-1', joint_status: 'OPTIMAL', d_N: 3, joint_N: 2 }]);
+    const out = formatReliabilityReport({ ...report, scenarios: [], totals: s });
+    expect(out).toContain('WARNING');
+    expect(out).toContain('baseline D exceeds joint solver');
   });
 
   it('baseline aggregates equal explicit sums: headline over default cases, second over all cases, protect-only', () => {
@@ -234,13 +288,16 @@ describe('reliability metrics on the sample scenarios', () => {
     expect(t.baselines_default.A_eligibility_only.claimed_reachable).toBeLessThanOrEqual(distinctPairs);
   });
 
-  it('reports coordination rounds and runtime as not measured, with a reason and no number', () => {
+  it('measures coordination rounds for baseline D; only runtime stays not measured here; no "not implemented" wording', () => {
     const names = report.not_measured.map((m) => m.metric);
-    expect(names).toEqual(expect.arrayContaining(['coordination_rounds', 'runtime']));
+    expect(names).toEqual(['runtime']);
     for (const m of report.not_measured) expect(m.reason.trim().length).toBeGreaterThan(10);
-    expect(report.totals.coordination_rounds).toEqual({ status: 'not_measured', reason: expect.any(String) });
-    expect(text).toMatch(/\[coordination rounds\] not measured: /);
+    expect(report.totals.coordination_rounds.status).toBe('measured');
+    expect(text).toMatch(/\[coordination rounds\] baseline D: measured in /);
+    expect(text).not.toMatch(/not implemented/i);
+    expect(JSON.stringify(report)).not.toMatch(/not implemented/i);
     expect(report.definitions.shared_model).toBe(SHARED_MODEL_NOTE);
+    expect(report.definitions.coordination_rounds.length).toBeGreaterThan(10);
   });
 
   it('never outputs a student display name, id or school', () => {
@@ -365,6 +422,7 @@ function fakeCase(over: Partial<CaseMetrics> = {}): CaseMetrics {
     optimality: { main: OK_GAP, conditional: null },
     deterministic: true,
     baselines: [],
+    d_vs_joint: null,
     ...over,
   };
 }
