@@ -348,6 +348,8 @@ function ScenarioWhatIf({
         {view ? <Results view={view} /> : <InvalidInput message={inputError} />}
       </div>
 
+      {view && <ResultsReference view={view} />}
+
       {/* 全宽，放在设置与结果下方：输入无效时也显示（此时 plan 为 null，仍可撤回之前写入的）。 */}
       <StudentBridge scenario={scenario} bridge={bridge} plan={plan} />
     </div>
@@ -945,8 +947,6 @@ function Results({ view }: { view: WhatIfView }) {
         </div>
       )}
 
-      {view.baselines && <BaselinesTable view={view} />}
-
       {(view.excluded.length > 0 || view.ignored_required.length > 0) && (
         <div className="rounded border border-red-700 p-3 text-sm text-red-900">
           <h3 className="font-semibold">Settings left out of the solve</h3>
@@ -961,6 +961,18 @@ function Results({ view }: { view: WhatIfView }) {
         </div>
       )}
 
+    </section>
+  );
+}
+
+// ───────────────────────────── 第 3 层：失去、公平底线、基线 ─────────────────────────────
+
+/** Reference material for the current result, full width below the settings and results so neither column is left empty. */
+function ResultsReference({ view }: { view: WhatIfView }) {
+  return (
+    <section aria-labelledby="reference-heading" className="min-w-0 space-y-5">
+      <h2 id="reference-heading" className="max-w-none text-lg font-semibold">Comparison and assumptions (Simulated)</h2>
+      {view.baselines && <BaselinesTable view={view} />}
       <div className="rounded border border-gray-300 p-3">
         <h3 className="font-semibold">Assumptions and uncertainty</h3>
         <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-gray-700">
@@ -984,8 +996,6 @@ function Results({ view }: { view: WhatIfView }) {
     </section>
   );
 }
-
-// ───────────────────────────── 第 3 层：失去、公平底线、基线 ─────────────────────────────
 
 function LossBlock({ view }: { view: WhatIfView }) {
   const loss = view.loss!;
