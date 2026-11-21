@@ -94,8 +94,9 @@ export const STUDENT_METRICS_REFERENCE_DATE: ISODate = '2026-11-19';
 
 /** 只留已核实来源的机会：`source_tier ?? 'official'` 为 official，且有 verified_on。 */
 export function verifiedOnly(catalog: readonly Opportunity[]): Opportunity[] {
+  // Sample records (is_sample, such as the demo's fictional opportunity) are not verified listings.
   return catalog.filter(
-    (o) => (o.source_tier ?? 'official') === 'official' && typeof o.verified_on === 'string' && o.verified_on !== '',
+    (o) => (o.source_tier ?? 'official') === 'official' && o.is_sample !== true && typeof o.verified_on === 'string' && o.verified_on !== '',
   );
 }
 

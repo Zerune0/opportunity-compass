@@ -17,6 +17,7 @@ describe('student-side metrics on the sample profiles × verified catalog', () =
   it('covers every pair, and the counts add up', () => {
     expect(profiles.length).toBeGreaterThan(0);
     expect(catalog.length).toBeGreaterThan(0);
+    expect(catalog.some((o) => o.is_sample === true)).toBe(false);
     expect(real.pairs).toBe(profiles.length * catalog.length);
     expect(real.engine_errors.count).toBe(0);
     const e = real.eligibility;
